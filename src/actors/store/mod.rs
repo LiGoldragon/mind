@@ -293,18 +293,10 @@ impl Actor for StoreSupervisor {
         actor_reference: ActorRef<Self>,
     ) -> Result<Self, Self::Error> {
         // `StoreKernel` performs synchronous redb/sema-engine transactions on every
-        // message; the destination is Template 2 from `~/primary/skills/kameo.md`
-        // §"Blocking-plane templates" (dedicated OS thread). The Kameo 0.20
-        // supervised `spawn_in_thread` releases the parent's `wait_for_shutdown`
-        // *before* the actor's `Self` value (which owns the redb `Database`) is
-        // dropped, so the file lock outlives the "child closed" signal; restart
-        // tests then race the old OS thread and fail with `UnexpectedEof` or
-        // hang on the second `bind()`. Until Kameo gains a shutdown hook that
-        // fires after `Self` is dropped (or the actor exposes its own
-        // close-then-confirm protocol), the kernel uses the standard `spawn()`
-        // path. See
-        // `reports/operator-assistant/134-persona-mind-gap-close-2026-05-16.md`
-        // §"Template-2 deferral".
+        // message, so it runs on its own OS thread. The forked Kameo lifecycle
+        // contract makes supervised replacement wait until the old actor state has
+        // dropped, which releases the redb handle before a replacement opens the
+        // same store path.
         let kernel = StoreKernel::supervise(
             &actor_reference,
             kernel::Arguments {
@@ -312,7 +304,7 @@ impl Actor for StoreSupervisor {
                 subscription: arguments.subscription.clone(),
             },
         )
-        .spawn()
+        .spawn_in_thread()
         .await;
         let graph = kernel
             .ask(LoadMemoryGraph)

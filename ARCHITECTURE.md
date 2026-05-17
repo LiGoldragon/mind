@@ -253,19 +253,17 @@ Current implementation:
   `ActivityStore`, and `GraphStore`.
 - `StoreKernel` is the only actor that opens and owns the `MindTables` handle
   over `mind.redb`.
-- `StoreKernel` currently spawns on Tokio's shared worker pool via
-  `supervise(...).spawn()`. The destination is a **dedicated OS thread**
-  (Template 2 from `~/primary/skills/kameo.md` §"Blocking-plane templates"),
-  because every kernel handler performs a synchronous redb transaction and
-  running those on a shared worker stalls sibling actors. Switching to
-  `supervise(...).spawn_in_thread()` on Kameo 0.20 keeps the redb file
-  locked across daemon restart: Kameo signals "child closed" when the
-  mailbox receiver is dropped, **before** the actor's `Self` value (which
-  holds `MindTables` and the redb `Database`) is dropped. The next daemon's
-  `bind()` then races the old OS thread and fails with `UnexpectedEof` or
-  hangs on the second open. Deferral pending either a Kameo close hook
-  that fires after `Self` is dropped, or an actor-owned close-then-confirm
-  protocol.
+- `StoreKernel` runs on a dedicated OS thread via
+  `supervise(...).spawn_in_thread()`. Every kernel handler performs a
+  synchronous redb transaction, so this follows Template 2 from
+  `~/primary/skills/kameo.md` §"Blocking-plane templates" and keeps blocking
+  store work off Tokio's shared worker pool. The Kameo lifecycle fork is pinned
+  through the stable `persona-lifecycle-terminal-outcome` branch and makes
+  supervised replacement wait for terminal actor state absence before starting
+  the replacement. The witness is
+  `store_kernel_supervised_thread_restart_reopens_same_database`: a first
+  `MindRoot` commits to `mind.redb`, stops, and a second `MindRoot` immediately
+  reopens the same database and reads the committed state.
 - `MindTables` schema v7 owns claims, activities, slot cursors, the typed
   `memory_graph` snapshot table, typed graph subscription registration tables,
   and the `sema-engine` table registrations for typed Thought/Relation graph
@@ -603,6 +601,7 @@ constraints:
 | `mind_store_survives_process_restart` | role claims committed by one daemon process are visible after a daemon restart on the same `mind.redb`. |
 | `mind_memory_graph_survives_process_restart` | work items opened by one daemon process are visible after a daemon restart on the same `mind.redb`. |
 | `typed_thought_runs_through_graph_actor_lane_and_store_mints_id` | typed graph writes pass through graph actors and mind mints compact IDs. |
+| `store_kernel_supervised_thread_restart_reopens_same_database` | StoreKernel runs on a supervised OS thread and releases `mind.redb` before a replacement opens the same store. |
 | `typed_thought_append_uses_sema_engine_operation_log` | typed graph Thought append writes through `sema-engine` and records an Assert operation-log entry. |
 | `graph_id_policy_mints_compact_typed_sequence_ids_without_prefixes` | graph IDs are short sequence tokens and type lives in `RecordId` / `RelationId`, not in the string. |
 | `graph_id_policy_continues_after_reopen_without_collision` | graph ID continuity comes from persisted `sema-engine` snapshot state. |

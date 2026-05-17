@@ -103,6 +103,13 @@
               cargoTestExtraArgs = "--test actor_topology typed_thought_runs_through_graph_actor_lane_and_store_mints_id";
             }
           );
+          mind-store-kernel-supervised-thread-restart-reopens-same-database = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology store_kernel_supervised_thread_restart_reopens_same_database -- --exact";
+            }
+          );
           mind-typed-thought-append-uses-sema-engine-operation-log = craneLib.cargoTest (
             commonArgs
             // {

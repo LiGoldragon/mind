@@ -17,7 +17,7 @@ name = "mind"
 path = "src/main.rs"
 
 [dependencies]
-kameo               = { version = "0.20", default-features = false, features = ["macros", "tracing"] }
+kameo               = { git = "https://github.com/LiGoldragon/kameo", branch = "persona-lifecycle-terminal-outcome", default-features = false, features = ["macros", "tracing"] }
 nota-codec          = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
 rkyv                = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema                = { git = "https://github.com/LiGoldragon/sema.git" }

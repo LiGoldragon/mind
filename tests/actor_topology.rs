@@ -76,6 +76,10 @@ impl ActorFixture {
         MindRoot::stop(self.root).await.expect("mind root stops");
         let _ = std::fs::remove_file(self.store);
     }
+
+    async fn stop_without_removing_store(self) {
+        MindRoot::stop(self.root).await.expect("mind root stops");
+    }
 }
 
 struct ClaimFixture {
@@ -140,7 +144,7 @@ fn topology_manifest_names_required_actor_planes() {
     assert!(manifest.contains_edge(TraceNode::REPLY_SHAPER, TraceNode::NOTA_REPLY_ENCODER));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn open_item_runs_through_kameo_write_path() {
     let fixture = ActorFixture::new().await;
     let response = fixture
@@ -188,7 +192,55 @@ async fn open_item_runs_through_kameo_write_path() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn store_kernel_supervised_thread_restart_reopens_same_database() {
+    let first = ActorFixture::new().await;
+    let store = first.store.clone();
+    let claim = ClaimFixture::operator();
+    let claim_scope = claim.path("/git/github.com/LiGoldragon/persona-mind");
+
+    let response = first
+        .submit(claim.claim("/git/github.com/LiGoldragon/persona-mind"))
+        .await;
+    assert!(matches!(
+        response.reply().expect("claim reply exists"),
+        MindReply::ClaimAcceptance(_)
+    ));
+    first.stop_without_removing_store().await;
+
+    let second = ActorFixture {
+        root: MindRoot::start(MindRootArguments::new(StoreLocation::new(
+            store.to_string_lossy().to_string(),
+        )))
+        .await
+        .expect("mind root restarts on same store"),
+        actor: ActorName::new("operator-assistant"),
+        store,
+    };
+    let response = second
+        .submit(MindRequest::RoleObservation(RoleObservation))
+        .await;
+    let MindReply::RoleSnapshot(snapshot) = response.reply().expect("observation reply exists")
+    else {
+        panic!("expected role snapshot");
+    };
+    let operator_status = snapshot
+        .roles
+        .iter()
+        .find(|status| status.role == RoleName::Operator)
+        .expect("operator role status exists");
+
+    assert!(
+        operator_status
+            .claims
+            .iter()
+            .any(|active_claim| active_claim.scope == claim_scope),
+        "second StoreKernel opens the same redb after the first state drops"
+    );
+    second.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn query_path_uses_read_actor_without_writer() {
     let fixture = ActorFixture::new().await;
     let _opened = fixture
@@ -231,7 +283,7 @@ async fn query_path_uses_read_actor_without_writer() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn role_claim_reaches_claim_flow_and_commits() {
     let fixture = ActorFixture::new().await;
     let claim = ClaimFixture::operator();
@@ -262,7 +314,7 @@ async fn role_claim_reaches_claim_flow_and_commits() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn conflicting_claim_returns_typed_rejection() {
     let fixture = ActorFixture::new().await;
     let claim = ClaimFixture::operator();
@@ -291,7 +343,7 @@ async fn conflicting_claim_returns_typed_rejection() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn role_observation_reads_claims_without_writer() {
     let fixture = ActorFixture::new().await;
     let claim = ClaimFixture::operator();
@@ -320,7 +372,7 @@ async fn role_observation_reads_claims_without_writer() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn role_release_removes_claims_from_observation() {
     let fixture = ActorFixture::new().await;
     let claim = ClaimFixture::operator();
@@ -356,7 +408,7 @@ async fn role_release_removes_claims_from_observation() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn role_handoff_moves_claim_between_roles() {
     let fixture = ActorFixture::new().await;
     let claim = ClaimFixture::operator();
@@ -419,7 +471,7 @@ async fn role_handoff_moves_claim_between_roles() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn handoff_without_source_claim_returns_typed_rejection() {
     let fixture = ActorFixture::new().await;
     let claim = ClaimFixture::operator();
@@ -445,7 +497,7 @@ async fn handoff_without_source_claim_returns_typed_rejection() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn activity_submission_reaches_activity_flow_and_store_mints_time() {
     let fixture = ActorFixture::new().await;
     let response = fixture
@@ -482,7 +534,7 @@ async fn activity_submission_reaches_activity_flow_and_store_mints_time() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn role_observation_includes_recent_activity() {
     let fixture = ActorFixture::new().await;
     let scope = ScopeReference::Path(
@@ -517,7 +569,7 @@ async fn role_observation_includes_recent_activity() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn activity_query_reads_recent_activity_without_writer() {
     let fixture = ActorFixture::new().await;
     let first_scope = ScopeReference::Path(
@@ -572,7 +624,7 @@ async fn activity_query_reads_recent_activity_without_writer() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typed_thought_runs_through_graph_actor_lane_and_store_mints_id() {
     let fixture = ActorFixture::new().await;
     let response = fixture
@@ -615,7 +667,7 @@ async fn typed_thought_runs_through_graph_actor_lane_and_store_mints_id() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typed_thought_query_uses_reader_without_writer() {
     let fixture = ActorFixture::new().await;
     let _written = fixture
@@ -669,7 +721,7 @@ async fn typed_thought_query_uses_reader_without_writer() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typed_thought_subscription_registers_and_returns_initial_snapshot() {
     let fixture = ActorFixture::new().await;
     let _written = fixture
@@ -718,7 +770,7 @@ async fn typed_thought_subscription_registers_and_returns_initial_snapshot() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typed_thought_subscription_delivers_live_delta_through_subscription_actor() {
     let fixture = ActorFixture::new().await;
     let subscription_response = fixture
@@ -763,7 +815,7 @@ async fn typed_thought_subscription_delivers_live_delta_through_subscription_act
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typed_thought_subscription_filters_live_nonmatching_delta() {
     let fixture = ActorFixture::new().await;
     let _subscription = fixture
@@ -792,7 +844,7 @@ async fn typed_thought_subscription_filters_live_nonmatching_delta() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typed_relation_subscription_registers_and_returns_initial_snapshot() {
     let fixture = ActorFixture::new().await;
     let goal = fixture
@@ -874,7 +926,7 @@ async fn typed_relation_subscription_registers_and_returns_initial_snapshot() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typed_relation_subscription_delivers_live_delta_through_subscription_actor() {
     let fixture = ActorFixture::new().await;
     let goal = fixture
@@ -952,7 +1004,7 @@ async fn typed_relation_subscription_delivers_live_delta_through_subscription_ac
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn superseded_thought_excluded_from_current_query() {
     let fixture = ActorFixture::new().await;
     let old = fixture
@@ -1016,7 +1068,7 @@ async fn superseded_thought_excluded_from_current_query() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn supersedes_relation_rejects_different_thought_kinds() {
     let fixture = ActorFixture::new().await;
     let goal = fixture
@@ -1085,7 +1137,7 @@ async fn supersedes_relation_rejects_different_thought_kinds() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typed_relation_rejects_missing_thought_endpoint() {
     let fixture = ActorFixture::new().await;
     let response = fixture
@@ -1106,7 +1158,7 @@ async fn typed_relation_rejects_missing_thought_endpoint() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn relation_kind_rejects_wrong_domain() {
     let fixture = ActorFixture::new().await;
     let goal = fixture
@@ -1175,7 +1227,7 @@ async fn relation_kind_rejects_wrong_domain() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn authored_relation_rejects_non_identity_reference_source() {
     let fixture = ActorFixture::new().await;
     let source = fixture

@@ -179,7 +179,7 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_cli_sends_nota_role_claim_to_daemon() {
     let fixture = CliFixture::new("claim");
     let daemon = fixture.bind().await;
@@ -210,7 +210,7 @@ async fn mind_cli_sends_nota_role_claim_to_daemon() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_cli_sends_activity_submission_and_query_to_daemon() {
     let fixture = CliFixture::new("activity");
     let daemon = fixture.bind().await;
@@ -254,7 +254,7 @@ async fn mind_cli_sends_activity_submission_and_query_to_daemon() {
     assert!(text.contains("(ActivityList [(Activity Operator (Path \"/git/github.com/LiGoldragon/persona-mind\") \"activity via cli\""));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_cli_sends_role_handoff_to_daemon() {
     let fixture = CliFixture::new("handoff");
     let daemon = fixture.bind().await;
@@ -311,7 +311,7 @@ async fn mind_cli_sends_role_handoff_to_daemon() {
     assert!(text.contains("(RoleStatus Designer [(ClaimEntry (Path \"/git/github.com/LiGoldragon/persona-mind\") \"handoff via cli\")]"));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_cli_opens_and_queries_work_item_through_daemon() {
     let fixture = CliFixture::new("opening-query");
     let daemon = fixture.bind().await;
@@ -356,7 +356,7 @@ async fn mind_cli_opens_and_queries_work_item_through_daemon() {
     assert!(query.contains("\"Open CLI-visible work\""));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_cli_mutates_work_item_through_daemon() {
     let fixture = CliFixture::new("mutate-work-item");
     let daemon = fixture.bind().await;
@@ -472,7 +472,7 @@ async fn mind_cli_mutates_work_item_through_daemon() {
     assert!(query.contains("reports/operator/105-command-line-mind-architecture-survey.md"));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_cli_reads_role_observation_without_lock_files() {
     let fixture = CliFixture::new("observe");
     let daemon = fixture.bind().await;
@@ -512,7 +512,7 @@ async fn mind_cli_reads_role_observation_without_lock_files() {
     assert!(text.contains("(RoleStatus Operator [(ClaimEntry (Path \"/git/github.com/LiGoldragon/persona\") \"claim before observe\")]"));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_cli_accepts_full_signal_mind_request_for_typed_graph() {
     let fixture = CliFixture::new("typed-graph");
     let daemon = fixture.bind().await;

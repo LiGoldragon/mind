@@ -66,7 +66,7 @@ impl SocketFixture {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn daemon_round_trip_uses_signal_frames_over_socket() {
     let fixture = SocketFixture::new("round-trip");
     let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
@@ -119,7 +119,7 @@ fn mind_frame_codec_rejects_mismatched_signal_verb() {
     ));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn constraint_mind_daemon_applies_spawn_envelope_socket_mode() {
     let fixture = SocketFixture::new("socket-mode");
     let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
@@ -147,7 +147,7 @@ async fn constraint_mind_daemon_applies_spawn_envelope_socket_mode() {
         .expect("daemon serves one request");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_daemon_answers_component_supervision_relation() {
     let fixture = SocketFixture::new("supervision");
     let supervision_socket = fixture
@@ -245,7 +245,7 @@ async fn mind_daemon_answers_component_supervision_relation() {
         .expect("daemon serves one request");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn daemon_stamps_local_operator_actor_at_ingress() {
     let fixture = SocketFixture::new("ingress-identity");
     let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
@@ -271,7 +271,7 @@ async fn daemon_stamps_local_operator_actor_at_ingress() {
     assert_eq!(receipt.event.header.actor, ActorName::new("operator"));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn daemon_accepts_sender_free_request_frames() {
     let fixture = SocketFixture::new("sender-free");
     let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
@@ -304,7 +304,7 @@ async fn daemon_accepts_sender_free_request_frames() {
         .expect("daemon accepts sender-free signal frame");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn client_cannot_reply_without_daemon_signal_frame() {
     let fixture = SocketFixture::new("no-daemon");
     let client = MindClient::new(fixture.endpoint(), ActorName::new("operator"));
@@ -316,7 +316,7 @@ async fn client_cannot_reply_without_daemon_signal_frame() {
     assert!(matches!(error, persona_mind::Error::Io(_)));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_store_survives_process_restart() {
     let fixture = SocketFixture::new("store-restart");
 
@@ -388,7 +388,7 @@ async fn mind_store_survives_process_restart() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_memory_graph_survives_process_restart() {
     let fixture = SocketFixture::new("memory-restart");
 
@@ -446,7 +446,7 @@ async fn mind_memory_graph_survives_process_restart() {
     assert_eq!(view.items[0].title, Title::new("Durable mind memory"));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_typed_thought_graph_survives_process_restart() {
     let fixture = SocketFixture::new("typed-thought-restart");
     let record;
@@ -516,7 +516,7 @@ async fn mind_typed_thought_graph_survives_process_restart() {
     assert_eq!(list.thoughts[0].kind, ThoughtKind::Goal);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_typed_relation_round_trip_uses_committed_thought_ids() {
     let fixture = SocketFixture::new("typed-relation");
     let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
@@ -595,7 +595,7 @@ async fn mind_typed_relation_round_trip_uses_committed_thought_ids() {
     assert_eq!(list.relations[0].target, goal.record);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mind_typed_graph_handles_goal_claim_observation_decision_scenario() {
     let fixture = SocketFixture::new("typed-graph-scenario");
     let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())

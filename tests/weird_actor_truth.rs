@@ -859,7 +859,7 @@ fn trace_node_labels_cannot_collide() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn role_claim_cannot_bypass_claim_flow_or_writer() {
     let fixture = ActorRuntimeFixture::new(ActorName::new("operator-assistant")).await;
     let response = fixture
@@ -884,7 +884,7 @@ async fn role_claim_cannot_bypass_claim_flow_or_writer() {
     fixture.stop().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn parallel_runtimes_cannot_share_registry_names_or_memory() {
     let first_runtime = ActorRuntimeFixture::new(ActorName::new("operator")).await;
     let second_runtime = ActorRuntimeFixture::new(ActorName::new("designer")).await;
