@@ -433,6 +433,50 @@ is transitional and retires when the actor lands. The mind daemon reads
 its `signal-persona::SpawnEnvelope` at startup, binds `mind.sock` at the
 named mode, and proceeds.
 
+## 6.6 · Authority direction — `Mutate` flows down-tree
+
+`persona-mind` is the authority root of the Persona control plane. The
+verbs it *issues outbound* and the verbs it *receives inbound* are not
+symmetric:
+
+| Verb | Inbound to mind | Outbound from mind |
+|---|---|---|
+| `Assert` | accepted (peers append typed facts to mind state) | rare (mind's writes are usually authority orders, not bare facts) |
+| `Match` | accepted (callers query mind state) | issued (mind queries peer state when adjudicating) |
+| `Subscribe` | accepted (peers subscribe to mind state changes) | issued (mind subscribes to router/harness/orchestrate events to *observe* — per `skills/push-not-pull.md`) |
+| `Mutate` | rare (only from a higher authority, e.g. user-on-record) | **issued** (the authority verb — mind orders peers to change) |
+| `Retract` | rare | issued (mind orders peers to remove typed records) |
+| `Validate` | accepted | issued (mind dry-runs orders against peer policy) |
+
+The shape is **observe up-tree, order down-tree** (per
+`~/primary/skills/component-triad.md` §"The six verbs and what each one
+means"). Mind subscribes to delivery / lifecycle / adjudication events
+from `persona-router`, `persona-harness`, and (when it lands)
+`persona-orchestrate`; mind *decides*; mind issues `Mutate` /
+`Retract` orders down to those same components. Each recipient obeys
+and confirms; mind holds *possibly-mutated* state until the
+confirmation, then advances.
+
+`ChannelGrant`, `ChannelExtend`, `ChannelRetract`, and
+`AdjudicationDeny` (handled by `ChoreographyAdjudicator`, §3) are
+**outbound `Mutate` / `Retract` orders**: mind authoritatively tells
+the router to install / extend / remove a channel; the router obeys
+and acks. The router does not adjudicate the grant on its own; that
+authority lives in mind. The `AdjudicationRequest` that surfaces a
+channel-miss is an inbound *observation* (`Assert`/`Match`-shaped),
+not an inbound order.
+
+When `persona-orchestrate` lands (per
+`reports/second-designer-assistant/4-persona-orchestrate-control-plane-2026-05-17.md`
+and bead `primary-699g`), mind's `Mutate` chain extends downward
+through it: mind issues `SpawnAgent` / `SuperviseAgent` / `EscalateBlockedWork`
+orders to orchestrate; orchestrate may then issue its own `Mutate`
+orders to `persona-harness` (spawn) and `persona-router` (install the
+agent's permitted channels). The `(mind → orchestrate → router →
+harness)` authority chain is the canonical worked example in
+`~/primary/skills/component-triad.md` §"Authority chain — worked
+example".
+
 ## 7 · Boundaries
 
 This repo owns:
