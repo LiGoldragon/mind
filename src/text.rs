@@ -4,46 +4,6 @@ use signal_persona_mind as contract;
 use crate::Result;
 
 #[derive(NotaEnum, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RoleNameText {
-    Operator,
-    OperatorAssistant,
-    Designer,
-    DesignerAssistant,
-    SystemSpecialist,
-    SystemAssistant,
-    Poet,
-    PoetAssistant,
-}
-
-impl RoleNameText {
-    fn from_contract(role: contract::RoleName) -> Self {
-        match role {
-            contract::RoleName::Operator => Self::Operator,
-            contract::RoleName::OperatorAssistant => Self::OperatorAssistant,
-            contract::RoleName::Designer => Self::Designer,
-            contract::RoleName::DesignerAssistant => Self::DesignerAssistant,
-            contract::RoleName::SystemSpecialist => Self::SystemSpecialist,
-            contract::RoleName::SystemAssistant => Self::SystemAssistant,
-            contract::RoleName::Poet => Self::Poet,
-            contract::RoleName::PoetAssistant => Self::PoetAssistant,
-        }
-    }
-
-    fn into_contract(self) -> contract::RoleName {
-        match self {
-            Self::Operator => contract::RoleName::Operator,
-            Self::OperatorAssistant => contract::RoleName::OperatorAssistant,
-            Self::Designer => contract::RoleName::Designer,
-            Self::DesignerAssistant => contract::RoleName::DesignerAssistant,
-            Self::SystemSpecialist => contract::RoleName::SystemSpecialist,
-            Self::SystemAssistant => contract::RoleName::SystemAssistant,
-            Self::Poet => contract::RoleName::Poet,
-            Self::PoetAssistant => contract::RoleName::PoetAssistant,
-        }
-    }
-}
-
-#[derive(NotaEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemKindText {
     Task,
     Defect,
@@ -173,239 +133,6 @@ impl EdgeKindText {
             Self::Answers => contract::EdgeKind::Answers,
             Self::References => contract::EdgeKind::References,
         }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct Path {
-    pub path: String,
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct Task {
-    pub token: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ScopeReferenceText {
-    Path(Path),
-    Task(Task),
-}
-
-impl ScopeReferenceText {
-    fn from_contract(scope: contract::ScopeReference) -> Self {
-        match scope {
-            contract::ScopeReference::Path(path) => Self::Path(Path {
-                path: path.as_str().to_string(),
-            }),
-            contract::ScopeReference::Task(token) => Self::Task(Task {
-                token: token.as_str().to_string(),
-            }),
-        }
-    }
-
-    fn into_contract(self) -> Result<contract::ScopeReference> {
-        match self {
-            Self::Path(path) => Ok(contract::ScopeReference::Path(
-                contract::WirePath::from_absolute_path(path.path)?,
-            )),
-            Self::Task(task) => Ok(contract::ScopeReference::Task(
-                contract::TaskToken::from_wire_token(task.token)?,
-            )),
-        }
-    }
-}
-
-impl NotaEncode for ScopeReferenceText {
-    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
-        match self {
-            Self::Path(path) => path.encode(encoder),
-            Self::Task(task) => task.encode(encoder),
-        }
-    }
-}
-
-impl NotaDecode for ScopeReferenceText {
-    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
-        match decoder.peek_record_head()?.as_str() {
-            "Path" => Ok(Self::Path(Path::decode(decoder)?)),
-            "Task" => Ok(Self::Task(Task::decode(decoder)?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "ScopeReference",
-                got: other.to_string(),
-            }),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct RoleClaim {
-    pub role: RoleNameText,
-    pub scopes: Vec<ScopeReferenceText>,
-    pub reason: String,
-}
-
-impl RoleClaim {
-    fn into_contract(self) -> Result<contract::MindRequest> {
-        let scopes = self
-            .scopes
-            .into_iter()
-            .map(ScopeReferenceText::into_contract)
-            .collect::<Result<Vec<_>>>()?;
-        Ok(contract::MindRequest::RoleClaim(contract::RoleClaim {
-            role: self.role.into_contract(),
-            scopes,
-            reason: contract::ScopeReason::from_text(self.reason)?,
-        }))
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RoleRelease {
-    pub role: RoleNameText,
-}
-
-impl RoleRelease {
-    fn into_contract(self) -> contract::MindRequest {
-        contract::MindRequest::RoleRelease(contract::RoleRelease {
-            role: self.role.into_contract(),
-        })
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct RoleHandoff {
-    pub from: RoleNameText,
-    pub to: RoleNameText,
-    pub scopes: Vec<ScopeReferenceText>,
-    pub reason: String,
-}
-
-impl RoleHandoff {
-    fn into_contract(self) -> Result<contract::MindRequest> {
-        let scopes = self
-            .scopes
-            .into_iter()
-            .map(ScopeReferenceText::into_contract)
-            .collect::<Result<Vec<_>>>()?;
-        Ok(contract::MindRequest::RoleHandoff(contract::RoleHandoff {
-            from: self.from.into_contract(),
-            to: self.to.into_contract(),
-            scopes,
-            reason: contract::ScopeReason::from_text(self.reason)?,
-        }))
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RoleObservation {}
-
-impl RoleObservation {
-    fn into_contract(self) -> contract::MindRequest {
-        contract::MindRequest::RoleObservation(contract::RoleObservation)
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct ActivitySubmission {
-    pub role: RoleNameText,
-    pub scope: ScopeReferenceText,
-    pub reason: String,
-}
-
-impl ActivitySubmission {
-    fn into_contract(self) -> Result<contract::MindRequest> {
-        Ok(contract::MindRequest::ActivitySubmission(
-            contract::ActivitySubmission {
-                role: self.role.into_contract(),
-                scope: self.scope.into_contract()?,
-                reason: contract::ScopeReason::from_text(self.reason)?,
-            },
-        ))
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RoleFilter {
-    pub role: RoleNameText,
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct PathPrefix {
-    pub path: String,
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct TaskFilter {
-    pub token: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ActivityFilterText {
-    RoleFilter(RoleFilter),
-    PathPrefix(PathPrefix),
-    TaskFilter(TaskFilter),
-}
-
-impl ActivityFilterText {
-    fn into_contract(self) -> Result<contract::ActivityFilter> {
-        match self {
-            Self::RoleFilter(filter) => Ok(contract::ActivityFilter::RoleFilter(
-                filter.role.into_contract(),
-            )),
-            Self::PathPrefix(prefix) => Ok(contract::ActivityFilter::PathPrefix(
-                contract::WirePath::from_absolute_path(prefix.path)?,
-            )),
-            Self::TaskFilter(filter) => Ok(contract::ActivityFilter::TaskToken(
-                contract::TaskToken::from_wire_token(filter.token)?,
-            )),
-        }
-    }
-}
-
-impl NotaEncode for ActivityFilterText {
-    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
-        match self {
-            Self::RoleFilter(filter) => filter.encode(encoder),
-            Self::PathPrefix(prefix) => prefix.encode(encoder),
-            Self::TaskFilter(filter) => filter.encode(encoder),
-        }
-    }
-}
-
-impl NotaDecode for ActivityFilterText {
-    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
-        match decoder.peek_record_head()?.as_str() {
-            "RoleFilter" => Ok(Self::RoleFilter(RoleFilter::decode(decoder)?)),
-            "PathPrefix" => Ok(Self::PathPrefix(PathPrefix::decode(decoder)?)),
-            "TaskFilter" => Ok(Self::TaskFilter(TaskFilter::decode(decoder)?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "ActivityFilter",
-                got: other.to_string(),
-            }),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct ActivityQuery {
-    pub limit: u32,
-    pub filters: Vec<ActivityFilterText>,
-}
-
-impl ActivityQuery {
-    fn into_contract(self) -> Result<contract::MindRequest> {
-        let filters = self
-            .filters
-            .into_iter()
-            .map(ActivityFilterText::into_contract)
-            .collect::<Result<Vec<_>>>()?;
-        Ok(contract::MindRequest::ActivityQuery(
-            contract::ActivityQuery {
-                limit: self.limit,
-                filters,
-            },
-        ))
     }
 }
 
@@ -754,12 +481,6 @@ impl Query {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MindTextRequest {
-    RoleClaim(RoleClaim),
-    RoleRelease(RoleRelease),
-    RoleHandoff(RoleHandoff),
-    RoleObservation(RoleObservation),
-    ActivitySubmission(ActivitySubmission),
-    ActivityQuery(ActivityQuery),
     Opening(Opening),
     NoteSubmission(NoteSubmission),
     Link(Link),
@@ -778,12 +499,6 @@ impl MindTextRequest {
 
     pub fn into_request(self) -> Result<contract::MindRequest> {
         match self {
-            Self::RoleClaim(claim) => claim.into_contract(),
-            Self::RoleRelease(release) => Ok(release.into_contract()),
-            Self::RoleHandoff(handoff) => handoff.into_contract(),
-            Self::RoleObservation(observation) => Ok(observation.into_contract()),
-            Self::ActivitySubmission(submission) => submission.into_contract(),
-            Self::ActivityQuery(query) => query.into_contract(),
             Self::Opening(opening) => Ok(opening.into_contract()),
             Self::NoteSubmission(submission) => Ok(submission.into_contract()),
             Self::Link(link) => Ok(link.into_contract()),
@@ -797,12 +512,6 @@ impl MindTextRequest {
 impl NotaEncode for MindTextRequest {
     fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
         match self {
-            Self::RoleClaim(claim) => claim.encode(encoder),
-            Self::RoleRelease(release) => release.encode(encoder),
-            Self::RoleHandoff(handoff) => handoff.encode(encoder),
-            Self::RoleObservation(observation) => observation.encode(encoder),
-            Self::ActivitySubmission(submission) => submission.encode(encoder),
-            Self::ActivityQuery(query) => query.encode(encoder),
             Self::Opening(opening) => opening.encode(encoder),
             Self::NoteSubmission(submission) => submission.encode(encoder),
             Self::Link(link) => link.encode(encoder),
@@ -816,14 +525,6 @@ impl NotaEncode for MindTextRequest {
 impl NotaDecode for MindTextRequest {
     fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
         match decoder.peek_record_head()?.as_str() {
-            "RoleClaim" => Ok(Self::RoleClaim(RoleClaim::decode(decoder)?)),
-            "RoleRelease" => Ok(Self::RoleRelease(RoleRelease::decode(decoder)?)),
-            "RoleHandoff" => Ok(Self::RoleHandoff(RoleHandoff::decode(decoder)?)),
-            "RoleObservation" => Ok(Self::RoleObservation(RoleObservation::decode(decoder)?)),
-            "ActivitySubmission" => Ok(Self::ActivitySubmission(ActivitySubmission::decode(
-                decoder,
-            )?)),
-            "ActivityQuery" => Ok(Self::ActivityQuery(ActivityQuery::decode(decoder)?)),
             "Opening" => Ok(Self::Opening(Opening::decode(decoder)?)),
             "NoteSubmission" => Ok(Self::NoteSubmission(NoteSubmission::decode(decoder)?)),
             "Link" => Ok(Self::Link(Link::decode(decoder)?)),
@@ -834,259 +535,6 @@ impl NotaDecode for MindTextRequest {
                 verb: "MindTextRequest",
                 got: other.to_string(),
             }),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct ClaimAcceptance {
-    pub role: RoleNameText,
-    pub scopes: Vec<ScopeReferenceText>,
-}
-
-impl ClaimAcceptance {
-    fn from_contract(acceptance: contract::ClaimAcceptance) -> Self {
-        Self {
-            role: RoleNameText::from_contract(acceptance.role),
-            scopes: acceptance
-                .scopes
-                .into_iter()
-                .map(ScopeReferenceText::from_contract)
-                .collect(),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct ScopeConflict {
-    pub scope: ScopeReferenceText,
-    pub held_by: RoleNameText,
-    pub held_reason: String,
-}
-
-impl ScopeConflict {
-    fn from_contract(conflict: contract::ScopeConflict) -> Self {
-        Self {
-            scope: ScopeReferenceText::from_contract(conflict.scope),
-            held_by: RoleNameText::from_contract(conflict.held_by),
-            held_reason: conflict.held_reason.as_str().to_string(),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct ClaimRejection {
-    pub role: RoleNameText,
-    pub conflicts: Vec<ScopeConflict>,
-}
-
-impl ClaimRejection {
-    fn from_contract(rejection: contract::ClaimRejection) -> Self {
-        Self {
-            role: RoleNameText::from_contract(rejection.role),
-            conflicts: rejection
-                .conflicts
-                .into_iter()
-                .map(ScopeConflict::from_contract)
-                .collect(),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct ReleaseAcknowledgment {
-    pub role: RoleNameText,
-    pub released_scopes: Vec<ScopeReferenceText>,
-}
-
-impl ReleaseAcknowledgment {
-    fn from_contract(acknowledgment: contract::ReleaseAcknowledgment) -> Self {
-        Self {
-            role: RoleNameText::from_contract(acknowledgment.role),
-            released_scopes: acknowledgment
-                .released_scopes
-                .into_iter()
-                .map(ScopeReferenceText::from_contract)
-                .collect(),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct HandoffAcceptance {
-    pub from: RoleNameText,
-    pub to: RoleNameText,
-    pub scopes: Vec<ScopeReferenceText>,
-}
-
-impl HandoffAcceptance {
-    fn from_contract(acceptance: contract::HandoffAcceptance) -> Self {
-        Self {
-            from: RoleNameText::from_contract(acceptance.from),
-            to: RoleNameText::from_contract(acceptance.to),
-            scopes: acceptance
-                .scopes
-                .into_iter()
-                .map(ScopeReferenceText::from_contract)
-                .collect(),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct SourceRoleDoesNotHold {}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct TargetRoleConflict {
-    pub conflicts: Vec<ScopeConflict>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HandoffRejectionReason {
-    SourceRoleDoesNotHold(SourceRoleDoesNotHold),
-    TargetRoleConflict(TargetRoleConflict),
-}
-
-impl HandoffRejectionReason {
-    fn from_contract(reason: contract::HandoffRejectionReason) -> Self {
-        match reason {
-            contract::HandoffRejectionReason::SourceRoleDoesNotHold => {
-                Self::SourceRoleDoesNotHold(SourceRoleDoesNotHold {})
-            }
-            contract::HandoffRejectionReason::TargetRoleConflict(conflicts) => {
-                Self::TargetRoleConflict(TargetRoleConflict {
-                    conflicts: conflicts
-                        .into_iter()
-                        .map(ScopeConflict::from_contract)
-                        .collect(),
-                })
-            }
-        }
-    }
-}
-
-impl NotaEncode for HandoffRejectionReason {
-    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
-        match self {
-            Self::SourceRoleDoesNotHold(reason) => reason.encode(encoder),
-            Self::TargetRoleConflict(reason) => reason.encode(encoder),
-        }
-    }
-}
-
-impl NotaDecode for HandoffRejectionReason {
-    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
-        match decoder.peek_record_head()?.as_str() {
-            "SourceRoleDoesNotHold" => Ok(Self::SourceRoleDoesNotHold(
-                SourceRoleDoesNotHold::decode(decoder)?,
-            )),
-            "TargetRoleConflict" => Ok(Self::TargetRoleConflict(TargetRoleConflict::decode(
-                decoder,
-            )?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "HandoffRejectionReason",
-                got: other.to_string(),
-            }),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct HandoffRejection {
-    pub from: RoleNameText,
-    pub to: RoleNameText,
-    pub reason: HandoffRejectionReason,
-}
-
-impl HandoffRejection {
-    fn from_contract(rejection: contract::HandoffRejection) -> Self {
-        Self {
-            from: RoleNameText::from_contract(rejection.from),
-            to: RoleNameText::from_contract(rejection.to),
-            reason: HandoffRejectionReason::from_contract(rejection.reason),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct ClaimEntry {
-    pub scope: ScopeReferenceText,
-    pub reason: String,
-}
-
-impl ClaimEntry {
-    fn from_contract(entry: contract::ClaimEntry) -> Self {
-        Self {
-            scope: ScopeReferenceText::from_contract(entry.scope),
-            reason: entry.reason.as_str().to_string(),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct RoleStatus {
-    pub role: RoleNameText,
-    pub claims: Vec<ClaimEntry>,
-}
-
-impl RoleStatus {
-    fn from_contract(status: contract::RoleStatus) -> Self {
-        Self {
-            role: RoleNameText::from_contract(status.role),
-            claims: status
-                .claims
-                .into_iter()
-                .map(ClaimEntry::from_contract)
-                .collect(),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct Activity {
-    pub role: RoleNameText,
-    pub scope: ScopeReferenceText,
-    pub reason: String,
-    pub stamped_at: u64,
-}
-
-impl Activity {
-    fn from_contract(activity: contract::Activity) -> Self {
-        Self {
-            role: RoleNameText::from_contract(activity.role),
-            scope: ScopeReferenceText::from_contract(activity.scope),
-            reason: activity.reason.as_str().to_string(),
-            stamped_at: activity.stamped_at.value(),
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ActivityAcknowledgment {
-    pub slot: u64,
-}
-
-impl ActivityAcknowledgment {
-    fn from_contract(acknowledgment: contract::ActivityAcknowledgment) -> Self {
-        Self {
-            slot: acknowledgment.slot,
-        }
-    }
-}
-
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct ActivityList {
-    pub records: Vec<Activity>,
-}
-
-impl ActivityList {
-    fn from_contract(list: contract::ActivityList) -> Self {
-        Self {
-            records: list
-                .records
-                .into_iter()
-                .map(Activity::from_contract)
-                .collect(),
         }
     }
 }
@@ -1505,39 +953,8 @@ impl Rejection {
     }
 }
 
-#[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
-pub struct RoleSnapshot {
-    pub roles: Vec<RoleStatus>,
-    pub recent_activity: Vec<Activity>,
-}
-
-impl RoleSnapshot {
-    fn from_contract(snapshot: contract::RoleSnapshot) -> Self {
-        Self {
-            roles: snapshot
-                .roles
-                .into_iter()
-                .map(RoleStatus::from_contract)
-                .collect(),
-            recent_activity: snapshot
-                .recent_activity
-                .into_iter()
-                .map(Activity::from_contract)
-                .collect(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MindTextReply {
-    ClaimAcceptance(ClaimAcceptance),
-    ClaimRejection(ClaimRejection),
-    ReleaseAcknowledgment(ReleaseAcknowledgment),
-    HandoffAcceptance(HandoffAcceptance),
-    HandoffRejection(HandoffRejection),
-    RoleSnapshot(RoleSnapshot),
-    ActivityAcknowledgment(ActivityAcknowledgment),
-    ActivityList(ActivityList),
     OpeningReceipt(OpeningReceipt),
     NoteReceipt(NoteReceipt),
     LinkReceipt(LinkReceipt),
@@ -1550,30 +967,6 @@ pub enum MindTextReply {
 impl MindTextReply {
     pub fn from_reply(reply: contract::MindReply) -> Result<Self> {
         match reply {
-            contract::MindReply::ClaimAcceptance(acceptance) => Ok(Self::ClaimAcceptance(
-                ClaimAcceptance::from_contract(acceptance),
-            )),
-            contract::MindReply::ClaimRejection(rejection) => Ok(Self::ClaimRejection(
-                ClaimRejection::from_contract(rejection),
-            )),
-            contract::MindReply::ReleaseAcknowledgment(acknowledgment) => Ok(
-                Self::ReleaseAcknowledgment(ReleaseAcknowledgment::from_contract(acknowledgment)),
-            ),
-            contract::MindReply::HandoffAcceptance(acceptance) => Ok(Self::HandoffAcceptance(
-                HandoffAcceptance::from_contract(acceptance),
-            )),
-            contract::MindReply::HandoffRejection(rejection) => Ok(Self::HandoffRejection(
-                HandoffRejection::from_contract(rejection),
-            )),
-            contract::MindReply::RoleSnapshot(snapshot) => {
-                Ok(Self::RoleSnapshot(RoleSnapshot::from_contract(snapshot)))
-            }
-            contract::MindReply::ActivityAcknowledgment(acknowledgment) => Ok(
-                Self::ActivityAcknowledgment(ActivityAcknowledgment::from_contract(acknowledgment)),
-            ),
-            contract::MindReply::ActivityList(list) => {
-                Ok(Self::ActivityList(ActivityList::from_contract(list)))
-            }
             contract::MindReply::OpeningReceipt(receipt) => {
                 Ok(Self::OpeningReceipt(OpeningReceipt::from_contract(receipt)))
             }
@@ -1598,6 +991,7 @@ impl MindTextReply {
             | contract::MindReply::ThoughtList(_)
             | contract::MindReply::RelationList(_)
             | contract::MindReply::SubscriptionAccepted(_)
+            | contract::MindReply::SubscriptionRetracted(_)
             | contract::MindReply::AdjudicationReceipt(_)
             | contract::MindReply::ChannelReceipt(_)
             | contract::MindReply::AdjudicationDenyReceipt(_)
@@ -1618,14 +1012,6 @@ impl MindTextReply {
 impl NotaEncode for MindTextReply {
     fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
         match self {
-            Self::ClaimAcceptance(acceptance) => acceptance.encode(encoder),
-            Self::ClaimRejection(rejection) => rejection.encode(encoder),
-            Self::ReleaseAcknowledgment(acknowledgment) => acknowledgment.encode(encoder),
-            Self::HandoffAcceptance(acceptance) => acceptance.encode(encoder),
-            Self::HandoffRejection(rejection) => rejection.encode(encoder),
-            Self::RoleSnapshot(snapshot) => snapshot.encode(encoder),
-            Self::ActivityAcknowledgment(acknowledgment) => acknowledgment.encode(encoder),
-            Self::ActivityList(list) => list.encode(encoder),
             Self::OpeningReceipt(receipt) => receipt.encode(encoder),
             Self::NoteReceipt(receipt) => receipt.encode(encoder),
             Self::LinkReceipt(receipt) => receipt.encode(encoder),

@@ -23,21 +23,6 @@ pub struct ApplyMemory {
     pub trace: ActorTrace,
 }
 
-pub struct ApplyClaim {
-    pub envelope: MindEnvelope,
-    pub trace: ActorTrace,
-}
-
-pub struct ApplyHandoff {
-    pub envelope: MindEnvelope,
-    pub trace: ActorTrace,
-}
-
-pub struct ApplyActivity {
-    pub envelope: MindEnvelope,
-    pub trace: ActorTrace,
-}
-
 pub struct SubmitThought {
     pub envelope: MindEnvelope,
     pub trace: ActorTrace,
@@ -67,50 +52,6 @@ impl DomainPhase {
 
         self.store
             .ask(store::ApplyMemory { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn apply_claim(
-        &self,
-        envelope: MindEnvelope,
-        mut trace: ActorTrace,
-    ) -> CrateResult<PipelineReply> {
-        trace.record(TraceNode::DOMAIN_PHASE, TraceAction::MessageReceived);
-        trace.record(TraceNode::CLAIM_SUPERVISOR, TraceAction::MessageReceived);
-
-        self.store
-            .ask(store::ApplyClaim { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn apply_handoff(
-        &self,
-        envelope: MindEnvelope,
-        mut trace: ActorTrace,
-    ) -> CrateResult<PipelineReply> {
-        trace.record(TraceNode::DOMAIN_PHASE, TraceAction::MessageReceived);
-        trace.record(TraceNode::HANDOFF_FLOW, TraceAction::MessageReceived);
-        trace.record(TraceNode::CLAIM_SUPERVISOR, TraceAction::MessageReceived);
-
-        self.store
-            .ask(store::ApplyHandoff { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn apply_activity(
-        &self,
-        envelope: MindEnvelope,
-        mut trace: ActorTrace,
-    ) -> CrateResult<PipelineReply> {
-        trace.record(TraceNode::DOMAIN_PHASE, TraceAction::MessageReceived);
-        trace.record(TraceNode::ACTIVITY_FLOW, TraceAction::MessageReceived);
-        trace.record(TraceNode::ACTIVITY_APPENDER, TraceAction::MessageReceived);
-
-        self.store
-            .ask(store::ApplyActivity { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
@@ -173,51 +114,6 @@ impl Message<ApplyMemory> for DomainPhase {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         match self.apply_memory(message.envelope, message.trace).await {
-            Ok(reply) => reply,
-            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
-        }
-    }
-}
-
-impl Message<ApplyClaim> for DomainPhase {
-    type Reply = PipelineReply;
-
-    async fn handle(
-        &mut self,
-        message: ApplyClaim,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        match self.apply_claim(message.envelope, message.trace).await {
-            Ok(reply) => reply,
-            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
-        }
-    }
-}
-
-impl Message<ApplyHandoff> for DomainPhase {
-    type Reply = PipelineReply;
-
-    async fn handle(
-        &mut self,
-        message: ApplyHandoff,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        match self.apply_handoff(message.envelope, message.trace).await {
-            Ok(reply) => reply,
-            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
-        }
-    }
-}
-
-impl Message<ApplyActivity> for DomainPhase {
-    type Reply = PipelineReply;
-
-    async fn handle(
-        &mut self,
-        message: ApplyActivity,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        match self.apply_activity(message.envelope, message.trace).await {
             Ok(reply) => reply,
             Err(_error) => PipelineReply::new(None, ActorTrace::new()),
         }

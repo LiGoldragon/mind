@@ -19,9 +19,9 @@ use signal_persona_mind::{
     ClaimActivity, ClaimBody, ClaimScope, DecisionBody, GoalBody, GoalScope, ItemKind,
     ItemPriority, MindFrame as Frame, MindFrameBody as FrameBody, MindReply, MindRequest,
     NoteToSelf, ObservationBody, ObservationSummary, Opening, PathClaimScope, Query, QueryKind,
-    QueryLimit, QueryRelations, QueryThoughts, RelationFilter, RelationKind, RoleClaim, RoleName,
-    RoleObservation, ScopeReason, ScopeReference, SubmitRelation, SubmitThought, TextBody,
-    ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos, Title, WirePath, WorkspaceGoal,
+    QueryLimit, QueryRelations, QueryThoughts, RelationFilter, RelationKind, RoleName,
+    SubmitRelation, SubmitThought, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind,
+    TimestampNanos, Title, WirePath, WorkspaceGoal,
 };
 use tokio::net::UnixStream;
 
@@ -314,78 +314,6 @@ async fn client_cannot_reply_without_daemon_signal_frame() {
         .expect_err("missing daemon cannot produce reply");
 
     assert!(matches!(error, persona_mind::Error::Io(_)));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn mind_store_survives_process_restart() {
-    let fixture = SocketFixture::new("store-restart");
-
-    {
-        let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
-            .bind()
-            .await
-            .expect("first daemon binds");
-        let endpoint = daemon.endpoint().clone();
-        let server = tokio::spawn(async move { daemon.serve_one().await });
-
-        let client = MindClient::new(endpoint, ActorName::new("operator"));
-        client
-            .submit(MindRequest::RoleClaim(RoleClaim {
-                role: RoleName::Operator,
-                scopes: vec![ScopeReference::Path(
-                    WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-mind")
-                        .expect("absolute path"),
-                )],
-                reason: ScopeReason::from_text("durable role claim").expect("scope reason"),
-            }))
-            .await
-            .expect("claim committed");
-
-        server
-            .await
-            .expect("first daemon joins")
-            .expect("first daemon serves claim");
-    }
-
-    let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
-        .bind()
-        .await
-        .expect("second daemon binds");
-    let endpoint = daemon.endpoint().clone();
-    let server = tokio::spawn(async move { daemon.serve_one().await });
-
-    let client = MindClient::new(endpoint, ActorName::new("operator"));
-    let reply = client
-        .submit(MindRequest::RoleObservation(RoleObservation))
-        .await
-        .expect("observation reads durable store");
-
-    server
-        .await
-        .expect("second daemon joins")
-        .expect("second daemon serves observation");
-
-    let MindReply::RoleSnapshot(snapshot) = reply else {
-        panic!("expected role snapshot");
-    };
-    let operator = snapshot
-        .roles
-        .iter()
-        .find(|status| status.role == RoleName::Operator)
-        .expect("operator status exists");
-
-    assert_eq!(operator.claims.len(), 1);
-    assert_eq!(
-        operator.claims[0].scope,
-        ScopeReference::Path(
-            WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-mind")
-                .expect("absolute path")
-        )
-    );
-    assert_eq!(
-        operator.claims[0].reason,
-        ScopeReason::from_text("durable role claim").expect("scope reason")
-    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

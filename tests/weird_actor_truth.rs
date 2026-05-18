@@ -3,14 +3,14 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use persona_mind::actors::{ActorManifest, ActorResidency, TraceNode};
+use persona_mind::actors::{ActorManifest, ActorResidency};
 use persona_mind::{
     ActorRef, MindEnvelope, MindRoot, MindRootArguments, MindRootReply, StoreLocation,
     SubmitEnvelope,
 };
 use signal_persona_mind::{
     ActorName, ItemKind, ItemPriority, MindReply, MindRequest, Opening, Query, QueryKind,
-    QueryLimit, RoleClaim, RoleName, ScopeReason, ScopeReference, TextBody, Title, WirePath,
+    QueryLimit, TextBody, Title,
 };
 
 struct SourceTree {
@@ -857,31 +857,6 @@ fn trace_node_labels_cannot_collide() {
         "duplicate actor labels: {}",
         duplicate_labels.join(", ")
     );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn role_claim_cannot_bypass_claim_flow_or_writer() {
-    let fixture = ActorRuntimeFixture::new(ActorName::new("operator-assistant")).await;
-    let response = fixture
-        .submit(MindRequest::RoleClaim(RoleClaim {
-            role: RoleName::Operator,
-            scopes: vec![ScopeReference::Path(
-                WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-mind")
-                    .expect("test path is absolute"),
-            )],
-            reason: ScopeReason::from_text("unsupported claim witness")
-                .expect("test reason is valid"),
-        }))
-        .await;
-
-    assert!(response.reply().is_some());
-    assert!(response.trace().contains(TraceNode::CLAIM_FLOW));
-    assert!(response.trace().contains(TraceNode::CLAIM_SUPERVISOR));
-    assert!(response.trace().contains(TraceNode::SEMA_WRITER));
-    assert!(response.trace().contains(TraceNode::COMMIT));
-    assert!(response.trace().contains(TraceNode::NOTA_REPLY_ENCODER));
-
-    fixture.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -1,9 +1,9 @@
 use persona_mind::{MemoryState, StoreLocation};
 use signal_persona_mind::{
-    AliasAssignment, EdgeKind, EdgeTarget, Event, ExternalAlias, ExternalReference, ItemKind,
-    ItemPriority, ItemReference, ItemStatus, Link, LinkTarget, MindReply, MindRequest,
-    NoteSubmission, Opening, Query, QueryKind, QueryLimit, RejectionReason, ReportPath,
-    StableItemId, StatusChange, TextBody, Title, View,
+    AliasAssignment, ByThoughtKind, EdgeKind, EdgeTarget, Event, ExternalAlias, ExternalReference,
+    ItemKind, ItemPriority, ItemReference, ItemStatus, Link, LinkTarget, MindReply, MindRequest,
+    NoteSubmission, Opening, Query, QueryKind, QueryLimit, QueryThoughts, RejectionReason,
+    ReportPath, StableItemId, StatusChange, TextBody, ThoughtFilter, Title, View,
 };
 
 struct Fixture {
@@ -246,12 +246,10 @@ fn non_memory_requests_are_not_handled_by_the_memory_reducer() {
     assert!(
         fixture
             .state
-            .dispatch(MindRequest::ActivityQuery(
-                signal_persona_mind::ActivityQuery {
-                    limit: 1,
-                    filters: Vec::new(),
-                },
-            ))
+            .dispatch(MindRequest::QueryThoughts(QueryThoughts {
+                filter: ThoughtFilter::ByKind(ByThoughtKind { kinds: Vec::new() }),
+                limit: 1,
+            }))
             .is_none()
     );
 }

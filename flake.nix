@@ -260,18 +260,16 @@
             ${self.packages.${system}.default}/bin/mind \
               --socket "$socket" \
               --actor operator \
-              '(RoleClaim Operator [(Path "/git/github.com/LiGoldragon/persona-mind")] "claim from binary check")' \
-              > "$workspace/claim.out"
-            grep -F '(ClaimAcceptance Operator [(Path "/git/github.com/LiGoldragon/persona-mind")])' \
-              "$workspace/claim.out"
+              '(Opening Task High "Binary check work" "opened by the binary check")' \
+              > "$workspace/opening.out"
+            grep -F '(OpeningReceipt' "$workspace/opening.out"
 
             ${self.packages.${system}.default}/bin/mind \
               --socket "$socket" \
               --actor operator \
-              '(RoleObservation)' \
-              > "$workspace/observe.out"
-            grep -F '(RoleStatus Operator [(ClaimEntry (Path "/git/github.com/LiGoldragon/persona-mind") "claim from binary check")]' \
-              "$workspace/observe.out"
+              '(Query (Open) 10)' \
+              > "$workspace/query.out"
+            grep -F '"Binary check work"' "$workspace/query.out"
 
             touch "$out"
           '';

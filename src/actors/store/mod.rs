@@ -1,5 +1,3 @@
-mod activity;
-mod claims;
 mod graph;
 mod kernel;
 mod memory;
@@ -13,8 +11,6 @@ use crate::{MindEnvelope, StoreLocation};
 
 use super::pipeline::PipelineReply;
 use super::trace::{ActorTrace, TraceAction, TraceNode};
-use activity::ActivityStore;
-use claims::ClaimStore;
 use graph::GraphStore;
 use kernel::{LoadMemoryGraph, StoreKernel};
 use memory::MemoryStore;
@@ -28,8 +24,6 @@ pub(super) struct Arguments {
 
 pub(super) struct StoreSupervisor {
     memory: ActorRef<MemoryStore>,
-    claims: ActorRef<ClaimStore>,
-    activity: ActorRef<ActivityStore>,
     graph: ActorRef<GraphStore>,
 }
 
@@ -39,31 +33,6 @@ pub struct ApplyMemory {
 }
 
 pub struct ReadMemory {
-    pub envelope: MindEnvelope,
-    pub trace: ActorTrace,
-}
-
-pub struct ApplyClaim {
-    pub envelope: MindEnvelope,
-    pub trace: ActorTrace,
-}
-
-pub struct ApplyHandoff {
-    pub envelope: MindEnvelope,
-    pub trace: ActorTrace,
-}
-
-pub struct ReadClaims {
-    pub envelope: MindEnvelope,
-    pub trace: ActorTrace,
-}
-
-pub struct ApplyActivity {
-    pub envelope: MindEnvelope,
-    pub trace: ActorTrace,
-}
-
-pub struct ReadActivity {
     pub envelope: MindEnvelope,
     pub trace: ActorTrace,
 }
@@ -106,18 +75,8 @@ pub(super) struct GraphRecords {
 }
 
 impl StoreSupervisor {
-    fn new(
-        memory: ActorRef<MemoryStore>,
-        claims: ActorRef<ClaimStore>,
-        activity: ActorRef<ActivityStore>,
-        graph: ActorRef<GraphStore>,
-    ) -> Self {
-        Self {
-            memory,
-            claims,
-            activity,
-            graph,
-        }
+    fn new(memory: ActorRef<MemoryStore>, graph: ActorRef<GraphStore>) -> Self {
+        Self { memory, graph }
     }
 
     async fn apply_memory(
@@ -140,66 +99,6 @@ impl StoreSupervisor {
         trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
         self.memory
             .ask(memory::Read { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn apply_claim(
-        &self,
-        envelope: MindEnvelope,
-        mut trace: ActorTrace,
-    ) -> crate::Result<PipelineReply> {
-        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
-        self.claims
-            .ask(claims::Apply { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn apply_handoff(
-        &self,
-        envelope: MindEnvelope,
-        mut trace: ActorTrace,
-    ) -> crate::Result<PipelineReply> {
-        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
-        self.claims
-            .ask(claims::ApplyHandoffRequest { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn read_claims(
-        &self,
-        envelope: MindEnvelope,
-        mut trace: ActorTrace,
-    ) -> crate::Result<PipelineReply> {
-        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
-        self.claims
-            .ask(claims::Read { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn apply_activity(
-        &self,
-        envelope: MindEnvelope,
-        mut trace: ActorTrace,
-    ) -> crate::Result<PipelineReply> {
-        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
-        self.activity
-            .ask(activity::Apply { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn read_activity(
-        &self,
-        envelope: MindEnvelope,
-        mut trace: ActorTrace,
-    ) -> crate::Result<PipelineReply> {
-        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
-        self.activity
-            .ask(activity::Read { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
@@ -320,22 +219,6 @@ impl Actor for StoreSupervisor {
         )
         .spawn()
         .await;
-        let claims = ClaimStore::supervise(
-            &actor_reference,
-            claims::Arguments {
-                kernel: kernel.clone(),
-            },
-        )
-        .spawn()
-        .await;
-        let activity = ActivityStore::supervise(
-            &actor_reference,
-            activity::Arguments {
-                kernel: kernel.clone(),
-            },
-        )
-        .spawn()
-        .await;
         let graph = GraphStore::supervise(
             &actor_reference,
             graph::Arguments {
@@ -345,7 +228,7 @@ impl Actor for StoreSupervisor {
         .spawn()
         .await;
 
-        Ok(Self::new(memory, claims, activity, graph))
+        Ok(Self::new(memory, graph))
     }
 }
 
@@ -388,76 +271,6 @@ impl Message<ReadMemory> for StoreSupervisor {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.read_memory(message.envelope, message.trace)
-            .await
-            .unwrap_or_else(PersistenceRejection::pipeline)
-    }
-}
-
-impl Message<ApplyClaim> for StoreSupervisor {
-    type Reply = PipelineReply;
-
-    async fn handle(
-        &mut self,
-        message: ApplyClaim,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.apply_claim(message.envelope, message.trace)
-            .await
-            .unwrap_or_else(PersistenceRejection::pipeline)
-    }
-}
-
-impl Message<ApplyHandoff> for StoreSupervisor {
-    type Reply = PipelineReply;
-
-    async fn handle(
-        &mut self,
-        message: ApplyHandoff,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.apply_handoff(message.envelope, message.trace)
-            .await
-            .unwrap_or_else(PersistenceRejection::pipeline)
-    }
-}
-
-impl Message<ReadClaims> for StoreSupervisor {
-    type Reply = PipelineReply;
-
-    async fn handle(
-        &mut self,
-        message: ReadClaims,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.read_claims(message.envelope, message.trace)
-            .await
-            .unwrap_or_else(PersistenceRejection::pipeline)
-    }
-}
-
-impl Message<ApplyActivity> for StoreSupervisor {
-    type Reply = PipelineReply;
-
-    async fn handle(
-        &mut self,
-        message: ApplyActivity,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.apply_activity(message.envelope, message.trace)
-            .await
-            .unwrap_or_else(PersistenceRejection::pipeline)
-    }
-}
-
-impl Message<ReadActivity> for StoreSupervisor {
-    type Reply = PipelineReply;
-
-    async fn handle(
-        &mut self,
-        message: ReadActivity,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.read_activity(message.envelope, message.trace)
             .await
             .unwrap_or_else(PersistenceRejection::pipeline)
     }

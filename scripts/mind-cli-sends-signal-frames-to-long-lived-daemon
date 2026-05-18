@@ -19,16 +19,14 @@ test -S "$socket"
 "$mind" \
   --socket "$socket" \
   --actor operator \
-  '(RoleClaim Operator [(Path "/git/github.com/LiGoldragon/persona-mind")] "daemon owns state")' \
-  >"$workspace/claim.out"
+  '(Opening Task High "Daemon owns state" "sent through signal frames")' \
+  >"$workspace/opening.out"
 
 "$mind" \
   --socket "$socket" \
   --actor operator \
-  '(RoleObservation)' \
-  >"$workspace/observe.out"
+  '(Query (Open) 10)' \
+  >"$workspace/query.out"
 
-grep -Fq '(ClaimAcceptance Operator [(Path "/git/github.com/LiGoldragon/persona-mind")])' \
-  "$workspace/claim.out"
-grep -Fq '(RoleStatus Operator [(ClaimEntry (Path "/git/github.com/LiGoldragon/persona-mind") "daemon owns state")]' \
-  "$workspace/observe.out"
+grep -Fq '(OpeningReceipt' "$workspace/opening.out"
+grep -Fq '"Daemon owns state"' "$workspace/query.out"

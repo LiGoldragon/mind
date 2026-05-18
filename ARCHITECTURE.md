@@ -1,20 +1,18 @@
 # persona-mind — architecture
 
-*Central Kameo actor system for Persona coordination, work memory, and the
+*Central Kameo actor system for Persona mind state, work memory, and the
 command-line mind.*
 
 > Status: the crate has a real Kameo runtime, mind-local Sema tables for
-> durable role claims, activity records, and a typed work-graph snapshot.
-> Typed Thought/Relation graph records use `sema-engine` for Assert/Match and
-> operation-log snapshots. Typed graph subscriptions register through
-> `sema-engine` Subscribe and keep only Persona-specific filter rows locally;
-> post-commit push delivery now enters the `SubscriptionSupervisor` actor path,
-> while the external long-lived streaming surface remains future work. Older
-> tables still use the same underlying `sema` kernel handle. The crate also has a Unix-socket
-> Signal-frame daemon/client transport around `MindRoot`. The
-> `mind` binary can run a daemon and submit NOTA role
-> claim/release/handoff/observation, activity submission/query, and work-graph
-> opening/note/link/status/alias/query requests through that daemon.
+> the work graph plus typed Thought/Relation records. Typed graph records use
+> `sema-engine` for Assert/Match, operation-log snapshots, subscription
+> registration, and post-commit subscription delta delivery into
+> `SubscriptionSupervisor`. Older work tables still use the same underlying
+> `sema` kernel handle while they await migration. The crate also has a
+> Unix-socket Signal-frame daemon/client transport around `MindRoot`. The
+> `mind` binary can run a daemon and submit NOTA work-graph
+> opening/note/link/status/alias/query requests and full
+> `signal-persona-mind::MindRequest` graph requests through that daemon.
 
 > **Scope.** "Sema" in this document is today's `sema` library (typed
 > storage kernel). The eventual `Sema` is
@@ -27,12 +25,14 @@ command-line mind.*
 
 ## 0 · TL;DR
 
-`persona-mind` owns Persona's central workspace state: role claims, handoffs,
-activity, work items, notes, dependencies, decisions, aliases, event history,
-and ready/blocked views. It replaces the lock-file orchestration model. Lock
-files are not part of this implementation; they are a temporary workspace
-coordination mechanism that will be retired when agents switch to `mind`. BEADS
-entries may be imported as history/aliases, but BEADS is not a live backend.
+`persona-mind` owns Persona's central workspace state: work items, typed
+Thought and Relation records, notes, dependencies, decisions, aliases, event
+history, subscriptions, channel choreography policy, and ready/blocked views.
+Ordinary role claims, handoffs, and activity live in `persona-orchestrate`.
+Lock files are not part of this implementation; they are a temporary workspace
+coordination mechanism that will be retired by the orchestrate/mind stack.
+BEADS entries may be imported as history/aliases, but BEADS is not a live
+backend.
 
 All public operations enter through `signal-persona-mind` records. The
 command-line surface is the `mind` binary: exactly one NOTA request record in,
@@ -74,7 +74,6 @@ The crate exposes:
 | `ActorRef<MindRoot>` | Direct Kameo root actor surface for in-process tests and daemon scaffolding. |
 | `MindRootReply` | Typed reply plus actor trace witness. |
 | `MemoryState` | Current in-memory work/memory reducer used behind the actor path. |
-| `ClaimState` | Current in-memory claim reducer used by claim-scope tests. |
 | `actors::ActorManifest` | Runtime topology witness. |
 | `actors::ActorTrace` | Per-request path witness for architectural-truth tests. |
 | `MindDaemonEndpoint` | Unix-socket endpoint value for the local daemon transport. |
@@ -82,8 +81,8 @@ The crate exposes:
 | `MindClient` | Thin local client that attaches Signal auth, submits one request frame, and reads one reply frame. |
 | `MindDaemon` | Bound one-shot daemon harness around `MindRoot`; reads actor identity from Signal auth before entering the root actor. |
 | `MindCommand` | Process-boundary command parser for daemon mode and one NOTA request submission. |
-| `MindTextRequest` / `MindTextReply` | Current NOTA projection for role coordination, activity, and work-graph request/reply records. |
-| `mind` binary | Daemon-backed command-line mind for the implemented role-state slice. |
+| `MindTextRequest` / `MindTextReply` | Current NOTA projection for work-graph request/reply records plus full contract requests. |
+| `mind` binary | Daemon-backed command-line mind for central mind state. |
 
 The public protocol is not defined here. `signal-persona-mind` owns the
 request and reply records. `persona-mind` consumes those records and applies
@@ -93,8 +92,9 @@ state transitions.
 
 The command-line mind is a thin client boundary over a long-lived daemon. The
 daemon owns the runtime path. The current crate has a Unix-socket daemon,
-Signal-frame transport, and a NOTA projection for role coordination, activity,
-and work-graph operations.
+Signal-frame transport, and a NOTA projection for work-graph operations. The
+CLI also accepts a full `signal-persona-mind::MindRequest` NOTA record when the
+convenience projection has no shorthand.
 
 Command-line interfaces in this workspace interact with daemons. The
 command-line mind is not a one-shot state owner and should not reopen that
@@ -142,8 +142,7 @@ graph TB
     root --> store[StoreSupervisor]
     store --> kernel[StoreKernel]
     store --> memory[MemoryStore]
-    store --> claims[ClaimStore]
-    store --> activity[ActivityStore]
+    store --> graph[GraphStore]
     root --> views[ViewPhase]
     root --> subscriptions[SubscriptionSupervisor]
     root --> choreography[ChoreographyAdjudicator]
@@ -236,8 +235,6 @@ lands.
 |---|---|
 | `NotaDecoder` | owns text diagnostics and parse failure. |
 | `CallerIdentityResolver` | owns caller resolution and authority failure. |
-| `ClaimFlow` / `ClaimConflictDetector` | owns conflict semantics. |
-| `ActivityFlow` / `ActivityAppender` | owns store-stamped activity append. |
 | `GraphFlow` / `GraphStore` | owns typed Thought/Relation append and query. |
 | `SemaWriter` | owns write ordering and transaction failure. |
 | `SemaReader` | owns read snapshots. |
@@ -249,8 +246,7 @@ lands.
 
 Current implementation:
 
-- `StoreSupervisor` supervises `StoreKernel`, `MemoryStore`, `ClaimStore`,
-  `ActivityStore`, and `GraphStore`.
+- `StoreSupervisor` supervises `StoreKernel`, `MemoryStore`, and `GraphStore`.
 - `StoreKernel` is the only actor that opens and owns the `MindTables` handle
   over `mind.redb`.
 - `StoreKernel` runs on a dedicated OS thread via
@@ -264,14 +260,9 @@ Current implementation:
   `store_kernel_supervised_thread_restart_reopens_same_database`: a first
   `MindRoot` commits to `mind.redb`, stops, and a second `MindRoot` immediately
   reopens the same database and reads the committed state.
-- `MindTables` schema v7 owns claims, activities, slot cursors, the typed
-  `memory_graph` snapshot table, typed graph subscription registration tables,
-  and the `sema-engine` table registrations for typed Thought/Relation graph
-  records.
-- `ClaimStore` routes claim/release/handoff/observation work to `StoreKernel`,
-  where `ClaimLedger` performs the Sema reads and writes.
-- `ActivityStore` routes activity append/query work to `StoreKernel`, where
-  `ActivityLedger` performs the Sema reads and writes.
+- `MindTables` schema v7 owns the typed `memory_graph` snapshot table, typed
+  graph subscription registration tables, and the `sema-engine` table
+  registrations for typed Thought/Relation graph records.
 - `MemoryStore` owns the private `MemoryState` reducer and commits accepted
   work/memory snapshots through `StoreKernel`.
 - `GraphStore` routes `SubmitThought`, `SubmitRelation`, `QueryThoughts`,
@@ -302,9 +293,8 @@ Current implementation:
   replace the typed Sema graph snapshot before success replies are emitted.
 - Queries read the loaded work graph through `MemoryStore` and produce typed
   `View` replies.
-- Role claim, release, handoff, observation, activity submission, activity
-  query, and first typed mind-graph create/query/subscription-registration
-  operations are routed through the actor path.
+- Work/memory requests and typed mind-graph create/query/subscription requests
+  are routed through the actor path.
 
 Destination:
 
@@ -334,10 +324,6 @@ Recommended tables:
 
 | Table | Purpose |
 |---|---|
-| `claims` | Active role claims and reasons. |
-| `handoffs` | Pending/completed handoff records. |
-| `activities` | Store-stamped role activity. |
-| `activity_next_slot` | Next activity slot cursor; avoids scanning activities on every append. |
 | `memory_graph` | Current typed graph snapshot for the first durable implementation wave. |
 | `thoughts` | `sema-engine` registered family for append-only typed `Thought` records; IDs are compact three-letter values minted from the engine snapshot sequence. |
 | `relations` | `sema-engine` registered family for append-only typed `Relation` records between thoughts; relation IDs use the same compact sequence policy but stay a distinct `RelationId` type. |
@@ -353,32 +339,17 @@ Recommended tables:
 The event log is the audit trail. Current-state tables and views are derived
 state optimized for queries.
 
-## 5 · Role Coordination
+## 5 · Orchestration Boundary
 
-The first `mind` replacement for `tools/orchestrate` must implement:
+Ordinary role claims, handoffs, and activity moved to `persona-orchestrate`.
+The corresponding wire records moved to `signal-persona-orchestrate`.
 
-| Operation | Required behavior |
-|---|---|
-| `RoleClaim` | normalize scopes, detect conflicts, commit accepted claims. |
-| `RoleRelease` | release all scopes for the role. |
-| `RoleHandoff` | verify exact source ownership, verify target compatibility, move ownership atomically. |
-| `RoleObservation` | return typed role snapshot plus recent activity. |
-| `ActivitySubmission` | append store-stamped activity; caller does not supply time. |
-| `ActivityQuery` | read recent activity with typed filters. |
-
-```mermaid
-graph TB
-    claim[RoleClaim] --> normalize[ScopeNormalizer]
-    normalize --> conflict[ClaimConflictDetector]
-    conflict --> writer[SemaWriter]
-    writer --> activity[ActivityAppender]
-    activity --> accepted[ClaimAcceptance]
-    conflict --> rejected[ClaimRejection]
-```
-
-This replaces lock-file ownership. Do not add lock-file projections to
-`persona-mind`; migration away from lock files is handled at the workspace
-workflow boundary, not inside the mind implementation.
+`persona-mind` still owns central state that orchestrate may read or propose
+against: typed work records, typed thoughts and relations, durable graph
+subscriptions, and channel choreography policy. Do not add lock-file
+projections or reintroduce ordinary role/activity tables here; migration away
+from lock files is handled by the orchestrate/mind stack boundary, not inside
+the mind implementation.
 
 ## 6 · Work and Memory Graph
 
@@ -450,11 +421,10 @@ symmetric:
 
 The shape is **observe up-tree, order down-tree** (per
 `~/primary/skills/component-triad.md` §"The six verbs and what each one
-means"). Mind subscribes to delivery / lifecycle / adjudication events
-from `persona-router`, `persona-harness`, and (when it lands)
-`persona-orchestrate`; mind *decides*; mind issues `Mutate` /
-`Retract` orders down to those same components. Each recipient obeys
-and confirms; mind holds *possibly-mutated* state until the
+means"). Mind subscribes to delivery / lifecycle / adjudication events from
+`persona-router`, `persona-harness`, and `persona-orchestrate`; mind *decides*;
+mind issues `Mutate` / `Retract` orders down to those same components. Each
+recipient obeys and confirms; mind holds *possibly-mutated* state until the
 confirmation, then advances.
 
 `ChannelGrant`, `ChannelExtend`, `ChannelRetract`, and
@@ -466,16 +436,13 @@ authority lives in mind. The `AdjudicationRequest` that surfaces a
 channel-miss is an inbound *observation* (`Assert`/`Match`-shaped),
 not an inbound order.
 
-When `persona-orchestrate` lands (per
-`reports/second-designer-assistant/4-persona-orchestrate-control-plane-2026-05-17.md`
-and bead `primary-699g`), mind's `Mutate` chain extends downward
-through it: mind issues `SpawnAgent` / `SuperviseAgent` / `EscalateBlockedWork`
-orders to orchestrate; orchestrate may then issue its own `Mutate`
-orders to `persona-harness` (spawn) and `persona-router` (install the
-agent's permitted channels). The `(mind → orchestrate → router →
-harness)` authority chain is the canonical worked example in
-`~/primary/skills/component-triad.md` §"Authority chain — worked
-example".
+Mind's `Mutate` chain extends downward through `persona-orchestrate`: mind
+issues future `SpawnAgent` / `SuperviseAgent` / `EscalateBlockedWork` orders to
+orchestrate; orchestrate may then issue its own `Mutate` orders to
+`persona-harness` (spawn) and `persona-router` (install the agent's permitted
+channels). The `(mind -> orchestrate -> router -> harness)` authority chain is
+the canonical worked example in `~/primary/skills/component-triad.md`
+§"Authority chain — worked example".
 
 ## 7 · Boundaries
 
@@ -483,14 +450,18 @@ This repo owns:
 
 - the `mind` CLI binary and process-boundary logic;
 - Kameo runtime topology for the central mind;
-- role claim/release/handoff/activity behavior;
 - work/memory graph behavior;
+- typed Thought/Relation graph behavior;
+- graph subscription registration and post-commit delta delivery;
+- channel choreography policy and authorization state;
 - durable `mind.redb` ownership;
 - mind-specific architectural-truth tests.
 
 This repo does not own:
 
 - `signal-persona-mind` contract records;
+- ordinary role claim/release/handoff/activity behavior, which belongs to
+  `persona-orchestrate`;
 - router delivery or harness messaging;
 - terminal transport, which belongs to `persona-terminal`;
 - OS/window-manager observation;
@@ -507,9 +478,8 @@ This repo does not own:
   runtime state.
 - The `mind` CLI sends Signal frames to the long-lived `persona-mind` daemon;
   it does not own `MindRoot`.
-- The `mind` CLI supports role claim/release/handoff/observation, activity
-  submission/query, and work-graph opening/note/link/status/alias/query text
-  records.
+- The `mind` CLI supports work-graph opening/note/link/status/alias/query text
+  records and full `signal-persona-mind::MindRequest` NOTA records.
 - `MindClient` sends one length-prefixed Signal request frame to the daemon and
   expects one length-prefixed Signal reply frame back.
 - `MindClient` supplies caller identity through Signal auth, not through the
@@ -523,12 +493,8 @@ This repo does not own:
 - The daemon owns `mind.redb`; the CLI never opens the database.
 - `StoreKernel` is the only store actor that opens and owns the `MindTables`
   handle for `mind.redb`.
-- `MemoryStore`, `ClaimStore`, and `ActivityStore` do not open separate
-  database handles; they ask `StoreKernel`.
-- Role claims, releases, handoffs, and observations read/write the mind-local
-  Sema claims table in `mind.redb`.
-- Activity submissions and queries read/write the mind-local Sema activities
-  table in `mind.redb`.
+- `MemoryStore` and `GraphStore` do not open separate database handles; they ask
+  `StoreKernel`.
 - Work/memory writes replace the typed `memory_graph` snapshot in `mind.redb`
   before producing success replies.
 - Typed graph thought/relation writes use `sema-engine` Assert on registered
@@ -563,8 +529,8 @@ This repo does not own:
 - Typed graph subscription replies use the initial snapshot returned by
   `sema-engine` Subscribe, then apply the Persona-specific filter before
   replying.
-- Typed graph subscription registration and initial snapshots are implemented;
-  post-commit delta push delivery is not implemented yet.
+- Typed graph subscription registration, initial snapshots, and post-commit
+  delta delivery through `SubscriptionSupervisor` are implemented.
 - `MindRequest` and `MindReply` come from `signal-persona-mind`; the CLI does
   not define a parallel command vocabulary.
 - All public state operations enter the actor system as one `MindEnvelope`.
@@ -579,8 +545,8 @@ This repo does not own:
 - Typed graph subscription records are backed by `sema-engine` subscription
   registrations and return an initial snapshot; later post-commit deltas
   require the push subscription actor/outbox surface.
-- Role claim, release, handoff, and observation are successful runtime paths,
-  not unsupported placeholders.
+- Ordinary role claim, release, handoff, and activity are outside this repo and
+  belong to `persona-orchestrate`.
 - BEADS import creates aliases or external references only; there is no live
   BEADS bridge.
 - Lock files are outside the implementation; `persona-mind` replaces them
@@ -620,19 +586,8 @@ constraints:
 | `mind-store-survives-process-restart` | durable state survives daemon restart on the same `mind.redb`. |
 | `mind_cli_accepts_one_nota_record_and_prints_one_nota_reply` | command surface shape in Rust fixtures. |
 | `mind_cli_uses_signal_persona_mind_types` | no duplicate CLI request enum. |
-| `mind_cli_sends_nota_role_claim_to_daemon` | CLI text enters the daemon path, not an in-process shortcut. |
-| `mind_cli_reads_role_observation_without_lock_files` | observation comes from mind state, not lock-file projection. |
 | `mind_cli_opens_and_queries_work_item_through_daemon` | work-graph text crosses the daemon path and returns typed NOTA replies. |
 | `mind_cli_mutates_work_item_through_daemon` | note/link/status/alias work-graph mutations cross the daemon path and return typed NOTA receipts. |
-| `role_claim_reaches_claim_flow_and_commits` | claim requests are not routed to unsupported. |
-| `conflicting_claim_returns_typed_rejection` | conflicts are data. |
-| `role_observation_reads_claims_without_writer` | role observation is a read path. |
-| `role_release_removes_claims_from_observation` | release mutates role state. |
-| `role_handoff_moves_claim_between_roles` | handoff moves exact source claims to the target role. |
-| `handoff_without_source_claim_returns_typed_rejection` | handoff failure is typed, not an unsupported placeholder. |
-| `activity_submission_reaches_activity_flow_and_store_mints_time` | activity append goes through activity flow and store-minted time. |
-| `activity_query_reads_recent_activity_without_writer` | activity query is a read path with filters. |
-| `role_observation_includes_recent_activity` | role observation includes the recent activity projection. |
 | `mind_tables_open_stays_inside_the_store_actor_boundary` | `mind.redb` is opened only at the store actor boundary. |
 | `dead_config_actor_cannot_return_without_real_mailbox_use` | no placeholder Config actor exists unless it owns a real mailbox path. |
 | `memory_state_cannot_hide_mutation_behind_refcell` | memory mutation is actor-owned mutable state, not interior mutability. |
@@ -642,7 +597,7 @@ constraints:
 | `daemon_uses_signal_auth_for_actor_identity` | caller identity is derived from Signal auth before building `MindEnvelope`. |
 | `daemon_rejects_request_frames_without_auth` | daemon cannot accept unauthenticated request frames. |
 | `client_cannot_reply_without_daemon_signal_frame` | clients cannot fabricate successful daemon replies. |
-| `mind_store_survives_process_restart` | role claims committed by one daemon process are visible after a daemon restart on the same `mind.redb`. |
+| `mind_store_survives_process_restart` | work items committed by one daemon process are visible after a daemon restart on the same `mind.redb`. |
 | `mind_memory_graph_survives_process_restart` | work items opened by one daemon process are visible after a daemon restart on the same `mind.redb`. |
 | `typed_thought_runs_through_graph_actor_lane_and_store_mints_id` | typed graph writes pass through graph actors and mind mints compact IDs. |
 | `store_kernel_supervised_thread_restart_reopens_same_database` | StoreKernel runs on a supervised OS thread and releases `mind.redb` before a replacement opens the same store. |
@@ -692,13 +647,10 @@ src/actors/reply.rs        typed reply shaping path
 src/actors/subscription.rs post-commit graph subscription event actor
 src/actors/manifest.rs     actor topology manifest
 src/actors/trace.rs        actor trace witness types
-src/activity.rs            activity append/query ledger over mind-local Sema
-src/claim.rs               claim-scope reducer
 src/graph.rs               typed Thought/Relation ledger, filters, and subscription snapshots
 src/memory.rs              memory/work graph reducer
-src/role.rs                local role value
-src/tables.rs              mind-local Sema schema, `sema-engine` graph families, and unmigrated tables
-src/text.rs                NOTA role-state projection for mind CLI
+src/tables.rs              mind-local Sema schema, `sema-engine` graph families, and work tables
+src/text.rs                NOTA work-graph projection for mind CLI
 src/transport.rs           Unix-socket Signal-frame client/daemon transport
 src/main.rs                command-line entry point
 tests/actor_topology.rs    manifest and actor-path truth tests
@@ -706,7 +658,6 @@ tests/weird_actor_truth.rs static actor-discipline and weird runtime tests
 tests/daemon_wire.rs       Signal-frame daemon/client socket tests
 tests/cli.rs               daemon-backed mind CLI tests
 tests/memory.rs            memory/work reducer tests
-tests/smoke.rs             claim reducer tests
 ```
 
 ## See Also

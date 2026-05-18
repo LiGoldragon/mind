@@ -9,14 +9,12 @@ use persona_mind::{
     SubmitEnvelope,
 };
 use signal_persona_mind::{
-    ActiveClaim, ActivityFilter, ActivityQuery, ActivitySubmission, ActorName, ByRelationKind,
-    ByThoughtKind, ClaimActivity, ClaimBody, ClaimScope, FileReference, GoalBody, GoalScope,
-    ItemKind, ItemPriority, MindDelta, MindReply, MindRequest, Opening, PathClaimScope, Query,
-    QueryKind, QueryLimit, QueryRelations, QueryThoughts, ReferenceBody, ReferenceTarget,
-    RelationFilter, RelationKind, RoleClaim, RoleHandoff, RoleName, RoleObservation, RoleRelease,
-    ScopeReason, ScopeReference, SubmitRelation, SubmitThought, SubscribeRelations,
-    SubscribeThoughts, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos, Title,
-    WirePath, WorkspaceGoal,
+    ActiveClaim, ActorName, ByRelationKind, ByThoughtKind, ClaimActivity, ClaimBody, ClaimScope,
+    FileReference, GoalBody, GoalScope, ItemKind, ItemPriority, MindDelta, MindReply, MindRequest,
+    Opening, PathClaimScope, Query, QueryKind, QueryLimit, QueryRelations, QueryThoughts,
+    ReferenceBody, ReferenceTarget, RelationFilter, RelationKind, RoleName, SubmitRelation,
+    SubmitThought, SubscribeRelations, SubscribeThoughts, TextBody, ThoughtBody, ThoughtFilter,
+    ThoughtKind, TimestampNanos, Title, WirePath, WorkspaceGoal,
 };
 
 struct ActorFixture {
@@ -82,32 +80,6 @@ impl ActorFixture {
     }
 }
 
-struct ClaimFixture {
-    role: RoleName,
-    reason: ScopeReason,
-}
-
-impl ClaimFixture {
-    fn operator() -> Self {
-        Self {
-            role: RoleName::Operator,
-            reason: ScopeReason::from_text("testing persona mind claim flow").expect("reason"),
-        }
-    }
-
-    fn path(&self, path: &str) -> ScopeReference {
-        ScopeReference::Path(WirePath::from_absolute_path(path).expect("absolute path"))
-    }
-
-    fn claim(&self, path: &str) -> MindRequest {
-        MindRequest::RoleClaim(RoleClaim {
-            role: self.role,
-            scopes: vec![self.path(path)],
-            reason: self.reason.clone(),
-        })
-    }
-}
-
 #[test]
 fn topology_manifest_names_required_actor_planes() {
     let manifest = ActorManifest::persona_mind_phase_one();
@@ -120,8 +92,7 @@ fn topology_manifest_names_required_actor_planes() {
         TraceNode::STORE_SUPERVISOR,
         TraceNode::STORE_KERNEL,
         TraceNode::MEMORY_STORE,
-        TraceNode::CLAIM_STORE,
-        TraceNode::ACTIVITY_STORE,
+        TraceNode::GRAPH_STORE,
         TraceNode::VIEW_PHASE,
         TraceNode::SUBSCRIPTION_SUPERVISOR,
         TraceNode::REPLY_SHAPER,
@@ -135,12 +106,11 @@ fn topology_manifest_names_required_actor_planes() {
     }
 
     assert_eq!(manifest.actor_count_for(ActorResidency::Root), 1);
-    assert!(manifest.actor_count_for(ActorResidency::LongLived) >= 12);
+    assert!(manifest.actor_count_for(ActorResidency::LongLived) >= 10);
     assert!(manifest.contains_edge(TraceNode::MIND_ROOT, TraceNode::STORE_SUPERVISOR));
     assert!(manifest.contains_edge(TraceNode::STORE_SUPERVISOR, TraceNode::STORE_KERNEL));
     assert!(manifest.contains_edge(TraceNode::STORE_SUPERVISOR, TraceNode::MEMORY_STORE));
-    assert!(manifest.contains_edge(TraceNode::STORE_SUPERVISOR, TraceNode::CLAIM_STORE));
-    assert!(manifest.contains_edge(TraceNode::STORE_SUPERVISOR, TraceNode::ACTIVITY_STORE));
+    assert!(manifest.contains_edge(TraceNode::STORE_SUPERVISOR, TraceNode::GRAPH_STORE));
     assert!(manifest.contains_edge(TraceNode::REPLY_SHAPER, TraceNode::NOTA_REPLY_ENCODER));
 }
 
@@ -196,16 +166,18 @@ async fn open_item_runs_through_kameo_write_path() {
 async fn store_kernel_supervised_thread_restart_reopens_same_database() {
     let first = ActorFixture::new().await;
     let store = first.store.clone();
-    let claim = ClaimFixture::operator();
-    let claim_scope = claim.path("/git/github.com/LiGoldragon/persona-mind");
 
     let response = first
-        .submit(claim.claim("/git/github.com/LiGoldragon/persona-mind"))
+        .submit(MindRequest::Opening(Opening {
+            kind: ItemKind::Task,
+            priority: ItemPriority::High,
+            title: Title::new("Durable actor work"),
+            body: TextBody::new("The reopened StoreKernel sees committed memory."),
+        }))
         .await;
-    assert!(matches!(
-        response.reply().expect("claim reply exists"),
-        MindReply::ClaimAcceptance(_)
-    ));
+    let MindReply::OpeningReceipt(opening) = response.reply().expect("opening reply exists") else {
+        panic!("expected opening receipt");
+    };
     first.stop_without_removing_store().await;
 
     let second = ActorFixture {
@@ -218,23 +190,20 @@ async fn store_kernel_supervised_thread_restart_reopens_same_database() {
         store,
     };
     let response = second
-        .submit(MindRequest::RoleObservation(RoleObservation))
+        .submit(MindRequest::Query(Query {
+            kind: QueryKind::Ready,
+            limit: QueryLimit::new(10),
+        }))
         .await;
-    let MindReply::RoleSnapshot(snapshot) = response.reply().expect("observation reply exists")
-    else {
-        panic!("expected role snapshot");
+    let MindReply::View(view) = response.reply().expect("query reply exists") else {
+        panic!("expected view reply");
     };
-    let operator_status = snapshot
-        .roles
-        .iter()
-        .find(|status| status.role == RoleName::Operator)
-        .expect("operator role status exists");
 
     assert!(
-        operator_status
-            .claims
+        view.items
             .iter()
-            .any(|active_claim| active_claim.scope == claim_scope),
+            .any(|item| item.id == opening.event.item.id
+                && item.title == Title::new("Durable actor work")),
         "second StoreKernel opens the same redb after the first state drops"
     );
     second.stop().await;
@@ -277,347 +246,6 @@ async fn query_path_uses_read_actor_without_writer() {
         TraceNode::QUERY_RESULT_SHAPER,
         TraceNode::REPLY_SHAPER,
     ]));
-    assert!(response.trace().contains(TraceNode::SEMA_READER));
-    assert!(!response.trace().contains(TraceNode::SEMA_WRITER));
-
-    fixture.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn role_claim_reaches_claim_flow_and_commits() {
-    let fixture = ActorFixture::new().await;
-    let claim = ClaimFixture::operator();
-    let response = fixture
-        .submit(claim.claim("/git/github.com/LiGoldragon/persona-mind"))
-        .await;
-
-    let MindReply::ClaimAcceptance(acceptance) = response.reply().expect("reply exists") else {
-        panic!("expected claim acceptance");
-    };
-
-    assert_eq!(acceptance.role, RoleName::Operator);
-    assert_eq!(acceptance.scopes.len(), 1);
-    assert!(response.trace().contains_ordered(&[
-        TraceNode::MIND_ROOT,
-        TraceNode::INGRESS_PHASE,
-        TraceNode::DISPATCH_PHASE,
-        TraceNode::CLAIM_FLOW,
-        TraceNode::DOMAIN_PHASE,
-        TraceNode::CLAIM_SUPERVISOR,
-        TraceNode::STORE_SUPERVISOR,
-        TraceNode::CLAIM_STORE,
-        TraceNode::SEMA_WRITER,
-        TraceNode::COMMIT,
-        TraceNode::REPLY_SHAPER,
-    ]));
-
-    fixture.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn conflicting_claim_returns_typed_rejection() {
-    let fixture = ActorFixture::new().await;
-    let claim = ClaimFixture::operator();
-    let _accepted = fixture
-        .submit(claim.claim("/git/github.com/LiGoldragon/persona"))
-        .await;
-
-    let response = fixture
-        .submit(MindRequest::RoleClaim(RoleClaim {
-            role: RoleName::Designer,
-            scopes: vec![claim.path("/git/github.com/LiGoldragon/persona/src")],
-            reason: ScopeReason::from_text("designer conflict probe").expect("reason"),
-        }))
-        .await;
-
-    let MindReply::ClaimRejection(rejection) = response.reply().expect("reply exists") else {
-        panic!("expected claim rejection");
-    };
-
-    assert_eq!(rejection.role, RoleName::Designer);
-    assert_eq!(rejection.conflicts.len(), 1);
-    assert_eq!(rejection.conflicts[0].held_by, RoleName::Operator);
-    assert!(response.trace().contains(TraceNode::CLAIM_FLOW));
-    assert!(response.trace().contains(TraceNode::COMMIT));
-
-    fixture.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn role_observation_reads_claims_without_writer() {
-    let fixture = ActorFixture::new().await;
-    let claim = ClaimFixture::operator();
-    let _accepted = fixture
-        .submit(claim.claim("/git/github.com/LiGoldragon/persona-mind"))
-        .await;
-
-    let response = fixture
-        .submit(MindRequest::RoleObservation(RoleObservation))
-        .await;
-
-    let MindReply::RoleSnapshot(snapshot) = response.reply().expect("reply exists") else {
-        panic!("expected role snapshot");
-    };
-    let operator = snapshot
-        .roles
-        .iter()
-        .find(|status| status.role == RoleName::Operator)
-        .expect("operator status exists");
-
-    assert_eq!(operator.claims.len(), 1);
-    assert!(response.trace().contains(TraceNode::ROLE_SNAPSHOT_VIEW));
-    assert!(response.trace().contains(TraceNode::SEMA_READER));
-    assert!(!response.trace().contains(TraceNode::SEMA_WRITER));
-
-    fixture.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn role_release_removes_claims_from_observation() {
-    let fixture = ActorFixture::new().await;
-    let claim = ClaimFixture::operator();
-    let _accepted = fixture
-        .submit(claim.claim("/git/github.com/LiGoldragon/persona-mind"))
-        .await;
-
-    let released = fixture
-        .submit(MindRequest::RoleRelease(RoleRelease {
-            role: RoleName::Operator,
-        }))
-        .await;
-    let MindReply::ReleaseAcknowledgment(acknowledgment) = released.reply().expect("reply exists")
-    else {
-        panic!("expected release acknowledgment");
-    };
-    assert_eq!(acknowledgment.released_scopes.len(), 1);
-
-    let observed = fixture
-        .submit(MindRequest::RoleObservation(RoleObservation))
-        .await;
-    let MindReply::RoleSnapshot(snapshot) = observed.reply().expect("reply exists") else {
-        panic!("expected role snapshot");
-    };
-    let operator = snapshot
-        .roles
-        .iter()
-        .find(|status| status.role == RoleName::Operator)
-        .expect("operator status exists");
-
-    assert!(operator.claims.is_empty());
-
-    fixture.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn role_handoff_moves_claim_between_roles() {
-    let fixture = ActorFixture::new().await;
-    let claim = ClaimFixture::operator();
-    let scope = claim.path("/git/github.com/LiGoldragon/persona-mind");
-    let _accepted = fixture
-        .submit(claim.claim("/git/github.com/LiGoldragon/persona-mind"))
-        .await;
-
-    let response = fixture
-        .submit(MindRequest::RoleHandoff(RoleHandoff {
-            from: RoleName::Operator,
-            to: RoleName::Designer,
-            scopes: vec![scope.clone()],
-            reason: ScopeReason::from_text("handoff to designer").expect("reason"),
-        }))
-        .await;
-
-    let MindReply::HandoffAcceptance(acceptance) = response.reply().expect("reply exists") else {
-        panic!("expected handoff acceptance");
-    };
-
-    assert_eq!(acceptance.from, RoleName::Operator);
-    assert_eq!(acceptance.to, RoleName::Designer);
-    assert_eq!(acceptance.scopes, vec![scope.clone()]);
-    assert!(response.trace().contains_ordered(&[
-        TraceNode::MIND_ROOT,
-        TraceNode::INGRESS_PHASE,
-        TraceNode::DISPATCH_PHASE,
-        TraceNode::HANDOFF_FLOW,
-        TraceNode::DOMAIN_PHASE,
-        TraceNode::CLAIM_SUPERVISOR,
-        TraceNode::STORE_SUPERVISOR,
-        TraceNode::CLAIM_STORE,
-        TraceNode::SEMA_WRITER,
-        TraceNode::COMMIT,
-        TraceNode::REPLY_SHAPER,
-    ]));
-
-    let observed = fixture
-        .submit(MindRequest::RoleObservation(RoleObservation))
-        .await;
-    let MindReply::RoleSnapshot(snapshot) = observed.reply().expect("reply exists") else {
-        panic!("expected role snapshot");
-    };
-    let operator = snapshot
-        .roles
-        .iter()
-        .find(|status| status.role == RoleName::Operator)
-        .expect("operator status exists");
-    let designer = snapshot
-        .roles
-        .iter()
-        .find(|status| status.role == RoleName::Designer)
-        .expect("designer status exists");
-
-    assert!(operator.claims.is_empty());
-    assert_eq!(designer.claims.len(), 1);
-    assert_eq!(designer.claims[0].scope, scope);
-
-    fixture.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn handoff_without_source_claim_returns_typed_rejection() {
-    let fixture = ActorFixture::new().await;
-    let claim = ClaimFixture::operator();
-    let scope = claim.path("/git/github.com/LiGoldragon/persona-mind");
-    let response = fixture
-        .submit(MindRequest::RoleHandoff(RoleHandoff {
-            from: RoleName::Operator,
-            to: RoleName::Designer,
-            scopes: vec![scope],
-            reason: ScopeReason::from_text("missing source probe").expect("reason"),
-        }))
-        .await;
-
-    let MindReply::HandoffRejection(rejection) = response.reply().expect("reply exists") else {
-        panic!("expected handoff rejection");
-    };
-
-    assert_eq!(rejection.from, RoleName::Operator);
-    assert_eq!(rejection.to, RoleName::Designer);
-    assert!(response.trace().contains(TraceNode::HANDOFF_FLOW));
-    assert!(response.trace().contains(TraceNode::COMMIT));
-
-    fixture.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn activity_submission_reaches_activity_flow_and_store_mints_time() {
-    let fixture = ActorFixture::new().await;
-    let response = fixture
-        .submit(MindRequest::ActivitySubmission(ActivitySubmission {
-            role: RoleName::Operator,
-            scope: ScopeReference::Path(
-                WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-mind")
-                    .expect("absolute path"),
-            ),
-            reason: ScopeReason::from_text("record durable activity").expect("reason"),
-        }))
-        .await;
-
-    let MindReply::ActivityAcknowledgment(acknowledgment) = response.reply().expect("reply exists")
-    else {
-        panic!("expected activity acknowledgment");
-    };
-
-    assert_eq!(acknowledgment.slot, 0);
-    assert!(response.trace().contains_ordered(&[
-        TraceNode::MIND_ROOT,
-        TraceNode::INGRESS_PHASE,
-        TraceNode::DISPATCH_PHASE,
-        TraceNode::ACTIVITY_FLOW,
-        TraceNode::DOMAIN_PHASE,
-        TraceNode::STORE_SUPERVISOR,
-        TraceNode::ACTIVITY_STORE,
-        TraceNode::CLOCK,
-        TraceNode::SEMA_WRITER,
-        TraceNode::COMMIT,
-        TraceNode::REPLY_SHAPER,
-    ]));
-
-    fixture.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn role_observation_includes_recent_activity() {
-    let fixture = ActorFixture::new().await;
-    let scope = ScopeReference::Path(
-        WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-mind")
-            .expect("absolute path"),
-    );
-    let _activity = fixture
-        .submit(MindRequest::ActivitySubmission(ActivitySubmission {
-            role: RoleName::Operator,
-            scope: scope.clone(),
-            reason: ScopeReason::from_text("activity before observe").expect("reason"),
-        }))
-        .await;
-
-    let response = fixture
-        .submit(MindRequest::RoleObservation(RoleObservation))
-        .await;
-
-    let MindReply::RoleSnapshot(snapshot) = response.reply().expect("reply exists") else {
-        panic!("expected role snapshot");
-    };
-
-    assert_eq!(snapshot.recent_activity.len(), 1);
-    assert_eq!(snapshot.recent_activity[0].role, RoleName::Operator);
-    assert_eq!(snapshot.recent_activity[0].scope, scope);
-    assert_eq!(
-        snapshot.recent_activity[0].reason,
-        ScopeReason::from_text("activity before observe").expect("reason")
-    );
-    assert!(snapshot.recent_activity[0].stamped_at.value() > 0);
-
-    fixture.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn activity_query_reads_recent_activity_without_writer() {
-    let fixture = ActorFixture::new().await;
-    let first_scope = ScopeReference::Path(
-        WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-mind")
-            .expect("absolute path"),
-    );
-    let second_scope = ScopeReference::Path(
-        WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-router")
-            .expect("absolute path"),
-    );
-    let _first = fixture
-        .submit(MindRequest::ActivitySubmission(ActivitySubmission {
-            role: RoleName::Operator,
-            scope: first_scope,
-            reason: ScopeReason::from_text("first activity").expect("reason"),
-        }))
-        .await;
-    let _second = fixture
-        .submit(MindRequest::ActivitySubmission(ActivitySubmission {
-            role: RoleName::Designer,
-            scope: second_scope.clone(),
-            reason: ScopeReason::from_text("second activity").expect("reason"),
-        }))
-        .await;
-
-    let response = fixture
-        .submit(MindRequest::ActivityQuery(ActivityQuery {
-            limit: 10,
-            filters: vec![ActivityFilter::PathPrefix(
-                WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-router")
-                    .expect("absolute path"),
-            )],
-        }))
-        .await;
-
-    let MindReply::ActivityList(list) = response.reply().expect("reply exists") else {
-        panic!("expected activity list");
-    };
-
-    assert_eq!(list.records.len(), 1);
-    assert_eq!(list.records[0].role, RoleName::Designer);
-    assert_eq!(list.records[0].scope, second_scope);
-    assert_eq!(
-        list.records[0].reason,
-        ScopeReason::from_text("second activity").expect("reason")
-    );
-    assert!(list.records[0].stamped_at.value() > 0);
-    assert!(response.trace().contains(TraceNode::RECENT_ACTIVITY_VIEW));
     assert!(response.trace().contains(TraceNode::SEMA_READER));
     assert!(!response.trace().contains(TraceNode::SEMA_WRITER));
 

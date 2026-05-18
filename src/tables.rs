@@ -9,9 +9,8 @@ use sema_engine::{
     TableDescriptor, TableName, TableReference,
 };
 use signal_persona_mind::{
-    Activity, ActorName, RecordId, Relation, RelationId, RoleName, ScopeReason, ScopeReference,
-    SubmitRelation, SubmitThought, SubscribeRelations, SubscribeThoughts, SubscriptionId, Thought,
-    TimestampNanos,
+    ActorName, RecordId, Relation, RelationId, SubmitRelation, SubmitThought, SubscribeRelations,
+    SubscribeThoughts, SubscriptionId, Thought, TimestampNanos,
 };
 
 use crate::actors::subscription::{
@@ -21,15 +20,11 @@ use crate::{MemoryGraph, Result, StoreLocation};
 
 const MIND_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(7);
 
-const CLAIMS: Table<&'static str, StoredClaim> = Table::new("claims");
-const ACTIVITIES: Table<u64, StoredActivity> = Table::new("activities");
-const ACTIVITY_NEXT_SLOT: Table<&'static str, u64> = Table::new("activity_next_slot");
 const MEMORY_GRAPH: Table<&'static str, MemoryGraph> = Table::new("memory_graph");
 const THOUGHT_SUBSCRIPTIONS: Table<&'static str, StoredThoughtSubscription> =
     Table::new("thought_subscriptions");
 const RELATION_SUBSCRIPTIONS: Table<&'static str, StoredRelationSubscription> =
     Table::new("relation_subscriptions");
-const ACTIVITY_NEXT_SLOT_KEY: &str = "next";
 const MEMORY_GRAPH_KEY: &str = "current";
 const THOUGHTS: TableName = TableName::new("thoughts");
 const RELATIONS: TableName = TableName::new("relations");
@@ -39,22 +34,6 @@ pub struct MindTables {
     thoughts: TableReference<StoredThought>,
     relations: TableReference<StoredRelation>,
     subscription_publisher: GraphSubscriptionPublisher,
-}
-
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct StoredClaim {
-    pub role: RoleName,
-    pub scope: ScopeReference,
-    pub reason: ScopeReason,
-}
-
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct StoredActivity {
-    pub slot: u64,
-    pub role: RoleName,
-    pub scope: ScopeReference,
-    pub reason: ScopeReason,
-    pub stamped_at: TimestampNanos,
 }
 
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -156,47 +135,6 @@ impl EngineRecord for StoredRelation {
     }
 }
 
-impl StoredActivity {
-    fn new(
-        slot: u64,
-        role: RoleName,
-        scope: ScopeReference,
-        reason: ScopeReason,
-        stamped_at: TimestampNanos,
-    ) -> Self {
-        Self {
-            slot,
-            role,
-            scope,
-            reason,
-            stamped_at,
-        }
-    }
-
-    pub fn into_activity(self) -> Activity {
-        Activity {
-            role: self.role,
-            scope: self.scope,
-            reason: self.reason,
-            stamped_at: self.stamped_at,
-        }
-    }
-}
-
-impl StoredClaim {
-    pub fn new(role: RoleName, scope: ScopeReference, reason: ScopeReason) -> Self {
-        Self {
-            role,
-            scope,
-            reason,
-        }
-    }
-
-    pub fn key(&self) -> String {
-        ClaimKey::new(self.role, &self.scope).into_string()
-    }
-}
-
 impl MindTables {
     pub(crate) fn open(
         store: &StoreLocation,
@@ -204,9 +142,6 @@ impl MindTables {
     ) -> Result<Self> {
         let mut engine = Engine::open(EngineOpen::new(store.as_path(), MIND_SCHEMA_VERSION))?;
         engine.storage_kernel().write(|transaction| {
-            CLAIMS.ensure(transaction)?;
-            ACTIVITIES.ensure(transaction)?;
-            ACTIVITY_NEXT_SLOT.ensure(transaction)?;
             MEMORY_GRAPH.ensure(transaction)?;
             THOUGHT_SUBSCRIPTIONS.ensure(transaction)?;
             RELATION_SUBSCRIPTIONS.ensure(transaction)?;
@@ -220,61 +155,6 @@ impl MindTables {
             relations,
             subscription_publisher,
         })
-    }
-
-    pub fn claim_records(&self) -> Result<Vec<StoredClaim>> {
-        Ok(self.engine.storage_kernel().read(|transaction| {
-            Ok(CLAIMS
-                .iter(transaction)?
-                .into_iter()
-                .map(|(_key, claim)| claim)
-                .collect())
-        })?)
-    }
-
-    pub fn replace_claims(
-        &self,
-        remove_keys: &[String],
-        insert_claims: &[StoredClaim],
-    ) -> Result<()> {
-        self.engine.storage_kernel().write(|transaction| {
-            for key in remove_keys {
-                CLAIMS.remove(transaction, key.as_str())?;
-            }
-            for claim in insert_claims {
-                let key = claim.key();
-                CLAIMS.insert(transaction, key.as_str(), claim)?;
-            }
-            Ok(())
-        })?;
-        Ok(())
-    }
-
-    pub fn append_activity(
-        &self,
-        role: RoleName,
-        scope: ScopeReference,
-        reason: ScopeReason,
-    ) -> Result<StoredActivity> {
-        let slot = self.next_activity_slot()?;
-        let stamped_at = StoreClock::system().timestamp()?;
-        let activity = StoredActivity::new(slot.value(), role, scope, reason, stamped_at);
-        self.engine.storage_kernel().write(|transaction| {
-            ACTIVITIES.insert(transaction, slot.value(), &activity)?;
-            ACTIVITY_NEXT_SLOT.insert(transaction, ACTIVITY_NEXT_SLOT_KEY, &slot.next_value())?;
-            Ok(())
-        })?;
-        Ok(activity)
-    }
-
-    pub fn activity_records(&self) -> Result<Vec<StoredActivity>> {
-        Ok(self.engine.storage_kernel().read(|transaction| {
-            Ok(ACTIVITIES
-                .iter(transaction)?
-                .into_iter()
-                .map(|(_slot, activity)| activity)
-                .collect())
-        })?)
     }
 
     pub(crate) fn memory_graph(&self) -> Result<Option<MemoryGraph>> {
@@ -437,17 +317,6 @@ impl MindTables {
         Ok(OpenedRelationSubscription::new(record, initial))
     }
 
-    fn next_activity_slot(&self) -> Result<ActivitySlot> {
-        let stored = self
-            .engine
-            .storage_kernel()
-            .read(|transaction| ACTIVITY_NEXT_SLOT.get(transaction, ACTIVITY_NEXT_SLOT_KEY))?;
-        match stored {
-            Some(next_slot) => Ok(ActivitySlot::new(next_slot)),
-            None => Ok(ActivitySlot::after_records(&self.activity_records()?)),
-        }
-    }
-
     fn read_thought(&self, record: &RecordId) -> Result<Thought> {
         self.engine
             .match_records(QueryPlan::key(
@@ -512,10 +381,6 @@ impl GraphSubscriptionPublisher {
             Self::Disabled => Ok(()),
         }
     }
-}
-
-struct ActivitySlot {
-    value: u64,
 }
 
 struct GraphIdMint<'engine> {
@@ -686,29 +551,6 @@ impl CompactGraphId {
     }
 }
 
-impl ActivitySlot {
-    fn new(value: u64) -> Self {
-        Self { value }
-    }
-
-    fn after_records(records: &[StoredActivity]) -> Self {
-        let value = records
-            .iter()
-            .map(|activity| activity.slot)
-            .max()
-            .map_or(0, |slot| slot + 1);
-        Self { value }
-    }
-
-    fn value(&self) -> u64 {
-        self.value
-    }
-
-    fn next_value(&self) -> u64 {
-        self.value + 1
-    }
-}
-
 struct StoreClock {
     epoch: SystemTime,
 }
@@ -724,42 +566,6 @@ impl StoreClock {
             .as_nanos()
             .min(u64::MAX as u128) as u64;
         Ok(TimestampNanos::new(nanos))
-    }
-}
-
-struct ClaimKey {
-    role: RoleName,
-    scope: String,
-}
-
-impl ClaimKey {
-    fn new(role: RoleName, scope: &ScopeReference) -> Self {
-        Self {
-            role,
-            scope: ScopeKey::new(scope).into_string(),
-        }
-    }
-
-    fn into_string(self) -> String {
-        format!("{}|{}", self.role.as_wire_token(), self.scope)
-    }
-}
-
-struct ScopeKey {
-    value: String,
-}
-
-impl ScopeKey {
-    fn new(scope: &ScopeReference) -> Self {
-        let value = match scope {
-            ScopeReference::Path(path) => format!("path:{}", path.as_str()),
-            ScopeReference::Task(task) => format!("task:{}", task.as_str()),
-        };
-        Self { value }
-    }
-
-    fn into_string(self) -> String {
-        self.value
     }
 }
 

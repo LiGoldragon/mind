@@ -29,17 +29,16 @@ start_daemon first
 "$mind" \
   --socket "$socket" \
   --actor operator \
-  '(RoleClaim Operator [(Path "/git/github.com/LiGoldragon/persona-mind")] "survives restart")' \
-  >"$workspace/first-claim.out"
+  '(Opening Task High "Survives restart" "created before daemon restart")' \
+  >"$workspace/first-opening.out"
 stop_daemon
 
 start_daemon second
 "$mind" \
   --socket "$socket" \
   --actor operator \
-  '(RoleObservation)' \
-  >"$workspace/second-observe.out"
+  '(Query (Open) 10)' \
+  >"$workspace/second-query.out"
 stop_daemon
 
-grep -Fq '(RoleStatus Operator [(ClaimEntry (Path "/git/github.com/LiGoldragon/persona-mind") "survives restart")]' \
-  "$workspace/second-observe.out"
+grep -Fq '"Survives restart"' "$workspace/second-query.out"

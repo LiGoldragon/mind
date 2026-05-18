@@ -121,13 +121,7 @@ impl MemoryGraph {
             MindRequest::StatusChange(change) => Some(self.change_status(change, &actor)),
             MindRequest::AliasAssignment(alias) => Some(self.add_alias(alias, &actor)),
             MindRequest::Query(query) => Some(self.query(query)),
-            MindRequest::RoleClaim(_)
-            | MindRequest::RoleRelease(_)
-            | MindRequest::RoleHandoff(_)
-            | MindRequest::RoleObservation(_)
-            | MindRequest::ActivitySubmission(_)
-            | MindRequest::ActivityQuery(_)
-            | MindRequest::SubmitThought(_)
+            MindRequest::SubmitThought(_)
             | MindRequest::SubmitRelation(_)
             | MindRequest::QueryThoughts(_)
             | MindRequest::QueryRelations(_)

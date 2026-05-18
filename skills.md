@@ -1,8 +1,9 @@
 # persona-mind skill
 
-Work here when the change concerns Persona's central typed state: roles,
-claims, handoff tasks, activity, memory/work items, notes, dependencies,
-aliases, ready-work views, typed Thought/Relation records, or the `mind` CLI.
+Work here when the change concerns Persona's central typed state:
+memory/work items, notes, dependencies, aliases, ready-work views, typed
+Thought/Relation records, graph subscriptions, channel choreography policy, or
+the `mind` CLI.
 
 Rules for work here:
 
@@ -10,12 +11,14 @@ Rules for work here:
   remains the transitional task substrate.
 - Keep runtime message delivery in `persona-router`.
 - Keep harness lifecycle in `persona-harness`.
+- Keep ordinary role claims, handoffs, and activity in `persona-orchestrate`.
 - This component owns **its own** mind Sema layer over the `sema` kernel and
   writes one `mind.redb`. The mind state actor sequences writes through that
   database; no shared cross-component DB.
 - Typed Thought/Relation graph records use `sema-engine` for Assert/Match,
   operation-log snapshots, subscription registration, and post-commit
-  subscription delta delivery. Unmigrated tables use `Engine::storage_kernel()`;
+  subscription delta delivery. Unmigrated work tables use
+  `Engine::storage_kernel()`;
   do not open a second `sema::Sema` handle to the same `mind.redb`.
 - Graph subscription deltas must become typed
   `signal-persona-mind::SubscriptionEvent` values through

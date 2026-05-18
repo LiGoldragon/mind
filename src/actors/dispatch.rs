@@ -89,26 +89,6 @@ impl DispatchPhase {
                 trace.record(TraceNode::QUERY_FLOW, TraceAction::MessageReceived);
                 self.read_memory(envelope, trace).await?
             }
-            MindRequest::RoleClaim(_) | MindRequest::RoleRelease(_) => {
-                trace.record(TraceNode::CLAIM_FLOW, TraceAction::MessageReceived);
-                self.apply_claim(envelope, trace).await?
-            }
-            MindRequest::RoleObservation(_) => {
-                trace.record(TraceNode::CLAIM_FLOW, TraceAction::MessageReceived);
-                self.read_claims(envelope, trace).await?
-            }
-            MindRequest::ActivitySubmission(_) => {
-                trace.record(TraceNode::ACTIVITY_FLOW, TraceAction::MessageReceived);
-                self.apply_activity(envelope, trace).await?
-            }
-            MindRequest::ActivityQuery(_) => {
-                trace.record(TraceNode::ACTIVITY_FLOW, TraceAction::MessageReceived);
-                self.read_activity(envelope, trace).await?
-            }
-            MindRequest::RoleHandoff(_) => {
-                trace.record(TraceNode::HANDOFF_FLOW, TraceAction::MessageReceived);
-                self.apply_handoff(envelope, trace).await?
-            }
             MindRequest::AdjudicationRequest(_)
             | MindRequest::ChannelGrant(_)
             | MindRequest::ChannelExtend(_)
@@ -205,61 +185,6 @@ impl DispatchPhase {
     ) -> CrateResult<PipelineReply> {
         self.view
             .ask(view::ReadMemory { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn apply_claim(
-        &self,
-        envelope: MindEnvelope,
-        trace: ActorTrace,
-    ) -> CrateResult<PipelineReply> {
-        self.domain
-            .ask(domain::ApplyClaim { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn apply_handoff(
-        &self,
-        envelope: MindEnvelope,
-        trace: ActorTrace,
-    ) -> CrateResult<PipelineReply> {
-        self.domain
-            .ask(domain::ApplyHandoff { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn read_claims(
-        &self,
-        envelope: MindEnvelope,
-        trace: ActorTrace,
-    ) -> CrateResult<PipelineReply> {
-        self.view
-            .ask(view::ReadClaims { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn apply_activity(
-        &self,
-        envelope: MindEnvelope,
-        trace: ActorTrace,
-    ) -> CrateResult<PipelineReply> {
-        self.domain
-            .ask(domain::ApplyActivity { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn read_activity(
-        &self,
-        envelope: MindEnvelope,
-        trace: ActorTrace,
-    ) -> CrateResult<PipelineReply> {
-        self.view
-            .ask(view::ReadActivity { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }

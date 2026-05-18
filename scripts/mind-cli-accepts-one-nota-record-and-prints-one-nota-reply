@@ -19,19 +19,19 @@ test -S "$socket"
 "$mind" \
   --socket "$socket" \
   --actor operator \
-  '(RoleClaim Operator [(Path "/git/github.com/LiGoldragon/persona-mind")] "one record")' \
+  '(Opening Task High "One record" "created by the one-record check")' \
   >"$workspace/reply.out"
 
 test "$(wc -l <"$workspace/reply.out")" -eq 1
-grep -Fq '(ClaimAcceptance Operator [(Path "/git/github.com/LiGoldragon/persona-mind")])' \
-  "$workspace/reply.out"
+grep -Fq '(OpeningReceipt' "$workspace/reply.out"
+grep -Fq '"One record"' "$workspace/reply.out"
 
 set +e
 "$mind" \
   --socket "$socket" \
   --actor operator \
-  '(RoleObservation)' \
-  '(RoleObservation)' \
+  '(Query (Open) 10)' \
+  '(Query (Open) 10)' \
   >"$workspace/two-records.out" \
   2>"$workspace/two-records.err"
 status="$?"

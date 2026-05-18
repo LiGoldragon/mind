@@ -23,16 +23,6 @@ pub struct ReadMemory {
     pub trace: ActorTrace,
 }
 
-pub struct ReadClaims {
-    pub envelope: MindEnvelope,
-    pub trace: ActorTrace,
-}
-
-pub struct ReadActivity {
-    pub envelope: MindEnvelope,
-    pub trace: ActorTrace,
-}
-
 pub struct QueryThoughts {
     pub envelope: MindEnvelope,
     pub trace: ActorTrace,
@@ -78,37 +68,6 @@ impl ViewPhase {
             .trace
             .record(TraceNode::QUERY_RESULT_SHAPER, TraceAction::MessageReceived);
         Ok(reply)
-    }
-
-    async fn read_claims(
-        &self,
-        envelope: MindEnvelope,
-        mut trace: ActorTrace,
-    ) -> CrateResult<PipelineReply> {
-        trace.record(TraceNode::VIEW_PHASE, TraceAction::MessageReceived);
-        trace.record(TraceNode::ROLE_SNAPSHOT_VIEW, TraceAction::MessageReceived);
-
-        self.store
-            .ask(store::ReadClaims { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
-    }
-
-    async fn read_activity(
-        &self,
-        envelope: MindEnvelope,
-        mut trace: ActorTrace,
-    ) -> CrateResult<PipelineReply> {
-        trace.record(TraceNode::VIEW_PHASE, TraceAction::MessageReceived);
-        trace.record(
-            TraceNode::RECENT_ACTIVITY_VIEW,
-            TraceAction::MessageReceived,
-        );
-
-        self.store
-            .ask(store::ReadActivity { envelope, trace })
-            .await
-            .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
 
     async fn query_thoughts(
@@ -207,36 +166,6 @@ impl Message<ReadMemory> for ViewPhase {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         match self.read_memory(message.envelope, message.trace).await {
-            Ok(reply) => reply,
-            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
-        }
-    }
-}
-
-impl Message<ReadClaims> for ViewPhase {
-    type Reply = PipelineReply;
-
-    async fn handle(
-        &mut self,
-        message: ReadClaims,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        match self.read_claims(message.envelope, message.trace).await {
-            Ok(reply) => reply,
-            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
-        }
-    }
-}
-
-impl Message<ReadActivity> for ViewPhase {
-    type Reply = PipelineReply;
-
-    async fn handle(
-        &mut self,
-        message: ReadActivity,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        match self.read_activity(message.envelope, message.trace).await {
             Ok(reply) => reply,
             Err(_error) => PipelineReply::new(None, ActorTrace::new()),
         }
