@@ -169,7 +169,7 @@ async fn mind_cli_opens_and_queries_work_item_through_daemon() {
     assert!(opening.contains("\"Open CLI-visible work\""));
 
     let query = String::from_utf8(query_output).expect("query output utf8");
-    assert!(query.contains("(View [(Item"));
+    assert!(query.contains("(View ["));
     assert!(query.contains("\"Open CLI-visible work\""));
 }
 

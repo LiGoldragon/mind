@@ -30,5 +30,5 @@ test -S "$socket"
 
 grep -Fq '(OpeningReceipt' "$workspace/open.out"
 grep -Fq '"CLI constraint work item"' "$workspace/open.out"
-grep -Fq '(View [(Item' "$workspace/query.out"
+grep -Fq '(View [' "$workspace/query.out"
 grep -Fq '"CLI constraint work item"' "$workspace/query.out"

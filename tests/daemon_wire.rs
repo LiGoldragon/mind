@@ -10,9 +10,11 @@ use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Request, RequestPayload,
     RequestRejectionReason, SessionEpoch, SignalVerb,
 };
+use signal_persona::engine_management::{
+    Operation as SupervisionRequest, Query as SupervisionQuery, Reply as SupervisionReply,
+};
 use signal_persona::{
-    ComponentHealth, ComponentHealthQuery, ComponentHello, ComponentKind, ComponentName,
-    ComponentReadinessQuery, SupervisionProtocolVersion, SupervisionReply, SupervisionRequest,
+    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion, Presence,
 };
 use signal_persona_mind::{
     ActiveClaim, ActorName, Alternative, AlternativeId, ByRelationKind, ByThoughtKind,
@@ -180,10 +182,10 @@ async fn mind_daemon_answers_component_supervision_relation() {
     supervision_codec
         .write_request(
             &mut stream,
-            SupervisionRequest::ComponentHello(ComponentHello {
+            SupervisionRequest::Announce(Presence {
                 expected_component: ComponentName::new("persona-mind"),
                 expected_kind: ComponentKind::Mind,
-                supervision_protocol_version: SupervisionProtocolVersion::new(1),
+                engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
             }),
         )
         .await
@@ -193,7 +195,7 @@ async fn mind_daemon_answers_component_supervision_relation() {
             .read_reply(&mut stream)
             .await
             .expect("component identity reply"),
-        SupervisionReply::ComponentIdentity(identity)
+        SupervisionReply::Identified(identity)
             if identity.name.as_str() == "persona-mind"
                 && identity.kind == ComponentKind::Mind
     ));
@@ -201,9 +203,9 @@ async fn mind_daemon_answers_component_supervision_relation() {
     supervision_codec
         .write_request(
             &mut stream,
-            SupervisionRequest::ComponentReadinessQuery(ComponentReadinessQuery {
-                component: ComponentName::new("persona-mind"),
-            }),
+            SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(ComponentName::new(
+                "persona-mind",
+            ))),
         )
         .await
         .expect("readiness query writes");
@@ -212,15 +214,15 @@ async fn mind_daemon_answers_component_supervision_relation() {
             .read_reply(&mut stream)
             .await
             .expect("readiness reply"),
-        SupervisionReply::ComponentReady(_)
+        SupervisionReply::Ready(_)
     ));
 
     supervision_codec
         .write_request(
             &mut stream,
-            SupervisionRequest::ComponentHealthQuery(ComponentHealthQuery {
-                component: ComponentName::new("persona-mind"),
-            }),
+            SupervisionRequest::Query(SupervisionQuery::HealthStatus(ComponentName::new(
+                "persona-mind",
+            ))),
         )
         .await
         .expect("health query writes");
@@ -229,7 +231,7 @@ async fn mind_daemon_answers_component_supervision_relation() {
             .read_reply(&mut stream)
             .await
             .expect("health reply"),
-        SupervisionReply::ComponentHealthReport(report)
+        SupervisionReply::HealthReport(report)
             if report.health == ComponentHealth::Running
     ));
 

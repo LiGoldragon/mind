@@ -1,9 +1,9 @@
-use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaEnum, NotaRecord};
+use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaEnum, NotaRecord, Token};
 use signal_persona_mind as contract;
 
 use crate::Result;
 
-#[derive(NotaEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemKindText {
     Task,
     Defect,
@@ -37,7 +37,7 @@ impl ItemKindText {
     }
 }
 
-#[derive(NotaEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemPriorityText {
     Critical,
     High,
@@ -68,7 +68,7 @@ impl ItemPriorityText {
     }
 }
 
-#[derive(NotaEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemStatusText {
     Open,
     InProgress,
@@ -99,7 +99,7 @@ impl ItemStatusText {
     }
 }
 
-#[derive(NotaEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeKindText {
     DependsOn,
     ParentOf,
@@ -133,6 +133,80 @@ impl EdgeKindText {
             Self::Answers => contract::EdgeKind::Answers,
             Self::References => contract::EdgeKind::References,
         }
+    }
+}
+
+macro_rules! bare_enum_codec {
+    ($type_name:ident { $($variant:ident),+ $(,)? }) => {
+        impl NotaEncode for $type_name {
+            fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
+                let variant = match self {
+                    $(Self::$variant => stringify!($variant),)+
+                };
+                encoder.write_pascal_identifier(variant)
+            }
+        }
+
+        impl NotaDecode for $type_name {
+            fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
+                match decoder.read_pascal_identifier()?.as_str() {
+                    $(stringify!($variant) => Ok(Self::$variant),)+
+                    other => Err(nota_codec::Error::UnknownVariant {
+                        enum_name: stringify!($type_name),
+                        got: other.to_string(),
+                    }),
+                }
+            }
+        }
+    };
+}
+
+bare_enum_codec!(ItemKindText {
+    Task,
+    Defect,
+    Question,
+    Decision,
+    Note,
+    Handoff,
+});
+
+bare_enum_codec!(ItemPriorityText {
+    Critical,
+    High,
+    Normal,
+    Low,
+    Backlog,
+});
+
+bare_enum_codec!(ItemStatusText {
+    Open,
+    InProgress,
+    Blocked,
+    Closed,
+    Deferred,
+});
+
+bare_enum_codec!(EdgeKindText {
+    DependsOn,
+    ParentOf,
+    RelatesTo,
+    Duplicates,
+    Supersedes,
+    Answers,
+    References,
+});
+
+fn encode_optional_string(value: &Option<String>, encoder: &mut Encoder) -> nota_codec::Result<()> {
+    match value {
+        Some(value) => value.encode(encoder),
+        None => Option::<String>::None.encode(encoder),
+    }
+}
+
+fn decode_optional_string(decoder: &mut Decoder<'_>) -> nota_codec::Result<Option<String>> {
+    match decoder.peek_token()? {
+        Some(Token::Ident(name)) if name == "None" => Option::<String>::decode(decoder),
+        _ => String::decode(decoder).map(Some),
     }
 }
 
@@ -189,6 +263,57 @@ impl ItemReferenceText {
             Self::Alias(alias) => {
                 contract::ItemReference::Alias(contract::ExternalAlias::new(alias.alias))
             }
+        }
+    }
+}
+
+impl NotaEncode for ItemReferenceText {
+    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
+        match self {
+            Self::Stable(stable) => {
+                encoder.start_record("Stable")?;
+                stable.id.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::Display(display) => {
+                encoder.start_record("Display")?;
+                display.id.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::Alias(alias) => {
+                encoder.start_record("Alias")?;
+                alias.alias.encode(encoder)?;
+                encoder.end_record()
+            }
+        }
+    }
+}
+
+impl NotaDecode for ItemReferenceText {
+    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
+        match decoder.peek_record_head()?.as_str() {
+            "Stable" => {
+                decoder.expect_record_head("Stable")?;
+                let id = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::Stable(Stable { id }))
+            }
+            "Display" => {
+                decoder.expect_record_head("Display")?;
+                let id = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::Display(Display { id }))
+            }
+            "Alias" => {
+                decoder.expect_record_head("Alias")?;
+                let alias = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::Alias(Alias { alias }))
+            }
+            other => Err(nota_codec::Error::UnknownVariant {
+                enum_name: "ItemReferenceText",
+                got: other.to_string(),
+            }),
         }
     }
 }
@@ -252,11 +377,31 @@ impl LinkTargetText {
 impl NotaEncode for LinkTargetText {
     fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
         match self {
-            Self::ItemReferenceTarget(target) => target.encode(encoder),
-            Self::Report(report) => report.encode(encoder),
-            Self::GitCommit(commit) => commit.encode(encoder),
-            Self::BeadsTask(task) => task.encode(encoder),
-            Self::File(file) => file.encode(encoder),
+            Self::ItemReferenceTarget(target) => {
+                encoder.start_record("ItemReferenceTarget")?;
+                target.item.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::Report(report) => {
+                encoder.start_record("Report")?;
+                report.path.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::GitCommit(commit) => {
+                encoder.start_record("GitCommit")?;
+                commit.hash.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::BeadsTask(task) => {
+                encoder.start_record("BeadsTask")?;
+                task.token.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::File(file) => {
+                encoder.start_record("File")?;
+                file.path.encode(encoder)?;
+                encoder.end_record()
+            }
         }
     }
 }
@@ -264,15 +409,38 @@ impl NotaEncode for LinkTargetText {
 impl NotaDecode for LinkTargetText {
     fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
         match decoder.peek_record_head()?.as_str() {
-            "ItemReferenceTarget" => Ok(Self::ItemReferenceTarget(ItemReferenceTarget::decode(
-                decoder,
-            )?)),
-            "Report" => Ok(Self::Report(Report::decode(decoder)?)),
-            "GitCommit" => Ok(Self::GitCommit(GitCommit::decode(decoder)?)),
-            "BeadsTask" => Ok(Self::BeadsTask(BeadsTask::decode(decoder)?)),
-            "File" => Ok(Self::File(File::decode(decoder)?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "LinkTarget",
+            "ItemReferenceTarget" => {
+                decoder.expect_record_head("ItemReferenceTarget")?;
+                let item = ItemReferenceText::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::ItemReferenceTarget(ItemReferenceTarget { item }))
+            }
+            "Report" => {
+                decoder.expect_record_head("Report")?;
+                let path = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::Report(Report { path }))
+            }
+            "GitCommit" => {
+                decoder.expect_record_head("GitCommit")?;
+                let hash = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::GitCommit(GitCommit { hash }))
+            }
+            "BeadsTask" => {
+                decoder.expect_record_head("BeadsTask")?;
+                let token = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::BeadsTask(BeadsTask { token }))
+            }
+            "File" => {
+                decoder.expect_record_head("File")?;
+                let path = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::File(File { path }))
+            }
+            other => Err(nota_codec::Error::UnknownVariant {
+                enum_name: "LinkTargetText",
                 got: other.to_string(),
             }),
         }
@@ -345,30 +513,6 @@ impl AliasAssignment {
     }
 }
 
-impl NotaEncode for ItemReferenceText {
-    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
-        match self {
-            Self::Stable(stable) => stable.encode(encoder),
-            Self::Display(display) => display.encode(encoder),
-            Self::Alias(alias) => alias.encode(encoder),
-        }
-    }
-}
-
-impl NotaDecode for ItemReferenceText {
-    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
-        match decoder.peek_record_head()?.as_str() {
-            "Stable" => Ok(Self::Stable(Stable::decode(decoder)?)),
-            "Display" => Ok(Self::Display(Display::decode(decoder)?)),
-            "Alias" => Ok(Self::Alias(Alias::decode(decoder)?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "ItemReference",
-                got: other.to_string(),
-            }),
-        }
-    }
-}
-
 #[derive(NotaRecord, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ready {}
 
@@ -433,14 +577,42 @@ impl QueryKindText {
 impl NotaEncode for QueryKindText {
     fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
         match self {
-            Self::Ready(query) => query.encode(encoder),
-            Self::Blocked(query) => query.encode(encoder),
-            Self::Open(query) => query.encode(encoder),
-            Self::RecentEvents(query) => query.encode(encoder),
-            Self::ByItem(query) => query.encode(encoder),
-            Self::ByKind(query) => query.encode(encoder),
-            Self::ByStatus(query) => query.encode(encoder),
-            Self::ByAlias(query) => query.encode(encoder),
+            Self::Ready(_) => {
+                encoder.start_record("Ready")?;
+                encoder.end_record()
+            }
+            Self::Blocked(_) => {
+                encoder.start_record("Blocked")?;
+                encoder.end_record()
+            }
+            Self::Open(_) => {
+                encoder.start_record("Open")?;
+                encoder.end_record()
+            }
+            Self::RecentEvents(_) => {
+                encoder.start_record("RecentEvents")?;
+                encoder.end_record()
+            }
+            Self::ByItem(query) => {
+                encoder.start_record("ByItem")?;
+                query.item.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::ByKind(query) => {
+                encoder.start_record("ByKind")?;
+                query.kind.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::ByStatus(query) => {
+                encoder.start_record("ByStatus")?;
+                query.status.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::ByAlias(query) => {
+                encoder.start_record("ByAlias")?;
+                query.alias.encode(encoder)?;
+                encoder.end_record()
+            }
         }
     }
 }
@@ -448,16 +620,52 @@ impl NotaEncode for QueryKindText {
 impl NotaDecode for QueryKindText {
     fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
         match decoder.peek_record_head()?.as_str() {
-            "Ready" => Ok(Self::Ready(Ready::decode(decoder)?)),
-            "Blocked" => Ok(Self::Blocked(Blocked::decode(decoder)?)),
-            "Open" => Ok(Self::Open(Open::decode(decoder)?)),
-            "RecentEvents" => Ok(Self::RecentEvents(RecentEvents::decode(decoder)?)),
-            "ByItem" => Ok(Self::ByItem(ByItem::decode(decoder)?)),
-            "ByKind" => Ok(Self::ByKind(ByKind::decode(decoder)?)),
-            "ByStatus" => Ok(Self::ByStatus(ByStatus::decode(decoder)?)),
-            "ByAlias" => Ok(Self::ByAlias(ByAlias::decode(decoder)?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "QueryKind",
+            "Ready" => {
+                decoder.expect_record_head("Ready")?;
+                decoder.expect_record_end()?;
+                Ok(Self::Ready(Ready {}))
+            }
+            "Blocked" => {
+                decoder.expect_record_head("Blocked")?;
+                decoder.expect_record_end()?;
+                Ok(Self::Blocked(Blocked {}))
+            }
+            "Open" => {
+                decoder.expect_record_head("Open")?;
+                decoder.expect_record_end()?;
+                Ok(Self::Open(Open {}))
+            }
+            "RecentEvents" => {
+                decoder.expect_record_head("RecentEvents")?;
+                decoder.expect_record_end()?;
+                Ok(Self::RecentEvents(RecentEvents {}))
+            }
+            "ByItem" => {
+                decoder.expect_record_head("ByItem")?;
+                let item = ItemReferenceText::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::ByItem(ByItem { item }))
+            }
+            "ByKind" => {
+                decoder.expect_record_head("ByKind")?;
+                let kind = ItemKindText::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::ByKind(ByKind { kind }))
+            }
+            "ByStatus" => {
+                decoder.expect_record_head("ByStatus")?;
+                let status = ItemStatusText::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::ByStatus(ByStatus { status }))
+            }
+            "ByAlias" => {
+                decoder.expect_record_head("ByAlias")?;
+                let alias = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::ByAlias(ByAlias { alias }))
+            }
+            other => Err(nota_codec::Error::UnknownVariant {
+                enum_name: "QueryKindText",
                 got: other.to_string(),
             }),
         }
@@ -512,12 +720,47 @@ impl MindTextRequest {
 impl NotaEncode for MindTextRequest {
     fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
         match self {
-            Self::Opening(opening) => opening.encode(encoder),
-            Self::NoteSubmission(submission) => submission.encode(encoder),
-            Self::Link(link) => link.encode(encoder),
-            Self::StatusChange(change) => change.encode(encoder),
-            Self::AliasAssignment(assignment) => assignment.encode(encoder),
-            Self::Query(query) => query.encode(encoder),
+            Self::Opening(opening) => {
+                encoder.start_record("Opening")?;
+                opening.kind.encode(encoder)?;
+                opening.priority.encode(encoder)?;
+                opening.title.encode(encoder)?;
+                opening.body.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::NoteSubmission(submission) => {
+                encoder.start_record("NoteSubmission")?;
+                submission.item.encode(encoder)?;
+                submission.body.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::Link(link) => {
+                encoder.start_record("Link")?;
+                link.source.encode(encoder)?;
+                link.kind.encode(encoder)?;
+                link.target.encode(encoder)?;
+                encode_optional_string(&link.body, encoder)?;
+                encoder.end_record()
+            }
+            Self::StatusChange(change) => {
+                encoder.start_record("StatusChange")?;
+                change.item.encode(encoder)?;
+                change.status.encode(encoder)?;
+                encode_optional_string(&change.body, encoder)?;
+                encoder.end_record()
+            }
+            Self::AliasAssignment(assignment) => {
+                encoder.start_record("AliasAssignment")?;
+                assignment.item.encode(encoder)?;
+                assignment.alias.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::Query(query) => {
+                encoder.start_record("Query")?;
+                query.kind.encode(encoder)?;
+                query.limit.encode(encoder)?;
+                encoder.end_record()
+            }
         }
     }
 }
@@ -525,14 +768,65 @@ impl NotaEncode for MindTextRequest {
 impl NotaDecode for MindTextRequest {
     fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
         match decoder.peek_record_head()?.as_str() {
-            "Opening" => Ok(Self::Opening(Opening::decode(decoder)?)),
-            "NoteSubmission" => Ok(Self::NoteSubmission(NoteSubmission::decode(decoder)?)),
-            "Link" => Ok(Self::Link(Link::decode(decoder)?)),
-            "StatusChange" => Ok(Self::StatusChange(StatusChange::decode(decoder)?)),
-            "AliasAssignment" => Ok(Self::AliasAssignment(AliasAssignment::decode(decoder)?)),
-            "Query" => Ok(Self::Query(Query::decode(decoder)?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "MindTextRequest",
+            "Opening" => {
+                decoder.expect_record_head("Opening")?;
+                let kind = ItemKindText::decode(decoder)?;
+                let priority = ItemPriorityText::decode(decoder)?;
+                let title = String::decode(decoder)?;
+                let body = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::Opening(Opening {
+                    kind,
+                    priority,
+                    title,
+                    body,
+                }))
+            }
+            "NoteSubmission" => {
+                decoder.expect_record_head("NoteSubmission")?;
+                let item = ItemReferenceText::decode(decoder)?;
+                let body = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::NoteSubmission(NoteSubmission { item, body }))
+            }
+            "Link" => {
+                decoder.expect_record_head("Link")?;
+                let source = ItemReferenceText::decode(decoder)?;
+                let kind = EdgeKindText::decode(decoder)?;
+                let target = LinkTargetText::decode(decoder)?;
+                let body = decode_optional_string(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::Link(Link {
+                    source,
+                    kind,
+                    target,
+                    body,
+                }))
+            }
+            "StatusChange" => {
+                decoder.expect_record_head("StatusChange")?;
+                let item = ItemReferenceText::decode(decoder)?;
+                let status = ItemStatusText::decode(decoder)?;
+                let body = decode_optional_string(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::StatusChange(StatusChange { item, status, body }))
+            }
+            "AliasAssignment" => {
+                decoder.expect_record_head("AliasAssignment")?;
+                let item = ItemReferenceText::decode(decoder)?;
+                let alias = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::AliasAssignment(AliasAssignment { item, alias }))
+            }
+            "Query" => {
+                decoder.expect_record_head("Query")?;
+                let kind = QueryKindText::decode(decoder)?;
+                let limit = u16::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::Query(Query { kind, limit }))
+            }
+            other => Err(nota_codec::Error::UnknownVariant {
+                enum_name: "MindTextRequest",
                 got: other.to_string(),
             }),
         }
@@ -630,11 +924,31 @@ impl EdgeTargetText {
 impl NotaEncode for EdgeTargetText {
     fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
         match self {
-            Self::ItemTarget(target) => target.encode(encoder),
-            Self::Report(report) => report.encode(encoder),
-            Self::GitCommit(commit) => commit.encode(encoder),
-            Self::BeadsTask(task) => task.encode(encoder),
-            Self::File(file) => file.encode(encoder),
+            Self::ItemTarget(target) => {
+                encoder.start_record("ItemTarget")?;
+                target.id.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::Report(report) => {
+                encoder.start_record("Report")?;
+                report.path.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::GitCommit(commit) => {
+                encoder.start_record("GitCommit")?;
+                commit.hash.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::BeadsTask(task) => {
+                encoder.start_record("BeadsTask")?;
+                task.token.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::File(file) => {
+                encoder.start_record("File")?;
+                file.path.encode(encoder)?;
+                encoder.end_record()
+            }
         }
     }
 }
@@ -642,13 +956,38 @@ impl NotaEncode for EdgeTargetText {
 impl NotaDecode for EdgeTargetText {
     fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
         match decoder.peek_record_head()?.as_str() {
-            "ItemTarget" => Ok(Self::ItemTarget(ItemTarget::decode(decoder)?)),
-            "Report" => Ok(Self::Report(Report::decode(decoder)?)),
-            "GitCommit" => Ok(Self::GitCommit(GitCommit::decode(decoder)?)),
-            "BeadsTask" => Ok(Self::BeadsTask(BeadsTask::decode(decoder)?)),
-            "File" => Ok(Self::File(File::decode(decoder)?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "EdgeTarget",
+            "ItemTarget" => {
+                decoder.expect_record_head("ItemTarget")?;
+                let id = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::ItemTarget(ItemTarget { id }))
+            }
+            "Report" => {
+                decoder.expect_record_head("Report")?;
+                let path = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::Report(Report { path }))
+            }
+            "GitCommit" => {
+                decoder.expect_record_head("GitCommit")?;
+                let hash = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::GitCommit(GitCommit { hash }))
+            }
+            "BeadsTask" => {
+                decoder.expect_record_head("BeadsTask")?;
+                let token = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::BeadsTask(BeadsTask { token }))
+            }
+            "File" => {
+                decoder.expect_record_head("File")?;
+                let path = String::decode(decoder)?;
+                decoder.expect_record_end()?;
+                Ok(Self::File(File { path }))
+            }
+            other => Err(nota_codec::Error::UnknownVariant {
+                enum_name: "EdgeTargetText",
                 got: other.to_string(),
             }),
         }
@@ -774,7 +1113,7 @@ impl AliasAddedEvent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(NotaEnum, Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     ItemOpened(ItemOpenedEvent),
     NoteAdded(NoteAddedEvent),
@@ -801,34 +1140,6 @@ impl Event {
             contract::Event::AliasAdded(event) => {
                 Self::AliasAdded(AliasAddedEvent::from_contract(event))
             }
-        }
-    }
-}
-
-impl NotaEncode for Event {
-    fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
-        match self {
-            Self::ItemOpened(event) => event.encode(encoder),
-            Self::NoteAdded(event) => event.encode(encoder),
-            Self::EdgeAdded(event) => event.encode(encoder),
-            Self::StatusChanged(event) => event.encode(encoder),
-            Self::AliasAdded(event) => event.encode(encoder),
-        }
-    }
-}
-
-impl NotaDecode for Event {
-    fn decode(decoder: &mut Decoder<'_>) -> nota_codec::Result<Self> {
-        match decoder.peek_record_head()?.as_str() {
-            "ItemOpenedEvent" => Ok(Self::ItemOpened(ItemOpenedEvent::decode(decoder)?)),
-            "NoteAddedEvent" => Ok(Self::NoteAdded(NoteAddedEvent::decode(decoder)?)),
-            "EdgeAddedEvent" => Ok(Self::EdgeAdded(EdgeAddedEvent::decode(decoder)?)),
-            "StatusChangedEvent" => Ok(Self::StatusChanged(StatusChangedEvent::decode(decoder)?)),
-            "AliasAddedEvent" => Ok(Self::AliasAdded(AliasAddedEvent::decode(decoder)?)),
-            other => Err(nota_codec::Error::UnknownKindForVerb {
-                verb: "Event",
-                got: other.to_string(),
-            }),
         }
     }
 }
@@ -993,8 +1304,6 @@ impl MindTextReply {
             | contract::MindReply::SubscriptionAccepted(_)
             | contract::MindReply::SubscriptionRetracted(_)
             | contract::MindReply::AdjudicationReceipt(_)
-            | contract::MindReply::ChannelReceipt(_)
-            | contract::MindReply::AdjudicationDenyReceipt(_)
             | contract::MindReply::ChannelListView(_)
             | contract::MindReply::MindRequestUnimplemented(_) => Err(
                 crate::Error::UnexpectedFrame("mind reply has no MindTextReply projection"),
@@ -1012,13 +1321,42 @@ impl MindTextReply {
 impl NotaEncode for MindTextReply {
     fn encode(&self, encoder: &mut Encoder) -> nota_codec::Result<()> {
         match self {
-            Self::OpeningReceipt(receipt) => receipt.encode(encoder),
-            Self::NoteReceipt(receipt) => receipt.encode(encoder),
-            Self::LinkReceipt(receipt) => receipt.encode(encoder),
-            Self::StatusReceipt(receipt) => receipt.encode(encoder),
-            Self::AliasReceipt(receipt) => receipt.encode(encoder),
-            Self::View(view) => view.encode(encoder),
-            Self::Rejection(rejection) => rejection.encode(encoder),
+            Self::OpeningReceipt(receipt) => {
+                encoder.start_record("OpeningReceipt")?;
+                receipt.event.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::NoteReceipt(receipt) => {
+                encoder.start_record("NoteReceipt")?;
+                receipt.event.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::LinkReceipt(receipt) => {
+                encoder.start_record("LinkReceipt")?;
+                receipt.event.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::StatusReceipt(receipt) => {
+                encoder.start_record("StatusReceipt")?;
+                receipt.event.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::AliasReceipt(receipt) => {
+                encoder.start_record("AliasReceipt")?;
+                receipt.event.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::View(view) => {
+                encoder.start_record("View")?;
+                view.items.encode(encoder)?;
+                view.events.encode(encoder)?;
+                encoder.end_record()
+            }
+            Self::Rejection(rejection) => {
+                encoder.start_record("Rejection")?;
+                rejection.reason.encode(encoder)?;
+                encoder.end_record()
+            }
         }
     }
 }

@@ -90,10 +90,6 @@ impl DispatchPhase {
                 self.read_memory(envelope, trace).await?
             }
             MindRequest::AdjudicationRequest(_)
-            | MindRequest::ChannelGrant(_)
-            | MindRequest::ChannelExtend(_)
-            | MindRequest::ChannelRetract(_)
-            | MindRequest::AdjudicationDeny(_)
             | MindRequest::ChannelList(_)
             | MindRequest::SubscriptionRetraction(_) => self.unimplemented(trace),
         };

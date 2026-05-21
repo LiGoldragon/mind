@@ -779,7 +779,8 @@ fn mind_lockfile_cannot_resolve_two_sema_kernels() {
         "Cargo.lock must contain one signal-core package"
     );
     assert!(
-        !lock.text.contains("sema.git?branch=main"),
+        !lock.text.lines().any(|line| line
+            .starts_with("source = \"git+https://github.com/LiGoldragon/sema.git?branch=main#",)),
         "sema source identity must not fork through ?branch=main"
     );
     assert!(

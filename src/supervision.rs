@@ -5,15 +5,17 @@ use std::path::{Path, PathBuf};
 use kameo::actor::{Actor, ActorRef};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
-use signal_core::{
-    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, RequestPayload, SessionEpoch,
-    SignalVerb, SubReply,
+use signal_frame::{
+    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, Request, SessionEpoch,
+    SubReply,
+};
+use signal_persona::engine_management::{
+    Frame as SupervisionFrame, FrameBody, Operation as SupervisionRequest,
+    Query as SupervisionQuery, Reply as SupervisionReply,
 };
 use signal_persona::{
-    ComponentHealth, ComponentHealthQuery, ComponentHealthReport, ComponentHello,
-    ComponentIdentity, ComponentKind, ComponentName, ComponentReadinessQuery, ComponentReady,
-    GracefulStopAcknowledgement, SupervisionFrame, SupervisionFrameBody as FrameBody,
-    SupervisionProtocolVersion, SupervisionReply, SupervisionRequest,
+    ComponentHealth, ComponentHealthReport, ComponentIdentity, ComponentKind, ComponentName,
+    ComponentReady, EngineManagementProtocolVersion, Presence, StopAcknowledgement,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
@@ -152,26 +154,26 @@ impl SupervisionPhase {
     fn reply(&mut self, request: SupervisionRequest) -> SupervisionReply {
         self.request_count = self.request_count.saturating_add(1);
         match request {
-            SupervisionRequest::ComponentHello(ComponentHello { .. }) => {
-                SupervisionReply::ComponentIdentity(ComponentIdentity {
+            SupervisionRequest::Announce(Presence { .. }) => {
+                SupervisionReply::Identified(ComponentIdentity {
                     name: self.profile.name.clone(),
                     kind: self.profile.kind,
-                    supervision_protocol_version: SupervisionProtocolVersion::new(1),
+                    engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
                     last_fatal_startup_error: None,
                 })
             }
-            SupervisionRequest::ComponentReadinessQuery(ComponentReadinessQuery { .. }) => {
-                SupervisionReply::ComponentReady(ComponentReady {
+            SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(_)) => {
+                SupervisionReply::Ready(ComponentReady {
                     component_started_at: None,
                 })
             }
-            SupervisionRequest::ComponentHealthQuery(ComponentHealthQuery { .. }) => {
-                SupervisionReply::ComponentHealthReport(ComponentHealthReport {
+            SupervisionRequest::Query(SupervisionQuery::HealthStatus(_)) => {
+                SupervisionReply::HealthReport(ComponentHealthReport {
                     health: self.profile.health,
                 })
             }
-            SupervisionRequest::GracefulStopRequest(_) => {
-                SupervisionReply::GracefulStopAcknowledgement(GracefulStopAcknowledgement {
+            SupervisionRequest::Stop(_) => {
+                SupervisionReply::StopAcknowledged(StopAcknowledgement {
                     drain_completed_at: None,
                 })
             }
@@ -214,7 +216,7 @@ impl SupervisionPhaseReply {
 
     pub fn unavailable() -> Self {
         Self {
-            reply: SupervisionReply::ComponentHealthReport(ComponentHealthReport {
+            reply: SupervisionReply::HealthReport(ComponentHealthReport {
                 health: ComponentHealth::Failed,
             }),
         }
@@ -270,13 +272,13 @@ impl SupervisionServer {
         codec: SupervisionFrameCodec,
         mut stream: UnixStream,
     ) -> Result<()> {
-        while let Ok((request, verb)) = codec.read_request(&mut stream).await {
+        while let Ok((exchange, request)) = codec.read_request(&mut stream).await {
             let reply = root
                 .ask(HandleSupervisionRequest::new(request))
                 .await
                 .map_err(|error| crate::Error::ActorCall(error.to_string()))?
                 .into_reply();
-            codec.write_reply(&mut stream, verb, reply).await?;
+            codec.write_reply(&mut stream, exchange, reply).await?;
         }
         Ok(())
     }
@@ -299,10 +301,10 @@ impl SupervisionFrameCodec {
         match frame.into_body() {
             FrameBody::Reply { reply, .. } => match reply {
                 Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
-                    SubReply::Ok { payload, .. } => Ok(payload),
+                    SubReply::Ok(payload) => Ok(payload),
                     other => Err(crate::Error::UnexpectedSubReply(format!("{other:?}"))),
                 },
-                Reply::Rejected { reason } => Err(crate::Error::ReplyRejected(reason)),
+                Reply::Rejected { reason } => Err(crate::Error::FrameReplyRejected(reason)),
             },
             _ => Err(crate::Error::UnexpectedFrame(
                 "expected supervision reply operation",
@@ -317,7 +319,7 @@ impl SupervisionFrameCodec {
     ) -> Result<()> {
         let frame = SupervisionFrame::new(FrameBody::Request {
             exchange: supervision_synthetic_exchange(),
-            request: request.into_request(),
+            request: Request::from_payload(request),
         });
         self.write_frame(stream, &frame).await
     }
@@ -325,15 +327,17 @@ impl SupervisionFrameCodec {
     async fn read_request(
         &self,
         stream: &mut UnixStream,
-    ) -> Result<(SupervisionRequest, SignalVerb)> {
+    ) -> Result<(ExchangeIdentifier, SupervisionRequest)> {
         let frame = self.read_frame(stream).await?;
         match frame.into_body() {
-            FrameBody::Request { request, .. } => {
-                let checked = request
-                    .into_checked()
-                    .map_err(|(reason, _)| crate::Error::RequestRejected(reason))?;
-                let head = checked.operations.into_head();
-                Ok((head.payload, head.verb))
+            FrameBody::Request { exchange, request } => {
+                let mut operations = request.payloads.into_vec();
+                if operations.len() != 1 {
+                    return Err(crate::Error::UnexpectedFrame(
+                        "expected one supervision operation",
+                    ));
+                }
+                Ok((exchange, operations.remove(0)))
             }
             _ => Err(crate::Error::UnexpectedFrame(
                 "expected supervision request operation",
@@ -344,15 +348,12 @@ impl SupervisionFrameCodec {
     async fn write_reply(
         &self,
         stream: &mut UnixStream,
-        verb: SignalVerb,
+        exchange: ExchangeIdentifier,
         reply: SupervisionReply,
     ) -> Result<()> {
         let frame = SupervisionFrame::new(FrameBody::Reply {
-            exchange: supervision_synthetic_exchange(),
-            reply: Reply::completed(NonEmpty::single(SubReply::Ok {
-                verb,
-                payload: reply,
-            })),
+            exchange,
+            reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
         });
         self.write_frame(stream, &frame).await
     }
