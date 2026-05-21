@@ -509,7 +509,7 @@ dependencies = [
  "rkyv",
  "signal-frame",
  "signal-persona-auth",
- "signal-sema",
+ "signal-sema 0.1.0 (git+https://github.com/LiGoldragon/signal-sema.git?branch=main)",
 ]
 
 [[package]]
@@ -524,12 +524,13 @@ dependencies = [
 [[package]]
 name = "signal-persona-mind"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-mind.git#9f272bc64b5c0ab23176314d4357437fbd9c1f7a"
+source = "git+https://github.com/LiGoldragon/signal-persona-mind.git#fc93f02c2b925bb1d3ec6d01df634415a05aff52"
 dependencies = [
  "nota-codec",
  "rkyv",
  "signal-core",
  "signal-persona-auth",
+ "signal-sema 0.1.0 (git+https://github.com/LiGoldragon/signal-sema.git)",
  "thiserror",
 ]
 
@@ -537,6 +538,16 @@ dependencies = [
 name = "signal-sema"
 version = "0.1.0"
 source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#22b036a095857b42a81556666e093f03bf4533a1"
+dependencies = [
+ "nota-codec",
+ "rkyv",
+ "thiserror",
+]
+
+[[package]]
+name = "signal-sema"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-sema.git#22b036a095857b42a81556666e093f03bf4533a1"
 dependencies = [
  "nota-codec",
  "rkyv",

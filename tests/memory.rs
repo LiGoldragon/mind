@@ -1,7 +1,7 @@
 use persona_mind::{MemoryState, StoreLocation};
 use signal_persona_mind::{
     AliasAssignment, ByThoughtKind, EdgeKind, EdgeTarget, Event, ExternalAlias, ExternalReference,
-    ItemKind, ItemPriority, ItemReference, ItemStatus, Link, LinkTarget, MindReply, MindRequest,
+    ItemKind, ItemReference, ItemStatus, Link, LinkTarget, Magnitude, MindReply, MindRequest,
     NoteSubmission, Opening, Query, QueryKind, QueryLimit, QueryThoughts, RejectionReason,
     ReportPath, StableItemId, StatusChange, TextBody, ThoughtFilter, Title, View,
 };
@@ -20,7 +20,7 @@ impl Fixture {
     fn open_task(&mut self, title: &str) -> StableItemId {
         match self.dispatch(MindRequest::Opening(Opening {
             kind: ItemKind::Task,
-            priority: ItemPriority::Normal,
+            priority: Magnitude::Medium,
             title: Title::new(title),
             body: TextBody::new("body"),
         })) {
@@ -32,7 +32,7 @@ impl Fixture {
     fn open_decision(&mut self, title: &str) -> StableItemId {
         match self.dispatch(MindRequest::Opening(Opening {
             kind: ItemKind::Decision,
-            priority: ItemPriority::High,
+            priority: Magnitude::High,
             title: Title::new(title),
             body: TextBody::new("decision body"),
         })) {

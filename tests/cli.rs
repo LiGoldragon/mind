@@ -49,7 +49,7 @@ fn nota_opening_text_maps_to_signal_request() {
     };
 
     assert_eq!(opening.kind, signal_persona_mind::ItemKind::Task);
-    assert_eq!(opening.priority, signal_persona_mind::ItemPriority::High);
+    assert_eq!(opening.priority, signal_persona_mind::Magnitude::High);
 }
 
 #[test]

@@ -9,8 +9,8 @@ use persona_mind::{
     SubmitEnvelope,
 };
 use signal_persona_mind::{
-    ActorName, ItemKind, ItemPriority, MindReply, MindRequest, Opening, Query, QueryKind,
-    QueryLimit, TextBody, Title,
+    ActorName, ItemKind, Magnitude, MindReply, MindRequest, Opening, Query, QueryKind, QueryLimit,
+    TextBody, Title,
 };
 
 struct SourceTree {
@@ -868,7 +868,7 @@ async fn parallel_runtimes_cannot_share_registry_names_or_memory() {
     let first_reply = first_runtime
         .submit(MindRequest::Opening(Opening {
             kind: ItemKind::Task,
-            priority: ItemPriority::High,
+            priority: Magnitude::High,
             title: Title::new("First runtime item"),
             body: TextBody::new("only the first runtime sees this"),
         }))
@@ -876,7 +876,7 @@ async fn parallel_runtimes_cannot_share_registry_names_or_memory() {
     let second_reply = second_runtime
         .submit(MindRequest::Opening(Opening {
             kind: ItemKind::Task,
-            priority: ItemPriority::Low,
+            priority: Magnitude::Low,
             title: Title::new("Second runtime item"),
             body: TextBody::new("only the second runtime sees this"),
         }))

@@ -18,12 +18,12 @@ use signal_persona::{
 };
 use signal_persona_mind::{
     ActiveClaim, ActorName, Alternative, AlternativeId, ByRelationKind, ByThoughtKind,
-    ClaimActivity, ClaimBody, ClaimScope, DecisionBody, GoalBody, GoalScope, ItemKind,
-    ItemPriority, MindFrame as Frame, MindFrameBody as FrameBody, MindReply, MindRequest,
-    NoteToSelf, ObservationBody, ObservationSummary, Opening, PathClaimScope, Query, QueryKind,
-    QueryLimit, QueryRelations, QueryThoughts, RelationFilter, RelationKind, RoleName,
-    SubmitRelation, SubmitThought, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind,
-    TimestampNanos, Title, WirePath, WorkspaceGoal,
+    ClaimActivity, ClaimBody, ClaimScope, DecisionBody, GoalBody, GoalScope, ItemKind, Magnitude,
+    MindFrame as Frame, MindFrameBody as FrameBody, MindReply, MindRequest, NoteToSelf,
+    ObservationBody, ObservationSummary, Opening, PathClaimScope, Query, QueryKind, QueryLimit,
+    QueryRelations, QueryThoughts, RelationFilter, RelationKind, RoleName, SubmitRelation,
+    SubmitThought, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos, Title,
+    WirePath, WorkspaceGoal,
 };
 use tokio::net::UnixStream;
 
@@ -61,7 +61,7 @@ impl SocketFixture {
     fn request(&self) -> MindRequest {
         MindRequest::Opening(Opening {
             kind: ItemKind::Task,
-            priority: ItemPriority::High,
+            priority: Magnitude::High,
             title: Title::new("Route one request through daemon wire"),
             body: TextBody::new("The daemon receives a Signal frame and replies with one."),
         })
@@ -334,7 +334,7 @@ async fn mind_memory_graph_survives_process_restart() {
         client
             .submit(MindRequest::Opening(Opening {
                 kind: ItemKind::Task,
-                priority: ItemPriority::High,
+                priority: Magnitude::High,
                 title: Title::new("Durable mind memory"),
                 body: TextBody::new("The work graph survives daemon restart."),
             }))

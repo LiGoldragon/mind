@@ -10,7 +10,7 @@ use persona_mind::{
 };
 use signal_persona_mind::{
     ActiveClaim, ActorName, ByRelationKind, ByThoughtKind, ClaimActivity, ClaimBody, ClaimScope,
-    FileReference, GoalBody, GoalScope, ItemKind, ItemPriority, MindDelta, MindReply, MindRequest,
+    FileReference, GoalBody, GoalScope, ItemKind, Magnitude, MindDelta, MindReply, MindRequest,
     Opening, PathClaimScope, Query, QueryKind, QueryLimit, QueryRelations, QueryThoughts,
     ReferenceBody, ReferenceTarget, RelationFilter, RelationKind, RoleName, SubmitRelation,
     SubmitThought, SubscribeRelations, SubscribeThoughts, TextBody, ThoughtBody, ThoughtFilter,
@@ -120,7 +120,7 @@ async fn open_item_runs_through_kameo_write_path() {
     let response = fixture
         .submit(MindRequest::Opening(Opening {
             kind: ItemKind::Task,
-            priority: ItemPriority::High,
+            priority: Magnitude::High,
             title: Title::new("Implement Kameo-backed mind"),
             body: TextBody::new("Phase one actor path"),
         }))
@@ -170,7 +170,7 @@ async fn store_kernel_supervised_thread_restart_reopens_same_database() {
     let response = first
         .submit(MindRequest::Opening(Opening {
             kind: ItemKind::Task,
-            priority: ItemPriority::High,
+            priority: Magnitude::High,
             title: Title::new("Durable actor work"),
             body: TextBody::new("The reopened StoreKernel sees committed memory."),
         }))
@@ -215,7 +215,7 @@ async fn query_path_uses_read_actor_without_writer() {
     let _opened = fixture
         .submit(MindRequest::Opening(Opening {
             kind: ItemKind::Task,
-            priority: ItemPriority::Normal,
+            priority: Magnitude::Medium,
             title: Title::new("Query actor path"),
             body: TextBody::new("Read path witness"),
         }))

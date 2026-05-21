@@ -38,37 +38,6 @@ impl ItemKindText {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ItemPriorityText {
-    Critical,
-    High,
-    Normal,
-    Low,
-    Backlog,
-}
-
-impl ItemPriorityText {
-    fn from_contract(priority: contract::ItemPriority) -> Self {
-        match priority {
-            contract::ItemPriority::Critical => Self::Critical,
-            contract::ItemPriority::High => Self::High,
-            contract::ItemPriority::Normal => Self::Normal,
-            contract::ItemPriority::Low => Self::Low,
-            contract::ItemPriority::Backlog => Self::Backlog,
-        }
-    }
-
-    fn into_contract(self) -> contract::ItemPriority {
-        match self {
-            Self::Critical => contract::ItemPriority::Critical,
-            Self::High => contract::ItemPriority::High,
-            Self::Normal => contract::ItemPriority::Normal,
-            Self::Low => contract::ItemPriority::Low,
-            Self::Backlog => contract::ItemPriority::Backlog,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemStatusText {
     Open,
     InProgress,
@@ -170,14 +139,6 @@ bare_enum_codec!(ItemKindText {
     Handoff,
 });
 
-bare_enum_codec!(ItemPriorityText {
-    Critical,
-    High,
-    Normal,
-    Low,
-    Backlog,
-});
-
 bare_enum_codec!(ItemStatusText {
     Open,
     InProgress,
@@ -213,7 +174,7 @@ fn decode_optional_string(decoder: &mut Decoder<'_>) -> nota_codec::Result<Optio
 #[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
 pub struct Opening {
     pub kind: ItemKindText,
-    pub priority: ItemPriorityText,
+    pub priority: contract::Magnitude,
     pub title: String,
     pub body: String,
 }
@@ -222,7 +183,7 @@ impl Opening {
     fn into_contract(self) -> contract::MindRequest {
         contract::MindRequest::Opening(contract::Opening {
             kind: self.kind.into_contract(),
-            priority: self.priority.into_contract(),
+            priority: self.priority,
             title: contract::Title::new(self.title),
             body: contract::TextBody::new(self.body),
         })
@@ -771,7 +732,7 @@ impl NotaDecode for MindTextRequest {
             "Opening" => {
                 decoder.expect_record_head("Opening")?;
                 let kind = ItemKindText::decode(decoder)?;
-                let priority = ItemPriorityText::decode(decoder)?;
+                let priority = contract::Magnitude::decode(decoder)?;
                 let title = String::decode(decoder)?;
                 let body = String::decode(decoder)?;
                 decoder.expect_record_end()?;
@@ -840,7 +801,7 @@ pub struct Item {
     pub aliases: Vec<String>,
     pub kind: ItemKindText,
     pub status: ItemStatusText,
-    pub priority: ItemPriorityText,
+    pub priority: contract::Magnitude,
     pub title: String,
     pub body: String,
 }
@@ -857,7 +818,7 @@ impl Item {
                 .collect(),
             kind: ItemKindText::from_contract(item.kind),
             status: ItemStatusText::from_contract(item.status),
-            priority: ItemPriorityText::from_contract(item.priority),
+            priority: item.priority,
             title: item.title.as_str().to_string(),
             body: item.body.as_str().to_string(),
         }
