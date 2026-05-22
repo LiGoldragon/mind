@@ -284,11 +284,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "owner-signal-persona-orchestrate"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/owner-signal-persona-orchestrate.git?branch=main#92a8ef58fb4c2bde1dbde6ce01cde49ac4ffdcc5"
+dependencies = [
+ "nota-codec",
+ "rkyv",
+ "signal-frame",
+ "signal-persona-orchestrate",
+ "thiserror",
+]
+
+[[package]]
 name = "persona-mind"
 version = "0.1.0"
 dependencies = [
  "kameo",
  "nota-codec",
+ "owner-signal-persona-orchestrate",
+ "persona-orchestrate",
  "rkyv",
  "sema",
  "sema-engine",
@@ -298,6 +312,24 @@ dependencies = [
  "signal-persona-mind",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "persona-orchestrate"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/persona-orchestrate.git?branch=main#0782df251bdd84861e846247cc6d4cac3474c614"
+dependencies = [
+ "futures",
+ "nota-codec",
+ "owner-signal-persona-orchestrate",
+ "rkyv",
+ "sema",
+ "sema-engine",
+ "signal-executor",
+ "signal-frame",
+ "signal-persona-orchestrate",
+ "signal-sema 0.1.0 (git+https://github.com/LiGoldragon/signal-sema.git?branch=main)",
+ "thiserror",
 ]
 
 [[package]]
@@ -480,6 +512,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "signal-executor"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-executor.git?branch=main#63d3732fc0fe998a3b4b9ee0ff35da66a63a501a"
+dependencies = [
+ "rkyv",
+ "signal-frame",
+ "signal-sema 0.1.0 (git+https://github.com/LiGoldragon/signal-sema.git?branch=main)",
+ "thiserror",
+]
+
+[[package]]
 name = "signal-frame"
 version = "0.1.0"
 source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#653773b7d4c18d16efd977ada4d280876debefd7"
@@ -531,6 +574,18 @@ dependencies = [
  "signal-core",
  "signal-persona-auth",
  "signal-sema 0.1.0 (git+https://github.com/LiGoldragon/signal-sema.git)",
+ "thiserror",
+]
+
+[[package]]
+name = "signal-persona-orchestrate"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-persona-orchestrate.git?branch=main#6ee08b48ffab5e2c40c4edf62f8cfd7b6d29a9b1"
+dependencies = [
+ "nota-codec",
+ "rkyv",
+ "signal-frame",
+ "signal-sema 0.1.0 (git+https://github.com/LiGoldragon/signal-sema.git?branch=main)",
  "thiserror",
 ]
 

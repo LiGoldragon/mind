@@ -16,6 +16,8 @@ impl TraceNode {
     pub const QUERY_FLOW: Self = Self::new("QueryFlow");
     pub const GRAPH_FLOW: Self = Self::new("GraphFlow");
     pub const GRAPH_QUERY_FLOW: Self = Self::new("GraphQueryFlow");
+    pub const CHOREOGRAPHY_ADJUDICATOR: Self = Self::new("ChoreographyAdjudicator");
+    pub const MIND_ORCHESTRATE_CALLER: Self = Self::new("MindOrchestrateCaller");
     pub const DOMAIN_PHASE: Self = Self::new("DomainPhase");
     pub const MEMORY_GRAPH_SUPERVISOR: Self = Self::new("MemoryGraphSupervisor");
     pub const MIND_GRAPH_SUPERVISOR: Self = Self::new("MindGraphSupervisor");

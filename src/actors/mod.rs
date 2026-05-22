@@ -1,6 +1,7 @@
 pub mod manifest;
 pub mod trace;
 
+pub mod choreography;
 pub(crate) mod dispatch;
 pub(crate) mod domain;
 pub(crate) mod ingress;

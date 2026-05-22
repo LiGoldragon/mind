@@ -153,10 +153,13 @@ graph TB
 children. The name reflects verb-belongs-to-noun: it is a shaping verb on the
 reply path, not a supervision relationship.
 
-### ChoreographyAdjudicator (destination)
+### ChoreographyAdjudicator
 
-`ChoreographyAdjudicator` is a stateful child of `MindRoot` that owns the
-channel-choreography decision plane. It holds:
+`ChoreographyAdjudicator` is an optional child of `MindRoot` when the root
+is started with an orchestrate owner endpoint. The current shipped slice
+owns the outbound `MindOrchestrateCaller` path for Create / Retire /
+Refresh decisions; the full channel-choreography policy plane is still
+destination work. That destination plane holds:
 
 - `policy: ChoreographyPolicy` — the live policy that decides grant/deny;
 - a grant table keyed by `ChannelId` (`HashMap<ChannelId, ChannelGrant>`)
@@ -170,11 +173,11 @@ named subscription's stream and emitting the `SubscriptionRetracted` reply.
 Both the retract request and the retracted reply are first-class per the
 `signal_channel!` streaming grammar.
 
-Status: destination. Today the dispatch routes choreography request variants
-to `MindReply::MindRequestUnimplemented(NotInPrototypeScope)`. The
-`ChoreographyAdjudicator` actor is the next implementation gate; the
-trace test for choreography asserts the actor receives the message and
-that no `unimplemented` fallback is hit.
+Status: partial. Manual decision injection is live and tested against
+orchestrate's real owner signal socket. Ordinary inbound choreography
+request variants still route to
+`MindReply::MindRequestUnimplemented(NotInPrototypeScope)` until the
+policy that derives a concrete decision from those observations is built.
 
 ### Subscription push delivery (destination)
 
@@ -399,10 +402,14 @@ answer, not a panic. The channel-choreography family
 (`AdjudicationRequest`, `ChannelGrant`, `ChannelExtend`,
 `ChannelRetract`, `AdjudicationDeny`, `ChannelList`,
 `SubscriptionRetraction`) routes to `ChoreographyAdjudicator` in the
-destination shape; the current `Unimplemented(NotInPrototypeScope)` reply
-is transitional and retires when the actor lands. The mind daemon reads
-its `signal-persona::SpawnEnvelope` at startup, binds `mind.sock` at the
-named mode, and proceeds.
+destination shape. The first shipped slice is the outbound
+`MindOrchestrateCaller`: tests manually inject choreography decisions and
+prove they call orchestrate's owner socket. Ordinary inbound
+`AdjudicationRequest` routing is still a typed
+`Unimplemented(NotInPrototypeScope)` until the policy that turns channel
+observations into decisions is built. The mind daemon reads its
+`signal-persona::SpawnEnvelope` at startup, binds `mind.sock` at the named
+mode, and proceeds.
 
 ## 6.6 · Authority direction — `Mutate` flows down-tree
 
@@ -443,6 +450,31 @@ orchestrate; orchestrate may then issue its own `Mutate` orders to
 channels). The `(mind -> orchestrate -> router -> harness)` authority chain is
 the canonical worked example in `~/primary/skills/component-triad.md`
 §"Authority chain — worked example".
+
+## 6.7 · MindOrchestrateCaller
+
+`ChoreographyAdjudicator` now has a concrete outbound caller for the first
+three orchestrate owner verbs:
+
+| Decision | Owner request | Expected orchestrate effect |
+|---|---|---|
+| `OrchestrateDecision::Create(CreateRoleOrder)` | `OwnerOrchestrateRequest::Create` | role registry records a new role and report lane |
+| `OrchestrateDecision::Retire(Retirement)` | `OwnerOrchestrateRequest::Retire` | role or lane is retired |
+| `OrchestrateDecision::Refresh(RefreshRepositoryIndexOrder)` | `OwnerOrchestrateRequest::Refresh` | repository index is refreshed |
+
+`MindOrchestrateCaller` owns the Unix-socket client connection to
+orchestrate's owner socket and speaks the existing
+`owner-signal-persona-orchestrate` frame. It does not mutate mind-local
+state and does not call `persona-orchestrate` internals. Its job is the
+mind-to-body authority handoff: a typed mind decision becomes one owner
+signal frame, the owner reply returns through the adjudicator, and the
+trace records `ChoreographyAdjudicator -> MindOrchestrateCaller`.
+
+The current tests use manual decision injection because the upstream policy
+that derives a decision from an intent or channel-miss observation remains
+unbuilt. That keeps the boundary honest: Create / Retire / Refresh are live
+transport and live orchestrate-state mutations, while policy derivation is a
+separate missing slice.
 
 ## 7 · Boundaries
 
@@ -635,6 +667,7 @@ src/command.rs             daemon/client command-line boundary
 src/error.rs               typed Error enum and actor call errors
 src/envelope.rs            MindEnvelope actor identity wrapper
 src/actors/mod.rs          actor module exports
+src/actors/choreography.rs choreography adjudicator and owner-orchestrate caller
 src/actors/root.rs         MindRoot
 src/actors/ingress.rs      ingress supervisor and envelope preparation trace
 src/actors/dispatch.rs     request classification and flow selection

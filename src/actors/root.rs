@@ -6,21 +6,34 @@ use signal_persona_mind::MindReply;
 use crate::{Error, MindEnvelope, Result, StoreLocation, supervision};
 
 use super::trace::{ActorTrace, TraceAction, TraceNode};
-use super::{dispatch, domain, ingress, reply, store, subscription, view};
+use super::{choreography, dispatch, domain, ingress, reply, store, subscription, view};
 
 pub struct MindRoot {
     ingress: ActorRef<ingress::IngressPhase>,
     subscription: ActorRef<subscription::SubscriptionSupervisor>,
     supervision: ActorRef<supervision::SupervisionPhase>,
+    _choreography: Option<ActorRef<choreography::ChoreographyAdjudicator>>,
 }
 
 pub struct Arguments {
     pub store: StoreLocation,
+    pub orchestrate_owner_endpoint: Option<choreography::OwnerEndpoint>,
 }
 
 impl Arguments {
     pub fn new(store: StoreLocation) -> Self {
-        Self { store }
+        Self {
+            store,
+            orchestrate_owner_endpoint: None,
+        }
+    }
+
+    pub fn with_orchestrate_owner_endpoint(
+        mut self,
+        endpoint: choreography::OwnerEndpoint,
+    ) -> Self {
+        self.orchestrate_owner_endpoint = Some(endpoint);
+        self
     }
 }
 
@@ -53,11 +66,13 @@ impl MindRoot {
         ingress: ActorRef<ingress::IngressPhase>,
         subscription: ActorRef<subscription::SubscriptionSupervisor>,
         supervision: ActorRef<supervision::SupervisionPhase>,
+        choreography: Option<ActorRef<choreography::ChoreographyAdjudicator>>,
     ) -> Self {
         Self {
             ingress,
             subscription,
             supervision,
+            _choreography: choreography,
         }
     }
 
@@ -114,6 +129,25 @@ impl Actor for MindRoot {
         .spawn()
         .await;
 
+        let choreography = if let Some(endpoint) = arguments.orchestrate_owner_endpoint.clone() {
+            let caller = choreography::MindOrchestrateCaller::supervise(
+                &actor_reference,
+                choreography::CallerArguments::new(endpoint),
+            )
+            .spawn()
+            .await;
+            Some(
+                choreography::ChoreographyAdjudicator::supervise(
+                    &actor_reference,
+                    choreography::AdjudicatorArguments::new(caller),
+                )
+                .spawn()
+                .await,
+            )
+        } else {
+            None
+        };
+
         let store = store::StoreSupervisor::supervise(
             &actor_reference,
             store::Arguments {
@@ -167,7 +201,7 @@ impl Actor for MindRoot {
                 .spawn()
                 .await;
 
-        Ok(Self::new(ingress, subscription, supervision))
+        Ok(Self::new(ingress, subscription, supervision, choreography))
     }
 }
 
