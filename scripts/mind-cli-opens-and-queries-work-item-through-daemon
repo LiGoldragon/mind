@@ -19,7 +19,7 @@ test -S "$socket"
 "$mind" \
   --socket "$socket" \
   --actor operator \
-  '(Opening Task High "CLI constraint work item" "created by the Nix constraint check")' \
+  '(Opening Task High [CLI constraint work item] [created by the Nix constraint check])' \
   >"$workspace/open.out"
 
 "$mind" \
@@ -29,6 +29,6 @@ test -S "$socket"
   >"$workspace/query.out"
 
 grep -Fq '(OpeningReceipt' "$workspace/open.out"
-grep -Fq '"CLI constraint work item"' "$workspace/open.out"
+grep -Fq '[CLI constraint work item]' "$workspace/open.out"
 grep -Fq '(View [' "$workspace/query.out"
-grep -Fq '"CLI constraint work item"' "$workspace/query.out"
+grep -Fq '[CLI constraint work item]' "$workspace/query.out"

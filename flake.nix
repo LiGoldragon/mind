@@ -260,7 +260,7 @@
             ${self.packages.${system}.default}/bin/mind \
               --socket "$socket" \
               --actor operator \
-              '(Opening Task High "Binary check work" "opened by the binary check")' \
+              '(Opening Task High [Binary check work] [opened by the binary check])' \
               > "$workspace/opening.out"
             grep -F '(OpeningReceipt' "$workspace/opening.out"
 
@@ -269,7 +269,7 @@
               --actor operator \
               '(Query (Open) 10)' \
               > "$workspace/query.out"
-            grep -F '"Binary check work"' "$workspace/query.out"
+            grep -F '[Binary check work]' "$workspace/query.out"
 
             touch "$out"
           '';

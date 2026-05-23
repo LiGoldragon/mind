@@ -39,7 +39,7 @@ impl CliFixture {
 #[test]
 fn nota_opening_text_maps_to_signal_request() {
     let request =
-        persona_mind::MindTextRequest::from_nota("(Opening Task High \"Open work\" \"body\")")
+        persona_mind::MindTextRequest::from_nota("(Opening Task High [Open work] [body])")
             .expect("text decodes")
             .into_request()
             .expect("request maps to signal");
@@ -141,7 +141,7 @@ async fn mind_cli_opens_and_queries_work_item_through_daemon() {
         endpoint.as_path().to_str().expect("socket path utf8"),
         "--actor",
         "operator",
-        "(Opening Task High \"Open CLI-visible work\" \"created through mind text\")",
+        "(Opening Task High [Open CLI-visible work] [created through mind text])",
     ])
     .run(&mut opening_output)
     .await
@@ -166,11 +166,11 @@ async fn mind_cli_opens_and_queries_work_item_through_daemon() {
 
     let opening = String::from_utf8(opening_output).expect("opening output utf8");
     assert!(opening.contains("(OpeningReceipt"));
-    assert!(opening.contains("\"Open CLI-visible work\""));
+    assert!(opening.contains("[Open CLI-visible work]"));
 
     let query = String::from_utf8(query_output).expect("query output utf8");
     assert!(query.contains("(View ["));
-    assert!(query.contains("\"Open CLI-visible work\""));
+    assert!(query.contains("[Open CLI-visible work]"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -188,7 +188,7 @@ async fn mind_cli_mutates_work_item_through_daemon() {
         socket,
         "--actor",
         "operator",
-        "(Opening Task High \"Mutate CLI-visible work\" \"created through mind text\")",
+        "(Opening Task High [Mutate CLI-visible work] [created through mind text])",
     ])
     .run(&mut opening_output)
     .await
@@ -200,7 +200,7 @@ async fn mind_cli_mutates_work_item_through_daemon() {
         socket,
         "--actor",
         "designer",
-        &format!("(NoteSubmission (Display {item_display}) \"designer note\")"),
+        &format!("(NoteSubmission (Display {item_display}) [designer note])"),
     ])
     .run(&mut note_output)
     .await
@@ -225,7 +225,7 @@ async fn mind_cli_mutates_work_item_through_daemon() {
         "--actor",
         "operator",
         &format!(
-            "(Link (Display {item_display}) References (Report \"reports/operator/105-command-line-mind-architecture-survey.md\") \"source report\")"
+            "(Link (Display {item_display}) References (Report [reports/operator/105-command-line-mind-architecture-survey.md]) [source report])"
         ),
     ])
     .run(&mut link_output)
@@ -238,7 +238,7 @@ async fn mind_cli_mutates_work_item_through_daemon() {
         socket,
         "--actor",
         "operator",
-        &format!("(StatusChange (Display {item_display}) InProgress \"implementation started\")"),
+        &format!("(StatusChange (Display {item_display}) InProgress [implementation started])"),
     ])
     .run(&mut status_output)
     .await
@@ -285,7 +285,7 @@ async fn mind_cli_mutates_work_item_through_daemon() {
     let query = String::from_utf8(query_output).expect("query output utf8");
     assert!(query.contains("InProgress"));
     assert!(query.contains("primary-mind-text"));
-    assert!(query.contains("\"designer note\""));
+    assert!(query.contains("[designer note]"));
     assert!(query.contains("reports/operator/105-command-line-mind-architecture-survey.md"));
 }
 

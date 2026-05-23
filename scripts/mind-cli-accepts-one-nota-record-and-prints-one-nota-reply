@@ -19,12 +19,12 @@ test -S "$socket"
 "$mind" \
   --socket "$socket" \
   --actor operator \
-  '(Opening Task High "One record" "created by the one-record check")' \
+  '(Opening Task High [One record] [created by the one-record check])' \
   >"$workspace/reply.out"
 
 test "$(wc -l <"$workspace/reply.out")" -eq 1
 grep -Fq '(OpeningReceipt' "$workspace/reply.out"
-grep -Fq '"One record"' "$workspace/reply.out"
+grep -Fq '[One record]' "$workspace/reply.out"
 
 set +e
 "$mind" \

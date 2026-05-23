@@ -29,7 +29,7 @@ start_daemon first
 "$mind" \
   --socket "$socket" \
   --actor operator \
-  '(Opening Task High "Survives restart" "created before daemon restart")' \
+  '(Opening Task High [Survives restart] [created before daemon restart])' \
   >"$workspace/first-opening.out"
 stop_daemon
 
@@ -41,4 +41,4 @@ start_daemon second
   >"$workspace/second-query.out"
 stop_daemon
 
-grep -Fq '"Survives restart"' "$workspace/second-query.out"
+grep -Fq '[Survives restart]' "$workspace/second-query.out"

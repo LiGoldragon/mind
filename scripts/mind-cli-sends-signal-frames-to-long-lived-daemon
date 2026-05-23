@@ -19,7 +19,7 @@ test -S "$socket"
 "$mind" \
   --socket "$socket" \
   --actor operator \
-  '(Opening Task High "Daemon owns state" "sent through signal frames")' \
+  '(Opening Task High [Daemon owns state] [sent through signal frames])' \
   >"$workspace/opening.out"
 
 "$mind" \
@@ -29,4 +29,4 @@ test -S "$socket"
   >"$workspace/query.out"
 
 grep -Fq '(OpeningReceipt' "$workspace/opening.out"
-grep -Fq '"Daemon owns state"' "$workspace/query.out"
+grep -Fq '[Daemon owns state]' "$workspace/query.out"
