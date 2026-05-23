@@ -333,10 +333,10 @@ impl MindTables {
     }
 
     fn subscription_identifier_from_engine(
-        engine_id: sema_engine::SubscriptionIdentifier,
+        engine_identifier: sema_engine::SubscriptionIdentifier,
     ) -> SubscriptionIdentifier {
         SubscriptionIdentifier::new(
-            CompactGraphId::from_zero_based_sequence(engine_id.value().saturating_sub(1))
+            CompactGraphId::from_zero_based_sequence(engine_identifier.value().saturating_sub(1))
                 .into_string(),
         )
     }

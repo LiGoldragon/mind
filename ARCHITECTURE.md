@@ -162,7 +162,7 @@ Refresh decisions; the full channel-choreography policy plane is still
 destination work. That destination plane holds:
 
 - `policy: ChoreographyPolicy` — the live policy that decides grant/deny;
-- a grant table keyed by `ChannelId` (`HashMap<ChannelId, ChannelGrant>`)
+- a grant table keyed by `ChannelIdentifier` (`HashMap<ChannelIdentifier, ChannelGrant>`)
   carrying the active grants;
 - an adjudication log of accepted/denied requests for audit and replay.
 
