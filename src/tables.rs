@@ -10,7 +10,7 @@ use sema_engine::{
 };
 use signal_persona_mind::{
     ActorName, RecordId, Relation, RelationId, SubmitRelation, SubmitThought, SubscribeRelations,
-    SubscribeThoughts, SubscriptionId, Thought, TimestampNanos,
+    SubscribeThoughts, SubscriptionIdentifier, Thought, TimestampNanos,
 };
 
 use crate::actors::subscription::{
@@ -38,13 +38,13 @@ pub struct MindTables {
 
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StoredThoughtSubscription {
-    pub subscription: SubscriptionId,
+    pub subscription: SubscriptionIdentifier,
     pub filter: signal_persona_mind::ThoughtFilter,
 }
 
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StoredRelationSubscription {
-    pub subscription: SubscriptionId,
+    pub subscription: SubscriptionIdentifier,
     pub filter: signal_persona_mind::RelationFilter,
 }
 
@@ -275,7 +275,7 @@ impl MindTables {
             .map(StoredThought::into_record)
             .collect();
         let record = StoredThoughtSubscription {
-            subscription: Self::subscription_id_from_engine(receipt.handle().id()),
+            subscription: Self::subscription_identifier_from_engine(receipt.handle().id()),
             filter,
         };
         self.engine.storage_kernel().write(|transaction| {
@@ -307,7 +307,7 @@ impl MindTables {
             .map(StoredRelation::into_record)
             .collect();
         let record = StoredRelationSubscription {
-            subscription: Self::subscription_id_from_engine(receipt.handle().id()),
+            subscription: Self::subscription_identifier_from_engine(receipt.handle().id()),
             filter,
         };
         self.engine.storage_kernel().write(|transaction| {
@@ -332,8 +332,10 @@ impl MindTables {
             })
     }
 
-    fn subscription_id_from_engine(engine_id: sema_engine::SubscriptionId) -> SubscriptionId {
-        SubscriptionId::new(
+    fn subscription_identifier_from_engine(
+        engine_id: sema_engine::SubscriptionIdentifier,
+    ) -> SubscriptionIdentifier {
+        SubscriptionIdentifier::new(
             CompactGraphId::from_zero_based_sequence(engine_id.value().saturating_sub(1))
                 .into_string(),
         )
@@ -352,7 +354,7 @@ impl GraphSubscriptionPublisher {
 
     fn publish_thought(
         &self,
-        subscription: SubscriptionId,
+        subscription: SubscriptionIdentifier,
         filter: signal_persona_mind::ThoughtFilter,
         thought: Thought,
     ) -> std::result::Result<(), SinkError> {
@@ -368,7 +370,7 @@ impl GraphSubscriptionPublisher {
 
     fn publish_relation(
         &self,
-        subscription: SubscriptionId,
+        subscription: SubscriptionIdentifier,
         filter: signal_persona_mind::RelationFilter,
         relation: Relation,
     ) -> std::result::Result<(), SinkError> {
@@ -493,7 +495,7 @@ impl SubscriptionSink<StoredThought> for ThoughtSubscriptionSink {
             EngineSubscriptionEvent::Delta(delta) => {
                 self.ensure_table(delta.table())?;
                 self.publisher.publish_thought(
-                    MindTables::subscription_id_from_engine(delta.handle().id()),
+                    MindTables::subscription_identifier_from_engine(delta.handle().id()),
                     self.filter.clone(),
                     delta.record().clone().into_record(),
                 )
@@ -518,7 +520,7 @@ impl SubscriptionSink<StoredRelation> for RelationSubscriptionSink {
             EngineSubscriptionEvent::Delta(delta) => {
                 self.ensure_table(delta.table())?;
                 self.publisher.publish_relation(
-                    MindTables::subscription_id_from_engine(delta.handle().id()),
+                    MindTables::subscription_identifier_from_engine(delta.handle().id()),
                     self.filter.clone(),
                     delta.record().clone().into_record(),
                 )
@@ -572,7 +574,6 @@ impl StoreClock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use signal_core::SignalVerb;
     use signal_persona_mind::{
         ByThoughtKind, GoalBody, GoalScope, RelationKind, SubmitRelation, SubmitThought, TextBody,
         ThoughtBody, ThoughtFilter, ThoughtKind, WorkspaceGoal,
@@ -659,7 +660,7 @@ mod tests {
         assert_eq!(records, vec![thought.clone()]);
         assert_eq!(log.len(), 1);
         let head = log[0].operations().head();
-        assert_eq!(head.verb(), SignalVerb::Assert);
+        assert_eq!(head.operation().as_record_head(), "Assert");
         assert_eq!(head.table_name(), "thoughts");
         assert_eq!(head.key().map(RecordKey::as_str), Some(thought.id.as_str()));
     }

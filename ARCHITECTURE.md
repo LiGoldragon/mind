@@ -285,7 +285,7 @@ Current implementation:
   with consumer-driven demand lives in §3.
 - Subscription close follows the `signal_channel!` streaming grammar:
   `Subscribe` opens the stream, the consumer sends a typed
-  `Retract SubscriptionRetraction(SubscriptionId)` request to close,
+  `Retract SubscriptionRetraction(SubscriptionIdentifier)` request to close,
   and the producer returns `MindReply::SubscriptionRetracted` as the
   final acknowledgement before the stream ends. Both the request-side
   retract verb and the reply-side acknowledgement are first-class. The

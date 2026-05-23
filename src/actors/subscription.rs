@@ -2,7 +2,8 @@ use kameo::actor::{Actor, ActorRef};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
 use signal_persona_mind::{
-    MindDelta, Relation, RelationFilter, SubscriptionEvent, SubscriptionId, Thought, ThoughtFilter,
+    MindDelta, Relation, RelationFilter, SubscriptionEvent, SubscriptionIdentifier, Thought,
+    ThoughtFilter,
 };
 
 use crate::graph::{RelationSelector, ThoughtSelector};
@@ -31,13 +32,13 @@ pub(super) struct BindStore {
 }
 
 pub(crate) struct PublishThoughtDelta {
-    subscription: SubscriptionId,
+    subscription: SubscriptionIdentifier,
     filter: ThoughtFilter,
     thought: Thought,
 }
 
 pub(crate) struct PublishRelationDelta {
-    subscription: SubscriptionId,
+    subscription: SubscriptionIdentifier,
     filter: RelationFilter,
     relation: Relation,
 }
@@ -127,7 +128,7 @@ impl BindStore {
 
 impl PublishThoughtDelta {
     pub(crate) fn new(
-        subscription: SubscriptionId,
+        subscription: SubscriptionIdentifier,
         filter: ThoughtFilter,
         thought: Thought,
     ) -> Self {
@@ -141,7 +142,7 @@ impl PublishThoughtDelta {
 
 impl PublishRelationDelta {
     pub(crate) fn new(
-        subscription: SubscriptionId,
+        subscription: SubscriptionIdentifier,
         filter: RelationFilter,
         relation: Relation,
     ) -> Self {
