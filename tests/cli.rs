@@ -83,7 +83,7 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
     };
     assert_eq!(
         note.item,
-        signal_persona_mind::ItemReference::Display(signal_persona_mind::DisplayId::new(
+        signal_persona_mind::ItemReference::Display(signal_persona_mind::DisplayIdentifier::new(
             item_display
         ))
     );

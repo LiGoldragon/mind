@@ -771,8 +771,8 @@ async fn typed_relation_rejects_missing_thought_endpoint() {
     let response = fixture
         .submit(MindRequest::SubmitRelation(SubmitRelation {
             kind: signal_persona_mind::RelationKind::Supports,
-            source: signal_persona_mind::RecordId::new("missing-source"),
-            target: signal_persona_mind::RecordId::new("missing-target"),
+            source: signal_persona_mind::RecordIdentifier::new("missing-source"),
+            target: signal_persona_mind::RecordIdentifier::new("missing-target"),
             note: None,
         }))
         .await;

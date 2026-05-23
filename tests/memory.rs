@@ -3,7 +3,7 @@ use signal_persona_mind::{
     AliasAssignment, ByThoughtKind, EdgeKind, EdgeTarget, Event, ExternalAlias, ExternalReference,
     ItemKind, ItemReference, ItemStatus, Link, LinkTarget, Magnitude, MindReply, MindRequest,
     NoteSubmission, Opening, Query, QueryKind, QueryLimit, QueryThoughts, RejectionReason,
-    ReportPath, StableItemId, StatusChange, TextBody, ThoughtFilter, Title, View,
+    ReportPath, StableItemIdentifier, StatusChange, TextBody, ThoughtFilter, Title, View,
 };
 
 struct Fixture {
@@ -17,7 +17,7 @@ impl Fixture {
         }
     }
 
-    fn open_task(&mut self, title: &str) -> StableItemId {
+    fn open_task(&mut self, title: &str) -> StableItemIdentifier {
         match self.dispatch(MindRequest::Opening(Opening {
             kind: ItemKind::Task,
             priority: Magnitude::Medium,
@@ -29,7 +29,7 @@ impl Fixture {
         }
     }
 
-    fn open_decision(&mut self, title: &str) -> StableItemId {
+    fn open_decision(&mut self, title: &str) -> StableItemIdentifier {
         match self.dispatch(MindRequest::Opening(Opening {
             kind: ItemKind::Decision,
             priority: Magnitude::High,
@@ -41,7 +41,7 @@ impl Fixture {
         }
     }
 
-    fn add_note(&mut self, item: &StableItemId, body: &str) {
+    fn add_note(&mut self, item: &StableItemIdentifier, body: &str) {
         match self.dispatch(MindRequest::NoteSubmission(NoteSubmission {
             item: ItemReference::Stable(item.clone()),
             body: TextBody::new(body),
@@ -51,7 +51,12 @@ impl Fixture {
         }
     }
 
-    fn link_item(&mut self, source: &StableItemId, kind: EdgeKind, target: &StableItemId) {
+    fn link_item(
+        &mut self,
+        source: &StableItemIdentifier,
+        kind: EdgeKind,
+        target: &StableItemIdentifier,
+    ) {
         match self.dispatch(MindRequest::Link(Link {
             source: ItemReference::Stable(source.clone()),
             kind,
@@ -63,7 +68,7 @@ impl Fixture {
         }
     }
 
-    fn link_report(&mut self, source: &StableItemId, path: &str) {
+    fn link_report(&mut self, source: &StableItemIdentifier, path: &str) {
         match self.dispatch(MindRequest::Link(Link {
             source: ItemReference::Stable(source.clone()),
             kind: EdgeKind::References,
@@ -75,7 +80,7 @@ impl Fixture {
         }
     }
 
-    fn change_status(&mut self, item: &StableItemId, status: ItemStatus) {
+    fn change_status(&mut self, item: &StableItemIdentifier, status: ItemStatus) {
         match self.dispatch(MindRequest::StatusChange(StatusChange {
             item: ItemReference::Stable(item.clone()),
             status,
@@ -86,7 +91,7 @@ impl Fixture {
         }
     }
 
-    fn add_alias(&mut self, item: &StableItemId, alias: &str) {
+    fn add_alias(&mut self, item: &StableItemIdentifier, alias: &str) {
         match self.dispatch(MindRequest::AliasAssignment(AliasAssignment {
             item: ItemReference::Stable(item.clone()),
             alias: ExternalAlias::new(alias),
@@ -221,7 +226,7 @@ fn report_reference_is_an_edge_not_an_item_kind() {
 #[test]
 fn unknown_item_rejects_mutations_and_queries() {
     let mut fixture = Fixture::new();
-    let missing = StableItemId::new("missing-item");
+    let missing = StableItemIdentifier::new("missing-item");
 
     assert_eq!(
         fixture.rejected(MindRequest::NoteSubmission(NoteSubmission {

@@ -1,9 +1,9 @@
 use signal_persona_mind::{
     ByRelationKind, ByRelationSource, ByRelationTarget, ByThoughtAuthor, ByThoughtKind,
-    ByThoughtTimeRange, CompositeRelationFilter, CompositeThoughtFilter, DisplayId, MindReply,
-    MindRequestUnimplemented, MindUnimplementedReason, QueryRelations, QueryThoughts, Relation,
-    RelationCommitted, RelationFilter, RelationKind, RelationList, SubmitRelation, SubmitThought,
-    SubscriptionAccepted, Thought, ThoughtCommitted, ThoughtFilter, ThoughtList,
+    ByThoughtTimeRange, CompositeRelationFilter, CompositeThoughtFilter, DisplayIdentifier,
+    MindReply, MindRequestUnimplemented, MindUnimplementedReason, QueryRelations, QueryThoughts,
+    Relation, RelationCommitted, RelationFilter, RelationKind, RelationList, SubmitRelation,
+    SubmitThought, SubscriptionAccepted, Thought, ThoughtCommitted, ThoughtFilter, ThoughtList,
 };
 
 use crate::{MindEnvelope, MindTables, Result};
@@ -82,7 +82,7 @@ impl<'tables> MindGraphLedger<'tables> {
     ) -> Result<MindReply> {
         let thought = self.tables.append_thought(actor, submission)?;
         Ok(MindReply::ThoughtCommitted(ThoughtCommitted {
-            display: DisplayId::new(thought.id.as_str()),
+            display: DisplayIdentifier::new(thought.id.as_str()),
             record: thought.id,
             occurred_at: thought.occurred_at,
         }))
@@ -228,7 +228,7 @@ impl ThoughtSelector {
     fn accepts_membership(
         &self,
         thought: &Thought,
-        container: &signal_persona_mind::RecordId,
+        container: &signal_persona_mind::RecordIdentifier,
     ) -> bool {
         thought.id == *container
             || self.relations.iter().any(|relation| {

@@ -9,8 +9,8 @@ use sema_engine::{
     TableDescriptor, TableName, TableReference,
 };
 use signal_persona_mind::{
-    ActorName, RecordId, Relation, RelationId, SubmitRelation, SubmitThought, SubscribeRelations,
-    SubscribeThoughts, SubscriptionIdentifier, Thought, TimestampNanos,
+    ActorName, RecordIdentifier, Relation, RelationId, SubmitRelation, SubmitThought,
+    SubscribeRelations, SubscribeThoughts, SubscriptionIdentifier, Thought, TimestampNanos,
 };
 
 use crate::actors::subscription::{
@@ -317,7 +317,7 @@ impl MindTables {
         Ok(OpenedRelationSubscription::new(record, initial))
     }
 
-    fn read_thought(&self, record: &RecordId) -> Result<Thought> {
+    fn read_thought(&self, record: &RecordIdentifier) -> Result<Thought> {
         self.engine
             .match_records(QueryPlan::key(
                 self.thoughts,
@@ -406,8 +406,8 @@ impl<'engine> GraphIdMint<'engine> {
         Self { engine }
     }
 
-    fn next_record_id(&self) -> Result<RecordId> {
-        Ok(RecordId::new(self.next_token()?))
+    fn next_record_id(&self) -> Result<RecordIdentifier> {
+        Ok(RecordIdentifier::new(self.next_token()?))
     }
 
     fn next_relation_id(&self) -> Result<RelationId> {

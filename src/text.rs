@@ -216,10 +216,10 @@ impl ItemReferenceText {
     fn into_contract(self) -> contract::ItemReference {
         match self {
             Self::Stable(stable) => {
-                contract::ItemReference::Stable(contract::StableItemId::new(stable.id))
+                contract::ItemReference::Stable(contract::StableItemIdentifier::new(stable.id))
             }
             Self::Display(display) => {
-                contract::ItemReference::Display(contract::DisplayId::new(display.id))
+                contract::ItemReference::Display(contract::DisplayIdentifier::new(display.id))
             }
             Self::Alias(alias) => {
                 contract::ItemReference::Alias(contract::ExternalAlias::new(alias.alias))
@@ -797,7 +797,7 @@ impl NotaDecode for MindTextRequest {
 #[derive(NotaRecord, Debug, Clone, PartialEq, Eq)]
 pub struct Item {
     pub id: String,
-    pub display_id: String,
+    pub display_identifier: String,
     pub aliases: Vec<String>,
     pub kind: ItemKindText,
     pub status: ItemStatusText,
@@ -810,7 +810,7 @@ impl Item {
     fn from_contract(item: contract::Item) -> Self {
         Self {
             id: item.id.as_str().to_string(),
-            display_id: item.display_id.as_str().to_string(),
+            display_identifier: item.display_identifier.as_str().to_string(),
             aliases: item
                 .aliases
                 .into_iter()

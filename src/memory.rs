@@ -8,11 +8,11 @@ use std::path::Path;
 
 use crate::MindEnvelope;
 use signal_persona_mind::{
-    ActorName, AliasAddedEvent, AliasAssignment, DisplayId, Edge, EdgeAddedEvent, EdgeKind,
+    ActorName, AliasAddedEvent, AliasAssignment, DisplayIdentifier, Edge, EdgeAddedEvent, EdgeKind,
     EdgeTarget, Event, EventHeader, EventSeq, ExternalAlias, Item, ItemKind, ItemOpenedEvent,
     ItemReference, ItemStatus, Link, LinkTarget, MindReply, MindRequest, Note, NoteAddedEvent,
     NoteSubmission, Opening, OpeningReceipt, OperationId, Query, QueryKind, QueryLimit, Rejection,
-    RejectionReason, StableItemId, StatusChange, StatusChangedEvent, View,
+    RejectionReason, StableItemIdentifier, StatusChange, StatusChangedEvent, View,
 };
 
 pub struct MemoryState {
@@ -138,8 +138,8 @@ impl MemoryGraph {
         let id = ShortIdMint::new(self.next_item);
         let header = self.next_header(actor);
         let item = Item {
-            id: id.stable_item_id(),
-            display_id: id.display_id(),
+            id: id.stable_item_identifier(),
+            display_identifier: id.display_identifier(),
             aliases: Vec::new(),
             kind: opening.kind,
             status: ItemStatus::Open,
@@ -326,7 +326,7 @@ impl MemoryGraph {
         }
     }
 
-    fn item_view(&self, item: &StableItemId, limit: usize) -> View {
+    fn item_view(&self, item: &StableItemIdentifier, limit: usize) -> View {
         self.view_for_items(
             self.items
                 .iter()
@@ -341,7 +341,7 @@ impl MemoryGraph {
         let item_ids = items
             .iter()
             .map(|item| item.id.clone())
-            .collect::<Vec<StableItemId>>();
+            .collect::<Vec<StableItemIdentifier>>();
 
         View {
             edges: self.edges_for_items(&item_ids),
@@ -351,7 +351,7 @@ impl MemoryGraph {
         }
     }
 
-    fn edges_for_items(&self, item_ids: &[StableItemId]) -> Vec<Edge> {
+    fn edges_for_items(&self, item_ids: &[StableItemIdentifier]) -> Vec<Edge> {
         self.edges
             .iter()
             .filter(|edge| {
@@ -365,7 +365,7 @@ impl MemoryGraph {
             .collect()
     }
 
-    fn notes_for_items(&self, item_ids: &[StableItemId]) -> Vec<Note> {
+    fn notes_for_items(&self, item_ids: &[StableItemIdentifier]) -> Vec<Note> {
         self.notes
             .iter()
             .filter(|note| item_ids.contains(&note.item))
@@ -373,7 +373,7 @@ impl MemoryGraph {
             .collect()
     }
 
-    fn item_is_ready(&self, item: &StableItemId) -> bool {
+    fn item_is_ready(&self, item: &StableItemIdentifier) -> bool {
         self.edges.iter().all(|edge| {
             if edge.kind != EdgeKind::DependsOn || &edge.source != item {
                 return true;
@@ -396,13 +396,13 @@ impl MemoryGraph {
         }
     }
 
-    fn resolve_item(&self, reference: &ItemReference) -> Option<StableItemId> {
+    fn resolve_item(&self, reference: &ItemReference) -> Option<StableItemIdentifier> {
         match reference {
             ItemReference::Stable(id) => self.item_by_id(id).map(|item| item.id.clone()),
-            ItemReference::Display(display_id) => self
+            ItemReference::Display(display_identifier) => self
                 .items
                 .iter()
-                .find(|item| &item.display_id == display_id)
+                .find(|item| &item.display_identifier == display_identifier)
                 .map(|item| item.id.clone()),
             ItemReference::Alias(alias) => self
                 .items
@@ -417,7 +417,7 @@ impl MemoryGraph {
             .and_then(|id| self.items.iter().position(|item| item.id == id))
     }
 
-    fn item_by_id(&self, id: &StableItemId) -> Option<&Item> {
+    fn item_by_id(&self, id: &StableItemIdentifier) -> Option<&Item> {
         self.items.iter().find(|item| &item.id == id)
     }
 
@@ -496,16 +496,16 @@ impl ShortIdMint {
         Self { value }
     }
 
-    fn stable_item_id(&self) -> StableItemId {
-        StableItemId::new(self.token())
+    fn stable_item_identifier(&self) -> StableItemIdentifier {
+        StableItemIdentifier::new(self.token())
     }
 
     fn operation_id(&self) -> OperationId {
         OperationId::new(self.token())
     }
 
-    fn display_id(&self) -> DisplayId {
-        DisplayId::new(self.token())
+    fn display_identifier(&self) -> DisplayIdentifier {
+        DisplayIdentifier::new(self.token())
     }
 
     fn token(&self) -> String {
