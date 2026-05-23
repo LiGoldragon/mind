@@ -9,7 +9,7 @@ use sema_engine::{
     TableDescriptor, TableName, TableReference,
 };
 use signal_persona_mind::{
-    ActorName, RecordIdentifier, Relation, RelationId, SubmitRelation, SubmitThought,
+    ActorName, RecordIdentifier, Relation, RelationIdentifier, SubmitRelation, SubmitThought,
     SubscribeRelations, SubscribeThoughts, SubscriptionIdentifier, Thought, TimestampNanos,
 };
 
@@ -336,8 +336,10 @@ impl MindTables {
         engine_identifier: sema_engine::SubscriptionIdentifier,
     ) -> SubscriptionIdentifier {
         SubscriptionIdentifier::new(
-            CompactGraphId::from_zero_based_sequence(engine_identifier.value().saturating_sub(1))
-                .into_string(),
+            CompactGraphIdentifier::from_zero_based_sequence(
+                engine_identifier.value().saturating_sub(1),
+            )
+            .into_string(),
         )
     }
 }
@@ -410,20 +412,20 @@ impl<'engine> GraphIdMint<'engine> {
         Ok(RecordIdentifier::new(self.next_token()?))
     }
 
-    fn next_relation_id(&self) -> Result<RelationId> {
-        Ok(RelationId::new(self.next_token()?))
+    fn next_relation_id(&self) -> Result<RelationIdentifier> {
+        Ok(RelationIdentifier::new(self.next_token()?))
     }
 
     fn next_token(&self) -> Result<String> {
         let next_snapshot = self.engine.latest_snapshot()?.next();
-        Ok(
-            CompactGraphId::from_zero_based_sequence(next_snapshot.value().saturating_sub(1))
-                .into_string(),
+        Ok(CompactGraphIdentifier::from_zero_based_sequence(
+            next_snapshot.value().saturating_sub(1),
         )
+        .into_string())
     }
 }
 
-struct CompactGraphId {
+struct CompactGraphIdentifier {
     value: u64,
 }
 
@@ -529,7 +531,7 @@ impl SubscriptionSink<StoredRelation> for RelationSubscriptionSink {
     }
 }
 
-impl CompactGraphId {
+impl CompactGraphIdentifier {
     fn from_zero_based_sequence(value: u64) -> Self {
         Self { value }
     }

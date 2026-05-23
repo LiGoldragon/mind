@@ -11,8 +11,8 @@ use signal_persona_mind::{
     ActorName, AliasAddedEvent, AliasAssignment, DisplayIdentifier, Edge, EdgeAddedEvent, EdgeKind,
     EdgeTarget, Event, EventHeader, EventSeq, ExternalAlias, Item, ItemKind, ItemOpenedEvent,
     ItemReference, ItemStatus, Link, LinkTarget, MindReply, MindRequest, Note, NoteAddedEvent,
-    NoteSubmission, Opening, OpeningReceipt, OperationId, Query, QueryKind, QueryLimit, Rejection,
-    RejectionReason, StableItemIdentifier, StatusChange, StatusChangedEvent, View,
+    NoteSubmission, Opening, OpeningReceipt, OperationIdentifier, Query, QueryKind, QueryLimit,
+    Rejection, RejectionReason, StableItemIdentifier, StatusChange, StatusChangedEvent, View,
 };
 
 pub struct MemoryState {
@@ -432,7 +432,7 @@ impl MemoryGraph {
         self.next_operation += 1;
         EventHeader {
             event: EventSeq::new(self.next_event),
-            operation: ShortIdMint::new(self.next_operation).operation_id(),
+            operation: ShortIdMint::new(self.next_operation).operation_identifier(),
             actor: actor.clone(),
         }
     }
@@ -500,8 +500,8 @@ impl ShortIdMint {
         StableItemIdentifier::new(self.token())
     }
 
-    fn operation_id(&self) -> OperationId {
-        OperationId::new(self.token())
+    fn operation_identifier(&self) -> OperationIdentifier {
+        OperationIdentifier::new(self.token())
     }
 
     fn display_identifier(&self) -> DisplayIdentifier {

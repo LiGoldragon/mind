@@ -17,7 +17,7 @@ use signal_persona::{
     ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion, Presence,
 };
 use signal_persona_mind::{
-    ActiveClaim, ActorName, Alternative, AlternativeId, ByRelationKind, ByThoughtKind,
+    ActiveClaim, ActorName, Alternative, AlternativeIdentifier, ByRelationKind, ByThoughtKind,
     ClaimActivity, ClaimBody, ClaimScope, DecisionBody, GoalBody, GoalScope, ItemKind, Magnitude,
     MindFrame as Frame, MindFrameBody as FrameBody, MindReply, MindRequest, NoteToSelf,
     ObservationBody, ObservationSummary, Opening, PathClaimScope, Query, QueryKind, QueryLimit,
@@ -586,12 +586,12 @@ async fn mind_typed_graph_handles_goal_claim_observation_decision_scenario() {
             body: ThoughtBody::Decision(DecisionBody {
                 question: TextBody::new("Where should workspace coordination live?"),
                 alternatives: vec![Alternative {
-                    id: AlternativeId::new("mind"),
+                    id: AlternativeIdentifier::new("mind"),
                     description: TextBody::new("Use persona-mind as the central graph"),
                     pros: vec![TextBody::new("typed state")],
                     cons: vec![TextBody::new("prototype still young")],
                 }],
-                chosen: AlternativeId::new("mind"),
+                chosen: AlternativeIdentifier::new("mind"),
                 criteria: vec![TextBody::new("typed daemon state")],
                 rationale: TextBody::new("Mind replaces lock files and BEADS over time"),
             }),
