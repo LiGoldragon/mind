@@ -54,7 +54,7 @@ pub struct ActorManifest {
 }
 
 impl ActorManifest {
-    pub fn persona_mind_phase_one() -> Self {
+    pub fn mind_phase_one() -> Self {
         let root = ActorResidency::Root;
         let long_lived = ActorResidency::LongLived;
         let trace_phase = ActorResidency::TracePhase;

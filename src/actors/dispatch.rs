@@ -1,9 +1,7 @@
 use kameo::actor::{Actor, ActorRef};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
-use signal_persona_mind::{
-    MindReply, MindRequest, MindRequestUnimplemented, MindUnimplementedReason,
-};
+use signal_mind::{MindReply, MindRequest, MindRequestUnimplemented, MindUnimplementedReason};
 
 use crate::{MindEnvelope, Result as CrateResult};
 

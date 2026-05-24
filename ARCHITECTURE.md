@@ -1,4 +1,4 @@
-# persona-mind — architecture
+# mind — architecture
 
 *Central Kameo actor system for Persona mind state, work memory, and the
 command-line mind.*
@@ -12,11 +12,11 @@ command-line mind.*
 > Unix-socket Signal-frame daemon/client transport around `MindRoot`. The
 > `mind` binary can run a daemon and submit NOTA work-graph
 > opening/note/link/status/alias/query requests and full
-> `signal-persona-mind::MindRequest` graph requests through that daemon.
+> `signal-mind::MindRequest` graph requests through that daemon.
 
 > **Scope.** "Sema" in this document is today's `sema` library (typed
 > storage kernel). The eventual `Sema` is
-> broader (universal medium for meaning); today's persona-mind is a
+> broader (universal medium for meaning); today's mind is a
 > realization step on the eventually-self-hosting stack, built rightly
 > for the scope it serves now. See `~/primary/ESSENCE.md` §"Today and
 > eventually — different things, different names".
@@ -25,7 +25,7 @@ command-line mind.*
 
 ## 0 · TL;DR
 
-`persona-mind` owns Persona's central workspace state: work items, typed
+`mind` owns Persona's central workspace state: work items, typed
 Thought and Relation records, notes, dependencies, decisions, aliases, event
 history, subscriptions, channel choreography policy, and ready/blocked views.
 Ordinary role claims, handoffs, and activity live in `persona-orchestrate`.
@@ -34,12 +34,12 @@ coordination mechanism that will be retired by the orchestrate/mind stack.
 BEADS entries may be imported as history/aliases, but BEADS is not a live
 backend.
 
-All public operations enter through `signal-persona-mind` records. The
+All public operations enter through `signal-mind` records. The
 command-line surface is the `mind` binary: exactly one NOTA request record in,
 exactly one NOTA reply record out. The binary is a thin client, not a second
 command language. It decodes NOTA into `MindRequest`, resolves caller identity,
 wraps the request in a Signal frame, sends that frame to a long-lived
-`persona-mind` daemon, and prints the daemon's NOTA `MindReply`.
+`mind` daemon, and prints the daemon's NOTA `MindReply`.
 
 The daemon owns `MindRoot` for its process lifetime. Tests and early
 scaffolding use `ActorRef<MindRoot>` directly; there is no separate in-process
@@ -84,8 +84,8 @@ The crate exposes:
 | `MindTextRequest` / `MindTextReply` | Current NOTA projection for work-graph request/reply records plus full contract requests. |
 | `mind` binary | Daemon-backed command-line mind for central mind state. |
 
-The public protocol is not defined here. `signal-persona-mind` owns the
-request and reply records. `persona-mind` consumes those records and applies
+The public protocol is not defined here. `signal-mind` owns the
+request and reply records. `mind` consumes those records and applies
 state transitions.
 
 ## 2 · Command-line Mind
@@ -93,7 +93,7 @@ state transitions.
 The command-line mind is a thin client boundary over a long-lived daemon. The
 daemon owns the runtime path. The current crate has a Unix-socket daemon,
 Signal-frame transport, and a NOTA projection for work-graph operations. The
-CLI also accepts a full `signal-persona-mind::MindRequest` NOTA record when the
+CLI also accepts a full `signal-mind::MindRequest` NOTA record when the
 convenience projection has no shorthand.
 
 Command-line interfaces in this workspace interact with daemons. The
@@ -277,7 +277,7 @@ Current implementation:
   handle.
 - `SubscriptionSupervisor` receives post-commit graph deltas from
   `sema-engine` subscription sinks and publishes typed
-  `signal-persona-mind::SubscriptionEvent` records for matching durable
+  `signal-mind::SubscriptionEvent` records for matching durable
   filters. Thought filters are evaluated against the current relation snapshot
   through the store actor path; relation filters are evaluated directly. The
   in-actor delta buffer is transitional; the destination split into
@@ -315,13 +315,13 @@ graph TB
 ```
 
 The durable store is one workspace-local `mind.redb` owned by
-`persona-mind`. `sema-engine` owns the single `sema::Sema` handle used by
+`mind`. `sema-engine` owns the single `sema::Sema` handle used by
 `MindTables`; migrated graph records use engine verbs, and unmigrated
 component-local tables temporarily use `Engine::storage_kernel()` so the
 process does not open two redb handles to the same file. The mind-specific
-Sema layer and table declarations belong to `persona-mind` because mind owns
+Sema layer and table declarations belong to `mind` because mind owns
 this state. There is no shared `persona-sema` layer for mind state. Other
-components talk to mind through `signal-persona-mind`.
+components talk to mind through `signal-mind`.
 
 Recommended tables:
 
@@ -347,7 +347,7 @@ state optimized for queries.
 Ordinary role claims, handoffs, and activity moved to `persona-orchestrate`.
 The corresponding wire records moved to `signal-persona-orchestrate`.
 
-`persona-mind` still owns central state that orchestrate may read or propose
+`mind` still owns central state that orchestrate may read or propose
 against: typed work records, typed thoughts and relations, durable graph
 subscriptions, and channel choreography policy. Do not add lock-file
 projections or reintroduce ordinary role/activity tables here; migration away
@@ -413,7 +413,7 @@ mode, and proceeds.
 
 ## 6.6 · Authority direction — `Mutate` flows down-tree
 
-`persona-mind` is the authority root of the Persona control plane. The
+`mind` is the authority root of the Persona control plane. The
 verbs it *issues outbound* and the verbs it *receives inbound* are not
 symmetric:
 
@@ -491,7 +491,7 @@ This repo owns:
 
 This repo does not own:
 
-- `signal-persona-mind` contract records;
+- `signal-mind` contract records;
 - ordinary role claim/release/handoff/activity behavior, which belongs to
   `persona-orchestrate`;
 - router delivery or harness messaging;
@@ -508,10 +508,10 @@ This repo does not own:
 - CLI constraint tests run the production `mind` binary through Nix.
 - CLI constraint tests start a real daemon when the constraint requires
   runtime state.
-- The `mind` CLI sends Signal frames to the long-lived `persona-mind` daemon;
+- The `mind` CLI sends Signal frames to the long-lived `mind` daemon;
   it does not own `MindRoot`.
 - The `mind` CLI supports work-graph opening/note/link/status/alias/query text
-  records and full `signal-persona-mind::MindRequest` NOTA records.
+  records and full `signal-mind::MindRequest` NOTA records.
 - `MindClient` sends one length-prefixed Signal request frame to the daemon and
   expects one length-prefixed Signal reply frame back.
 - `MindClient` supplies caller identity through Signal auth, not through the
@@ -545,7 +545,7 @@ This repo does not own:
   records are rejected before persistence.
 - `SubmitRelation` must reference existing thought IDs; missing endpoints are
   rejected before persistence.
-- `SubmitRelation` must pass the `signal-persona-mind` relation
+- `SubmitRelation` must pass the `signal-mind` relation
   endpoint validator; runtime-local relation folklore is not accepted.
 - `Authored` relations must point from an identity Reference Thought to the
   authored Thought; file/document/URL references cannot author graph records.
@@ -563,7 +563,7 @@ This repo does not own:
   replying.
 - Typed graph subscription registration, initial snapshots, and post-commit
   delta delivery through `SubscriptionSupervisor` are implemented.
-- `MindRequest` and `MindReply` come from `signal-persona-mind`; the CLI does
+- `MindRequest` and `MindReply` come from `signal-mind`; the CLI does
   not define a parallel command vocabulary.
 - All public state operations enter the actor system as one `MindEnvelope`.
 - Caller identity, time, event sequence, operation IDs, stable IDs, and display
@@ -581,7 +581,7 @@ This repo does not own:
   belong to `persona-orchestrate`.
 - BEADS import creates aliases or external references only; there is no live
   BEADS bridge.
-- Lock files are outside the implementation; `persona-mind` replaces them
+- Lock files are outside the implementation; `mind` replaces them
   instead of projecting them.
 
 ## 9 · Invariants
@@ -589,7 +589,7 @@ This repo does not own:
 - Every public state operation enters as one `MindEnvelope`.
 - The command-line surface accepts one NOTA request record and prints one NOTA
   reply record.
-- `MindRequest` and `MindReply` come from `signal-persona-mind`; the CLI does
+- `MindRequest` and `MindReply` come from `signal-mind`; the CLI does
   not define a parallel command vocabulary.
 - Actor identity, time, event sequence, operation IDs, and display IDs are
   minted by infrastructure/store actors, not by request payloads.
@@ -617,7 +617,7 @@ constraints:
 | `mind-cli-opens-and-queries-work-item-through-daemon` | work-graph text crosses the daemon path and returns typed NOTA replies. |
 | `mind-store-survives-process-restart` | durable state survives daemon restart on the same `mind.redb`. |
 | `mind_cli_accepts_one_nota_record_and_prints_one_nota_reply` | command surface shape in Rust fixtures. |
-| `mind_cli_uses_signal_persona_mind_types` | no duplicate CLI request enum. |
+| `mind_cli_uses_signal_mind_types` | no duplicate CLI request enum. |
 | `mind_cli_opens_and_queries_work_item_through_daemon` | work-graph text crosses the daemon path and returns typed NOTA replies. |
 | `mind_cli_mutates_work_item_through_daemon` | note/link/status/alias work-graph mutations cross the daemon path and return typed NOTA receipts. |
 | `mind_tables_open_stays_inside_the_store_actor_boundary` | `mind.redb` is opened only at the store actor boundary. |
@@ -640,9 +640,9 @@ constraints:
 | `typed_graph_records_cannot_bypass_sema_engine` | typed graph records cannot be inserted through direct `sema` tables. |
 | `graph_subscriptions_cannot_bypass_sema_engine_subscribe` | graph subscriptions cannot mint local cursor IDs or skip `sema-engine` Subscribe. |
 | `graph_subscription_deltas_cannot_stop_at_table_sink` | graph subscription deltas must leave the `sema-engine` sink as typed actor messages and become contract subscription events. |
-| `mind_lockfile_cannot_resolve_two_sema_kernels` | Cargo cannot resolve duplicate `sema` / `signal-frame` sources while `persona-mind` consumes `sema-engine`. |
+| `mind_lockfile_cannot_resolve_two_sema_kernels` | Cargo cannot resolve duplicate `sema` / `signal-frame` sources while `mind` consumes `sema-engine`. |
 | `typed_relation_rejects_missing_thought_endpoint` | relation endpoints are real thought IDs, not unchecked strings. |
-| `relation_kind_rejects_wrong_domain` | relation domain/range rules come from `signal-persona-mind` and reject invalid endpoints before persistence. |
+| `relation_kind_rejects_wrong_domain` | relation domain/range rules come from `signal-mind` and reject invalid endpoints before persistence. |
 | `authored_relation_rejects_non_identity_reference_source` | `Authored` uses the contract endpoint validator and rejects non-identity Reference sources before persistence. |
 | `superseded_thought_excluded_from_current_query` | correction is a `Supersedes` relation and current queries hide the old target. |
 | `supersedes_relation_rejects_different_thought_kinds` | cross-kind supersession is rejected before persistence. |
@@ -655,7 +655,7 @@ constraints:
 | `typed_subscription_registration_uses_sema_engine_catalog` | graph subscription IDs and registrations come from `sema-engine`, not local slot cursors. |
 | `mind_typed_thought_graph_survives_process_restart` | typed thoughts are durable across daemon restart. |
 | `mind_typed_relation_round_trip_uses_committed_thought_ids` | relations use committed thought IDs and survive the daemon path. |
-| `mind_cli_accepts_full_signal_mind_request_for_typed_graph` | CLI can submit a full `signal-persona-mind` request when the convenience text projection has no shorthand. |
+| `mind_cli_accepts_full_signal_mind_request_for_typed_graph` | CLI can submit a full `signal-mind` request when the convenience text projection has no shorthand. |
 | `mind_runs_without_lock_file_projection` | lock files are outside the implementation. |
 | `beads_import_creates_alias_only` | no live BEADS bridge. |
 
@@ -695,4 +695,4 @@ tests/memory.rs            memory/work reducer tests
 
 ## See Also
 
-- `../signal-persona-mind/ARCHITECTURE.md`
+- `../signal-mind/ARCHITECTURE.md`

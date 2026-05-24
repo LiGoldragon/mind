@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use crate::MindEnvelope;
-use signal_persona_mind::{
+use signal_mind::{
     ActorName, AliasAddedEvent, AliasAssignment, DisplayIdentifier, Edge, EdgeAddedEvent, EdgeKind,
     EdgeTarget, Event, EventHeader, EventSeq, ExternalAlias, Item, ItemKind, ItemOpenedEvent,
     ItemReference, ItemStatus, Link, LinkTarget, MindReply, MindRequest, Note, NoteAddedEvent,
@@ -28,7 +28,7 @@ impl MemoryState {
     pub(crate) fn open_with_graph(store: StoreLocation, graph: Option<MemoryGraph>) -> Self {
         Self {
             store,
-            graph: graph.unwrap_or_else(|| MemoryGraph::new(ActorName::new("persona-mind"))),
+            graph: graph.unwrap_or_else(|| MemoryGraph::new(ActorName::new("mind"))),
         }
     }
 
@@ -171,7 +171,7 @@ impl MemoryGraph {
         self.notes.push(event.note.clone());
         self.events.push(Event::NoteAdded(event.clone()));
 
-        MindReply::NoteReceipt(signal_persona_mind::NoteReceipt { event })
+        MindReply::NoteReceipt(signal_mind::NoteReceipt { event })
     }
 
     fn link(&mut self, link: Link, actor: &ActorName) -> MindReply {
@@ -194,7 +194,7 @@ impl MemoryGraph {
         self.edges.push(event.edge.clone());
         self.events.push(Event::EdgeAdded(event.clone()));
 
-        MindReply::LinkReceipt(signal_persona_mind::LinkReceipt { event })
+        MindReply::LinkReceipt(signal_mind::LinkReceipt { event })
     }
 
     fn change_status(&mut self, change: StatusChange, actor: &ActorName) -> MindReply {
@@ -213,7 +213,7 @@ impl MemoryGraph {
 
         self.events.push(Event::StatusChanged(event.clone()));
 
-        MindReply::StatusReceipt(signal_persona_mind::StatusReceipt { event })
+        MindReply::StatusReceipt(signal_mind::StatusReceipt { event })
     }
 
     fn add_alias(&mut self, assignment: AliasAssignment, actor: &ActorName) -> MindReply {
@@ -235,7 +235,7 @@ impl MemoryGraph {
 
         self.events.push(Event::AliasAdded(event.clone()));
 
-        MindReply::AliasReceipt(signal_persona_mind::AliasReceipt { event })
+        MindReply::AliasReceipt(signal_mind::AliasReceipt { event })
     }
 
     fn query(&self, query: Query) -> MindReply {

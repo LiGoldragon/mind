@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::os::unix::fs::PermissionsExt;
 
-use persona_mind::{
+use mind::{
     Error, MindClient, MindDaemon, MindDaemonEndpoint, MindFrameCodec, MindSocketMode,
     StoreLocation, SupervisionFrameCodec, SupervisionListener, SupervisionSocketMode,
 };
@@ -10,13 +10,7 @@ use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Request, RequestPayload,
     RequestRejectionReason, SessionEpoch, SignalVerb,
 };
-use signal_persona::engine_management::{
-    Operation as SupervisionRequest, Query as SupervisionQuery, Reply as SupervisionReply,
-};
-use signal_persona::{
-    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion, Presence,
-};
-use signal_persona_mind::{
+use signal_mind::{
     ActiveClaim, ActorName, Alternative, AlternativeIdentifier, ByRelationKind, ByThoughtKind,
     ClaimActivity, ClaimBody, ClaimScope, DecisionBody, GoalBody, GoalScope, ItemKind, Magnitude,
     MindFrame as Frame, MindFrameBody as FrameBody, MindReply, MindRequest, NoteToSelf,
@@ -24,6 +18,12 @@ use signal_persona_mind::{
     QueryRelations, QueryThoughts, RelationFilter, RelationKind, RoleName, SubmitRelation,
     SubmitThought, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos, Title,
     WirePath, WorkspaceGoal,
+};
+use signal_persona::engine_management::{
+    Operation as SupervisionRequest, Query as SupervisionQuery, Reply as SupervisionReply,
+};
+use signal_persona::{
+    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion, Presence,
 };
 use tokio::net::UnixStream;
 
@@ -38,10 +38,8 @@ impl SocketFixture {
             .duration_since(UNIX_EPOCH)
             .expect("system time")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "persona-mind-{test_name}-{}-{stamp}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("mind-{test_name}-{}-{stamp}", std::process::id()));
         let socket = root.with_extension("sock");
         let store = root.with_extension("redb");
         Self {
@@ -183,7 +181,7 @@ async fn mind_daemon_answers_component_supervision_relation() {
         .write_request(
             &mut stream,
             SupervisionRequest::Announce(Presence {
-                expected_component: ComponentName::new("persona-mind"),
+                expected_component: ComponentName::new("mind"),
                 expected_kind: ComponentKind::Mind,
                 engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
             }),
@@ -196,7 +194,7 @@ async fn mind_daemon_answers_component_supervision_relation() {
             .await
             .expect("component identity reply"),
         SupervisionReply::Identified(identity)
-            if identity.name.as_str() == "persona-mind"
+            if identity.name.as_str() == "mind"
                 && identity.kind == ComponentKind::Mind
     ));
 
@@ -204,7 +202,7 @@ async fn mind_daemon_answers_component_supervision_relation() {
         .write_request(
             &mut stream,
             SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(ComponentName::new(
-                "persona-mind",
+                "mind",
             ))),
         )
         .await
@@ -220,9 +218,7 @@ async fn mind_daemon_answers_component_supervision_relation() {
     supervision_codec
         .write_request(
             &mut stream,
-            SupervisionRequest::Query(SupervisionQuery::HealthStatus(ComponentName::new(
-                "persona-mind",
-            ))),
+            SupervisionRequest::Query(SupervisionQuery::HealthStatus(ComponentName::new("mind"))),
         )
         .await
         .expect("health query writes");
@@ -315,7 +311,7 @@ async fn client_cannot_reply_without_daemon_signal_frame() {
         .await
         .expect_err("missing daemon cannot produce reply");
 
-    assert!(matches!(error, persona_mind::Error::Io(_)));
+    assert!(matches!(error, mind::Error::Io(_)));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -540,7 +536,7 @@ async fn mind_typed_graph_handles_goal_claim_observation_decision_scenario() {
         .submit(MindRequest::SubmitThought(SubmitThought {
             kind: ThoughtKind::Goal,
             body: ThoughtBody::Goal(GoalBody {
-                description: TextBody::new("Replace lock files with persona-mind"),
+                description: TextBody::new("Replace lock files with mind"),
                 scope: GoalScope::Workspace(WorkspaceGoal {
                     workspace: TextBody::new("primary"),
                 }),
@@ -555,7 +551,7 @@ async fn mind_typed_graph_handles_goal_claim_observation_decision_scenario() {
                 claimed_by: ActorName::new("operator"),
                 scope: ClaimScope::Paths(PathClaimScope {
                     paths: vec![
-                        WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-mind")
+                        WirePath::from_absolute_path("/git/github.com/LiGoldragon/mind")
                             .expect("absolute path"),
                     ],
                 }),
@@ -587,7 +583,7 @@ async fn mind_typed_graph_handles_goal_claim_observation_decision_scenario() {
                 question: TextBody::new("Where should workspace coordination live?"),
                 alternatives: vec![Alternative {
                     id: AlternativeIdentifier::new("mind"),
-                    description: TextBody::new("Use persona-mind as the central graph"),
+                    description: TextBody::new("Use mind as the central graph"),
                     pros: vec![TextBody::new("typed state")],
                     cons: vec![TextBody::new("prototype still young")],
                 }],

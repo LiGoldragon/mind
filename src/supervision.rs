@@ -45,7 +45,7 @@ pub struct SupervisionProfile {
 impl SupervisionProfile {
     pub fn mind() -> Self {
         Self {
-            name: ComponentName::new("persona-mind"),
+            name: ComponentName::new("mind"),
             kind: ComponentKind::Mind,
             health: ComponentHealth::Running,
         }

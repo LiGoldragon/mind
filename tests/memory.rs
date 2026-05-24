@@ -1,5 +1,5 @@
-use persona_mind::{MemoryState, StoreLocation};
-use signal_persona_mind::{
+use mind::{MemoryState, StoreLocation};
+use signal_mind::{
     AliasAssignment, ByThoughtKind, EdgeKind, EdgeTarget, Event, ExternalAlias, ExternalReference,
     ItemKind, ItemReference, ItemStatus, Link, LinkTarget, Magnitude, MindReply, MindRequest,
     NoteSubmission, Opening, Query, QueryKind, QueryLimit, QueryThoughts, RejectionReason,

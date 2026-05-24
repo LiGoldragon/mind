@@ -1,6 +1,6 @@
 use kameo::actor::{Actor, ActorRef};
 use kameo::message::{Context, Message};
-use signal_persona_mind::MindReply;
+use signal_mind::MindReply;
 
 use crate::graph::MindGraphLedger;
 use crate::tables::GraphSubscriptionPublisher;

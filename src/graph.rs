@@ -1,4 +1,4 @@
-use signal_persona_mind::{
+use signal_mind::{
     ByRelationKind, ByRelationSource, ByRelationTarget, ByThoughtAuthor, ByThoughtKind,
     ByThoughtTimeRange, CompositeRelationFilter, CompositeThoughtFilter, DisplayIdentifier,
     MindReply, MindRequestUnimplemented, MindUnimplementedReason, QueryRelations, QueryThoughts,
@@ -21,7 +21,7 @@ impl<'tables> MindGraphLedger<'tables> {
         let actor = envelope.actor().clone();
         let MindEnvelope { request, .. } = envelope;
         match request {
-            signal_persona_mind::MindRequest::SubmitThought(submission) => {
+            signal_mind::MindRequest::SubmitThought(submission) => {
                 self.commit_thought(actor, submission)
             }
             _ => Ok(Self::unimplemented()),
@@ -32,7 +32,7 @@ impl<'tables> MindGraphLedger<'tables> {
         let actor = envelope.actor().clone();
         let MindEnvelope { request, .. } = envelope;
         match request {
-            signal_persona_mind::MindRequest::SubmitRelation(submission) => {
+            signal_mind::MindRequest::SubmitRelation(submission) => {
                 self.commit_relation(actor, submission)
             }
             _ => Ok(Self::unimplemented()),
@@ -42,7 +42,7 @@ impl<'tables> MindGraphLedger<'tables> {
     pub(crate) fn query_thoughts(&self, envelope: MindEnvelope) -> Result<MindReply> {
         let MindEnvelope { request, .. } = envelope;
         match request {
-            signal_persona_mind::MindRequest::QueryThoughts(query) => self.read_thoughts(query),
+            signal_mind::MindRequest::QueryThoughts(query) => self.read_thoughts(query),
             _ => Ok(Self::unimplemented()),
         }
     }
@@ -50,7 +50,7 @@ impl<'tables> MindGraphLedger<'tables> {
     pub(crate) fn query_relations(&self, envelope: MindEnvelope) -> Result<MindReply> {
         let MindEnvelope { request, .. } = envelope;
         match request {
-            signal_persona_mind::MindRequest::QueryRelations(query) => self.read_relations(query),
+            signal_mind::MindRequest::QueryRelations(query) => self.read_relations(query),
             _ => Ok(Self::unimplemented()),
         }
     }
@@ -58,7 +58,7 @@ impl<'tables> MindGraphLedger<'tables> {
     pub(crate) fn subscribe_thoughts(&self, envelope: MindEnvelope) -> Result<MindReply> {
         let MindEnvelope { request, .. } = envelope;
         match request {
-            signal_persona_mind::MindRequest::SubscribeThoughts(subscription) => {
+            signal_mind::MindRequest::SubscribeThoughts(subscription) => {
                 self.open_thought_subscription(subscription)
             }
             _ => Ok(Self::unimplemented()),
@@ -68,7 +68,7 @@ impl<'tables> MindGraphLedger<'tables> {
     pub(crate) fn subscribe_relations(&self, envelope: MindEnvelope) -> Result<MindReply> {
         let MindEnvelope { request, .. } = envelope;
         match request {
-            signal_persona_mind::MindRequest::SubscribeRelations(subscription) => {
+            signal_mind::MindRequest::SubscribeRelations(subscription) => {
                 self.open_relation_subscription(subscription)
             }
             _ => Ok(Self::unimplemented()),
@@ -77,7 +77,7 @@ impl<'tables> MindGraphLedger<'tables> {
 
     fn commit_thought(
         &self,
-        actor: signal_persona_mind::ActorName,
+        actor: signal_mind::ActorName,
         submission: SubmitThought,
     ) -> Result<MindReply> {
         let thought = self.tables.append_thought(actor, submission)?;
@@ -90,7 +90,7 @@ impl<'tables> MindGraphLedger<'tables> {
 
     fn commit_relation(
         &self,
-        actor: signal_persona_mind::ActorName,
+        actor: signal_mind::ActorName,
         submission: SubmitRelation,
     ) -> Result<MindReply> {
         let relation = self.tables.append_relation(actor, submission)?;
@@ -135,7 +135,7 @@ impl<'tables> MindGraphLedger<'tables> {
 
     fn open_thought_subscription(
         &self,
-        subscription: signal_persona_mind::SubscribeThoughts,
+        subscription: signal_mind::SubscribeThoughts,
     ) -> Result<MindReply> {
         let opened = self.tables.append_thought_subscription(subscription)?;
         let relations = self.tables.relation_records()?;
@@ -145,7 +145,7 @@ impl<'tables> MindGraphLedger<'tables> {
             .iter()
             .filter(|thought| selector.accepts(thought))
             .cloned()
-            .map(signal_persona_mind::MindSnapshot::Thought)
+            .map(signal_mind::MindSnapshot::Thought)
             .collect();
         Ok(MindReply::SubscriptionAccepted(SubscriptionAccepted {
             subscription: opened.record().subscription.clone(),
@@ -155,7 +155,7 @@ impl<'tables> MindGraphLedger<'tables> {
 
     fn open_relation_subscription(
         &self,
-        subscription: signal_persona_mind::SubscribeRelations,
+        subscription: signal_mind::SubscribeRelations,
     ) -> Result<MindReply> {
         let opened = self.tables.append_relation_subscription(subscription)?;
         let selector = RelationSelector::new(opened.record().filter.clone());
@@ -164,7 +164,7 @@ impl<'tables> MindGraphLedger<'tables> {
             .iter()
             .filter(|relation| selector.accepts(relation))
             .cloned()
-            .map(signal_persona_mind::MindSnapshot::Relation)
+            .map(signal_mind::MindSnapshot::Relation)
             .collect();
         Ok(MindReply::SubscriptionAccepted(SubscriptionAccepted {
             subscription: opened.record().subscription.clone(),
@@ -228,7 +228,7 @@ impl ThoughtSelector {
     fn accepts_membership(
         &self,
         thought: &Thought,
-        container: &signal_persona_mind::RecordIdentifier,
+        container: &signal_mind::RecordIdentifier,
     ) -> bool {
         thought.id == *container
             || self.relations.iter().any(|relation| {

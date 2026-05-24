@@ -1,4 +1,4 @@
-use persona_mind::{MindCommand, Result};
+use mind::{MindCommand, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {

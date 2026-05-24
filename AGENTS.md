@@ -5,7 +5,7 @@ This repository follows the primary workspace orchestration protocol.
 
 ## Purpose
 
-`persona-mind` is Persona's central state machine. It models memory/work
+`mind` is Persona's central state machine. It models memory/work
 items, typed thoughts, relations, notes, dependencies, aliases, subscriptions,
 and ready-work views without deepening the transitional BEADS dependency.
 Ordinary role claims, handoffs, and activity belong to `persona-orchestrate`.

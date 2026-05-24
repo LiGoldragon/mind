@@ -6,7 +6,7 @@ use signal_core::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, RequestPayload, SessionEpoch,
     SignalVerb, SubReply,
 };
-use signal_persona_mind::{ActorName, MindFrame, MindFrameBody, MindReply, MindRequest};
+use signal_mind::{ActorName, MindFrame, MindFrameBody, MindReply, MindRequest};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 

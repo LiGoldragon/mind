@@ -1,5 +1,5 @@
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode, NotaEnum, NotaRecord, Token};
-use signal_persona_mind as contract;
+use signal_mind as contract;
 
 use crate::Result;
 

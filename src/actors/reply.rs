@@ -1,7 +1,7 @@
 use kameo::actor::{Actor, ActorRef};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
-use signal_persona_mind::MindReply;
+use signal_mind::MindReply;
 
 use super::pipeline::PipelineReply;
 use super::trace::{ActorTrace, TraceAction, TraceNode};

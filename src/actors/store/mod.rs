@@ -71,7 +71,7 @@ pub(super) struct ReadGraphRecords;
 
 #[derive(kameo::Reply)]
 pub(super) struct GraphRecords {
-    pub(super) relations: Vec<signal_persona_mind::Relation>,
+    pub(super) relations: Vec<signal_mind::Relation>,
 }
 
 impl StoreSupervisor {

@@ -1,7 +1,7 @@
 use kameo::actor::{Actor, ActorRef, Spawn};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
-use signal_persona_mind::MindReply;
+use signal_mind::MindReply;
 
 use crate::{Error, MindEnvelope, Result, StoreLocation, supervision};
 

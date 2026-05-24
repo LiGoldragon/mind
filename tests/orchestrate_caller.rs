@@ -6,16 +6,16 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::Spawn;
+use mind::actors::choreography::{
+    AdjudicatorArguments, ApplyDecision, CallerArguments, ChoreographyAdjudicator,
+    MindOrchestrateCaller, OrchestrateDecision, OwnerEndpoint,
+};
+use mind::actors::{ActorTrace, TraceNode};
 use owner_signal_persona_orchestrate::{
     CreateRoleOrder, Frame as OwnerOrchestrateFrame, FrameBody as OwnerOrchestrateFrameBody,
     HarnessKind, OwnerOrchestrateReply, RefreshRepositoryIndexOrder, RetireRoleOrder, Retirement,
     RoleIdentifier,
 };
-use persona_mind::actors::choreography::{
-    AdjudicatorArguments, ApplyDecision, CallerArguments, ChoreographyAdjudicator,
-    MindOrchestrateCaller, OrchestrateDecision, OwnerEndpoint,
-};
-use persona_mind::actors::{ActorTrace, TraceNode};
 use persona_orchestrate::{
     Observation, OrchestrateLayout, OrchestrateReply, OrchestrateRequest, OrchestrateService,
     StoreLocation,
@@ -36,7 +36,7 @@ impl OwnerSocketFixture {
             .expect("system time")
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "persona-mind-orchestrate-caller-{test_name}-{}-{stamp}",
+            "mind-orchestrate-caller-{test_name}-{}-{stamp}",
             std::process::id()
         ));
         let workspace = root.join("workspace");
@@ -189,7 +189,7 @@ async fn choreography_refresh_decision_calls_orchestrate_owner_refresh() {
 async fn apply_decision(
     owner_socket: PathBuf,
     decision: OrchestrateDecision,
-) -> persona_mind::actors::choreography::ApplicationResult {
+) -> mind::actors::choreography::ApplicationResult {
     let caller =
         MindOrchestrateCaller::spawn(CallerArguments::new(OwnerEndpoint::new(owner_socket)));
     caller.wait_for_startup().await;

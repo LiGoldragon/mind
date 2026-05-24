@@ -1,4 +1,4 @@
-use signal_persona_mind::{MindReply, Rejection, RejectionReason};
+use signal_mind::{MindReply, Rejection, RejectionReason};
 
 use crate::Error;
 

@@ -1,4 +1,4 @@
-use signal_persona_mind::MindReply;
+use signal_mind::MindReply;
 
 use super::trace::ActorTrace;
 

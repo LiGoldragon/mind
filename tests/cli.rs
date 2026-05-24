@@ -1,8 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use mind::{MindCommand, MindDaemon, MindDaemonEndpoint, StoreLocation};
 use nota_codec::{Encoder, NotaEncode};
-use persona_mind::{MindCommand, MindDaemon, MindDaemonEndpoint, StoreLocation};
-use signal_persona_mind::{
+use signal_mind::{
     GoalBody, GoalScope, MindRequest, SubmitThought, TextBody, ThoughtBody, ThoughtKind,
     WorkspaceGoal,
 };
@@ -19,7 +19,7 @@ impl CliFixture {
             .expect("system time")
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "persona-mind-cli-{test_name}-{}-{stamp}",
+            "mind-cli-{test_name}-{}-{stamp}",
             std::process::id()
         ));
         Self {
@@ -28,7 +28,7 @@ impl CliFixture {
         }
     }
 
-    async fn bind(&self) -> persona_mind::transport::BoundMindDaemon {
+    async fn bind(&self) -> mind::transport::BoundMindDaemon {
         MindDaemon::new(self.endpoint.clone(), self.store.clone())
             .bind()
             .await
@@ -38,23 +38,22 @@ impl CliFixture {
 
 #[test]
 fn nota_opening_text_maps_to_signal_request() {
-    let request =
-        persona_mind::MindTextRequest::from_nota("(Opening Task High [Open work] [body])")
-            .expect("text decodes")
-            .into_request()
-            .expect("request maps to signal");
+    let request = mind::MindTextRequest::from_nota("(Opening Task High [Open work] [body])")
+        .expect("text decodes")
+        .into_request()
+        .expect("request maps to signal");
 
     let MindRequest::Opening(opening) = request else {
         panic!("expected opening");
     };
 
-    assert_eq!(opening.kind, signal_persona_mind::ItemKind::Task);
-    assert_eq!(opening.priority, signal_persona_mind::Magnitude::High);
+    assert_eq!(opening.kind, signal_mind::ItemKind::Task);
+    assert_eq!(opening.priority, signal_mind::Magnitude::High);
 }
 
 #[test]
 fn nota_query_text_maps_to_signal_request() {
-    let request = persona_mind::MindTextRequest::from_nota("(Query (Open) 10)")
+    let request = mind::MindTextRequest::from_nota("(Query (Open) 10)")
         .expect("text decodes")
         .into_request()
         .expect("request maps to signal");
@@ -63,7 +62,7 @@ fn nota_query_text_maps_to_signal_request() {
         panic!("expected query");
     };
 
-    assert_eq!(query.kind, signal_persona_mind::QueryKind::Open);
+    assert_eq!(query.kind, signal_mind::QueryKind::Open);
     assert_eq!(query.limit.into_u16(), 10);
 }
 
@@ -71,7 +70,7 @@ fn nota_query_text_maps_to_signal_request() {
 fn nota_work_mutation_text_maps_to_signal_requests() {
     let item_display = "aab";
 
-    let note = persona_mind::MindTextRequest::from_nota(&format!(
+    let note = mind::MindTextRequest::from_nota(&format!(
         "(NoteSubmission (Display {item_display}) \"note body\")"
     ))
     .expect("note text decodes")
@@ -83,12 +82,10 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
     };
     assert_eq!(
         note.item,
-        signal_persona_mind::ItemReference::Display(signal_persona_mind::DisplayIdentifier::new(
-            item_display
-        ))
+        signal_mind::ItemReference::Display(signal_mind::DisplayIdentifier::new(item_display))
     );
 
-    let link = persona_mind::MindTextRequest::from_nota(&format!(
+    let link = mind::MindTextRequest::from_nota(&format!(
         "(Link (Display {item_display}) References (Report \"reports/operator/105-command-line-mind-architecture-survey.md\") None)"
     ))
     .expect("link text decodes")
@@ -98,9 +95,9 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
     let MindRequest::Link(link) = link else {
         panic!("expected link");
     };
-    assert_eq!(link.kind, signal_persona_mind::EdgeKind::References);
+    assert_eq!(link.kind, signal_mind::EdgeKind::References);
 
-    let status = persona_mind::MindTextRequest::from_nota(&format!(
+    let status = mind::MindTextRequest::from_nota(&format!(
         "(StatusChange (Display {item_display}) InProgress \"started\")"
     ))
     .expect("status text decodes")
@@ -110,9 +107,9 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
     let MindRequest::StatusChange(status) = status else {
         panic!("expected status change");
     };
-    assert_eq!(status.status, signal_persona_mind::ItemStatus::InProgress);
+    assert_eq!(status.status, signal_mind::ItemStatus::InProgress);
 
-    let alias = persona_mind::MindTextRequest::from_nota(&format!(
+    let alias = mind::MindTextRequest::from_nota(&format!(
         "(AliasAssignment (Display {item_display}) primary-test)"
     ))
     .expect("alias text decodes")
@@ -122,10 +119,7 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
     let MindRequest::AliasAssignment(alias) = alias else {
         panic!("expected alias assignment");
     };
-    assert_eq!(
-        alias.alias,
-        signal_persona_mind::ExternalAlias::new("primary-test")
-    );
+    assert_eq!(alias.alias, signal_mind::ExternalAlias::new("primary-test"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

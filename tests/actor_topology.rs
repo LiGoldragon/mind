@@ -1,14 +1,12 @@
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use persona_mind::actors::{
-    ActorManifest, ActorResidency, ReadSubscriptionEvents, TraceAction, TraceNode,
-};
-use persona_mind::{
+use mind::actors::{ActorManifest, ActorResidency, ReadSubscriptionEvents, TraceAction, TraceNode};
+use mind::{
     ActorRef, MindEnvelope, MindRoot, MindRootArguments, MindRootReply, StoreLocation,
     SubmitEnvelope,
 };
-use signal_persona_mind::{
+use signal_mind::{
     ActiveClaim, ActorName, ByRelationKind, ByThoughtKind, ClaimActivity, ClaimBody, ClaimScope,
     FileReference, GoalBody, GoalScope, ItemKind, Magnitude, MindDelta, MindReply, MindRequest,
     Opening, PathClaimScope, Query, QueryKind, QueryLimit, QueryRelations, QueryThoughts,
@@ -43,7 +41,7 @@ impl ActorFixture {
             .expect("system time")
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "persona-mind-actor-topology-{}-{stamp}.redb",
+            "mind-actor-topology-{}-{stamp}.redb",
             std::process::id()
         ))
     }
@@ -61,7 +59,7 @@ impl ActorFixture {
             .expect("actor request succeeds")
     }
 
-    async fn subscription_events(&self) -> Vec<signal_persona_mind::SubscriptionEvent> {
+    async fn subscription_events(&self) -> Vec<signal_mind::SubscriptionEvent> {
         self.root
             .ask(ReadSubscriptionEvents::all())
             .await
@@ -82,7 +80,7 @@ impl ActorFixture {
 
 #[test]
 fn topology_manifest_names_required_actor_planes() {
-    let manifest = ActorManifest::persona_mind_phase_one();
+    let manifest = ActorManifest::mind_phase_one();
 
     for actor in [
         TraceNode::MIND_ROOT,
@@ -259,7 +257,7 @@ async fn typed_thought_runs_through_graph_actor_lane_and_store_mints_id() {
         .submit(MindRequest::SubmitThought(SubmitThought {
             kind: ThoughtKind::Goal,
             body: ThoughtBody::Goal(GoalBody {
-                description: TextBody::new("Make persona-mind replace lock files"),
+                description: TextBody::new("Make mind replace lock files"),
                 scope: GoalScope::Workspace(WorkspaceGoal {
                     workspace: TextBody::new("primary"),
                 }),
@@ -493,7 +491,7 @@ async fn typed_relation_subscription_registers_and_returns_initial_snapshot() {
                 claimed_by: ActorName::new("operator"),
                 scope: ClaimScope::Paths(PathClaimScope {
                     paths: vec![
-                        WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-mind")
+                        WirePath::from_absolute_path("/git/github.com/LiGoldragon/mind")
                             .expect("absolute path"),
                     ],
                 }),
@@ -575,7 +573,7 @@ async fn typed_relation_subscription_delivers_live_delta_through_subscription_ac
                 claimed_by: ActorName::new("operator"),
                 scope: ClaimScope::Paths(PathClaimScope {
                     paths: vec![
-                        WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-mind")
+                        WirePath::from_absolute_path("/git/github.com/LiGoldragon/mind")
                             .expect("absolute path"),
                     ],
                 }),
@@ -717,7 +715,7 @@ async fn supersedes_relation_rejects_different_thought_kinds() {
                 claimed_by: ActorName::new("operator"),
                 scope: ClaimScope::Paths(PathClaimScope {
                     paths: vec![
-                        WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-mind")
+                        WirePath::from_absolute_path("/git/github.com/LiGoldragon/mind")
                             .expect("absolute path"),
                     ],
                 }),
@@ -770,9 +768,9 @@ async fn typed_relation_rejects_missing_thought_endpoint() {
     let fixture = ActorFixture::new().await;
     let response = fixture
         .submit(MindRequest::SubmitRelation(SubmitRelation {
-            kind: signal_persona_mind::RelationKind::Supports,
-            source: signal_persona_mind::RecordIdentifier::new("missing-source"),
-            target: signal_persona_mind::RecordIdentifier::new("missing-target"),
+            kind: signal_mind::RelationKind::Supports,
+            source: signal_mind::RecordIdentifier::new("missing-source"),
+            target: signal_mind::RecordIdentifier::new("missing-target"),
             note: None,
         }))
         .await;
@@ -807,7 +805,7 @@ async fn relation_kind_rejects_wrong_domain() {
                 claimed_by: ActorName::new("operator"),
                 scope: ClaimScope::Paths(PathClaimScope {
                     paths: vec![
-                        WirePath::from_absolute_path("/git/github.com/LiGoldragon/persona-mind")
+                        WirePath::from_absolute_path("/git/github.com/LiGoldragon/mind")
                             .expect("absolute path"),
                     ],
                 }),
@@ -864,7 +862,7 @@ async fn authored_relation_rejects_non_identity_reference_source() {
             body: ThoughtBody::Reference(ReferenceBody {
                 target: ReferenceTarget::File(FileReference {
                     path: WirePath::from_absolute_path(
-                        "/git/github.com/LiGoldragon/persona-mind/ARCHITECTURE.md",
+                        "/git/github.com/LiGoldragon/mind/ARCHITECTURE.md",
                     )
                     .expect("absolute path"),
                 }),

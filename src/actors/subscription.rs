@@ -1,7 +1,7 @@
 use kameo::actor::{Actor, ActorRef};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
-use signal_persona_mind::{
+use signal_mind::{
     MindDelta, Relation, RelationFilter, SubscriptionEvent, SubscriptionIdentifier, Thought,
     ThoughtFilter,
 };

@@ -3,12 +3,12 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use persona_mind::actors::{ActorManifest, ActorResidency};
-use persona_mind::{
+use mind::actors::{ActorManifest, ActorResidency};
+use mind::{
     ActorRef, MindEnvelope, MindRoot, MindRootArguments, MindRootReply, StoreLocation,
     SubmitEnvelope,
 };
-use signal_persona_mind::{
+use signal_mind::{
     ActorName, ItemKind, Magnitude, MindReply, MindRequest, Opening, Query, QueryKind, QueryLimit,
     TextBody, Title,
 };
@@ -236,7 +236,7 @@ impl ActorRuntimeFixture {
             .expect("system time")
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "persona-mind-weird-actor-{}-{stamp}.redb",
+            "mind-weird-actor-{}-{stamp}.redb",
             std::process::id()
         ))
     }
@@ -747,11 +747,11 @@ fn graph_subscription_deltas_cannot_stop_at_table_sink() {
 
     assert!(
         tables.text.contains("SubscriptionDeliveryMode::Inline"),
-        "persona-mind subscription sinks must use inline sema-engine delivery so actor tests can observe post-commit deltas without polling"
+        "mind subscription sinks must use inline sema-engine delivery so actor tests can observe post-commit deltas without polling"
     );
     assert!(
         tables.text.contains("PublishThoughtDelta") && tables.text.contains("PublishRelationDelta"),
-        "sema-engine deltas must be translated into typed persona-mind subscription actor messages"
+        "sema-engine deltas must be translated into typed mind subscription actor messages"
     );
     assert!(
         subscription_actor
@@ -760,7 +760,7 @@ fn graph_subscription_deltas_cannot_stop_at_table_sink() {
             && subscription_actor
                 .text
                 .contains("MindDelta::RelationCommitted"),
-        "subscription actor must publish typed signal-persona-mind delta variants, not raw table notifications"
+        "subscription actor must publish typed signal-mind delta variants, not raw table notifications"
     );
 }
 
@@ -821,7 +821,7 @@ fn memory_state_cannot_hide_mutation_behind_refcell() {
 
 #[test]
 fn trace_phase_actor_cannot_float_without_parent_edge() {
-    let manifest = ActorManifest::persona_mind_phase_one();
+    let manifest = ActorManifest::mind_phase_one();
     let missing_parents = manifest
         .actors()
         .iter()
@@ -844,7 +844,7 @@ fn trace_phase_actor_cannot_float_without_parent_edge() {
 
 #[test]
 fn trace_node_labels_cannot_collide() {
-    let manifest = ActorManifest::persona_mind_phase_one();
+    let manifest = ActorManifest::mind_phase_one();
     let mut labels = HashSet::new();
     let duplicate_labels = manifest
         .actors()

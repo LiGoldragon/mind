@@ -1,4 +1,4 @@
-use signal_persona_mind::{ActorName, MindRequest};
+use signal_mind::{ActorName, MindRequest};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MindEnvelope {

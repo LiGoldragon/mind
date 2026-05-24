@@ -305,7 +305,7 @@
           program = "${self.packages.${system}.default}/bin/mind";
         };
         devShells.default = pkgs.mkShell {
-          name = "persona-mind";
+          name = "mind";
           packages = [
             pkgs.jujutsu
             pkgs.pkg-config

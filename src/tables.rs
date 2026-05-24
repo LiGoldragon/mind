@@ -8,7 +8,7 @@ use sema_engine::{
     SubscriptionDeliveryMode, SubscriptionEvent as EngineSubscriptionEvent, SubscriptionSink,
     TableDescriptor, TableName, TableReference,
 };
-use signal_persona_mind::{
+use signal_mind::{
     ActorName, RecordIdentifier, Relation, RelationIdentifier, SubmitRelation, SubmitThought,
     SubscribeRelations, SubscribeThoughts, SubscriptionIdentifier, Thought, TimestampNanos,
 };
@@ -39,13 +39,13 @@ pub struct MindTables {
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StoredThoughtSubscription {
     pub subscription: SubscriptionIdentifier,
-    pub filter: signal_persona_mind::ThoughtFilter,
+    pub filter: signal_mind::ThoughtFilter,
 }
 
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StoredRelationSubscription {
     pub subscription: SubscriptionIdentifier,
-    pub filter: signal_persona_mind::RelationFilter,
+    pub filter: signal_mind::RelationFilter,
 }
 
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -357,7 +357,7 @@ impl GraphSubscriptionPublisher {
     fn publish_thought(
         &self,
         subscription: SubscriptionIdentifier,
-        filter: signal_persona_mind::ThoughtFilter,
+        filter: signal_mind::ThoughtFilter,
         thought: Thought,
     ) -> std::result::Result<(), SinkError> {
         match self {
@@ -373,7 +373,7 @@ impl GraphSubscriptionPublisher {
     fn publish_relation(
         &self,
         subscription: SubscriptionIdentifier,
-        filter: signal_persona_mind::RelationFilter,
+        filter: signal_mind::RelationFilter,
         relation: Relation,
     ) -> std::result::Result<(), SinkError> {
         match self {
@@ -393,13 +393,13 @@ struct GraphIdMint<'engine> {
 
 struct ThoughtSubscriptionSink {
     table: TableName,
-    filter: signal_persona_mind::ThoughtFilter,
+    filter: signal_mind::ThoughtFilter,
     publisher: GraphSubscriptionPublisher,
 }
 
 struct RelationSubscriptionSink {
     table: TableName,
-    filter: signal_persona_mind::RelationFilter,
+    filter: signal_mind::RelationFilter,
     publisher: GraphSubscriptionPublisher,
 }
 
@@ -432,7 +432,7 @@ struct CompactGraphIdentifier {
 impl ThoughtSubscriptionSink {
     fn new(
         table: TableName,
-        filter: signal_persona_mind::ThoughtFilter,
+        filter: signal_mind::ThoughtFilter,
         publisher: GraphSubscriptionPublisher,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -458,7 +458,7 @@ impl ThoughtSubscriptionSink {
 impl RelationSubscriptionSink {
     fn new(
         table: TableName,
-        filter: signal_persona_mind::RelationFilter,
+        filter: signal_mind::RelationFilter,
         publisher: GraphSubscriptionPublisher,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -576,7 +576,7 @@ impl StoreClock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use signal_persona_mind::{
+    use signal_mind::{
         ByThoughtKind, GoalBody, GoalScope, RelationKind, SubmitRelation, SubmitThought, TextBody,
         ThoughtBody, ThoughtFilter, ThoughtKind, WorkspaceGoal,
     };
@@ -752,10 +752,7 @@ mod tests {
             .expect("system time")
             .as_nanos();
         std::env::temp_dir()
-            .join(format!(
-                "persona-mind-{name}-{}-{stamp}.redb",
-                std::process::id()
-            ))
+            .join(format!("mind-{name}-{}-{stamp}.redb", std::process::id()))
             .to_string_lossy()
             .to_string()
     }

@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode};
-use signal_persona_mind::{ActorName, MindReply, MindRequest};
+use signal_mind::{ActorName, MindReply, MindRequest};
 
 use crate::{
     Error, MindClient, MindDaemon, MindDaemonEndpoint, MindTextReply, MindTextRequest, Result,

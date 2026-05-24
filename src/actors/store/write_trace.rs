@@ -1,4 +1,4 @@
-use signal_persona_mind::MindRequest;
+use signal_mind::MindRequest;
 
 use super::super::trace::{ActorTrace, TraceAction, TraceNode};
 

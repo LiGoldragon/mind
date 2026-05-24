@@ -1,4 +1,4 @@
-# persona-mind
+# mind
 
 Central typed mind state for Persona agents.
 

@@ -1,4 +1,4 @@
-use signal_persona_mind::{RelationKindMismatch, ThoughtKind};
+use signal_mind::{RelationKindMismatch, ThoughtKind};
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -42,7 +42,7 @@ pub enum Error {
     FrameReplyRejected(signal_frame::RequestRejectionReason),
 
     #[error("signal persona mind: {0}")]
-    SignalPersonaMind(#[from] signal_persona_mind::Error),
+    SignalPersonaMind(#[from] signal_mind::Error),
 
     #[error("nota: {0}")]
     Nota(#[from] nota_codec::Error),

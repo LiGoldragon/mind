@@ -1,4 +1,4 @@
-# persona-mind skill
+# mind skill
 
 Work here when the change concerns Persona's central typed state:
 memory/work items, notes, dependencies, aliases, ready-work views, typed
@@ -21,7 +21,7 @@ Rules for work here:
   `Engine::storage_kernel()`;
   do not open a second `sema::Sema` handle to the same `mind.redb`.
 - Graph subscription deltas must become typed
-  `signal-persona-mind::SubscriptionEvent` values through
+  `signal-mind::SubscriptionEvent` values through
   `SubscriptionSupervisor`; do not leave delivery as a table-level callback.
 - Memory/work mutations append typed events; item state and ready-work lists are
   projections.
@@ -33,9 +33,9 @@ Rules for work here:
   `sema-engine` snapshot sequence. Do not replace them with content hashes or
   timestamp strings without a new architecture decision.
 - The convenience CLI projection may be smaller than the full contract, but the
-  CLI must still accept a full `signal-persona-mind::MindRequest` NOTA record.
+  CLI must still accept a full `signal-mind::MindRequest` NOTA record.
 - Lock files are outside the implementation target. They are temporary
   workspace coordination artifacts and should not be regenerated or projected
-  by `persona-mind`.
+  by `mind`.
 - Runtime actors use direct `kameo`; do not add a second actor abstraction as a
   prerequisite for mind work.
