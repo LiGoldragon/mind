@@ -6,6 +6,11 @@ use mind::{
     MindClient, MindDaemon, MindDaemonEndpoint, MindFrameCodec, MindSocketMode, StoreLocation,
     SupervisionFrameCodec, SupervisionListener, SupervisionSocketMode,
 };
+use signal_engine_management::{
+    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion,
+    Operation as SupervisionRequest, Presence, Query as SupervisionQuery,
+    Reply as SupervisionReply,
+};
 use signal_frame::{ExchangeIdentifier, ExchangeLane, LaneSequence, RequestPayload, SessionEpoch};
 use signal_mind::{
     ActiveClaim, ActorName, Alternative, AlternativeIdentifier, ByRelationKind, ByThoughtKind,
@@ -15,12 +20,6 @@ use signal_mind::{
     QueryRelations, QueryThoughts, RelationFilter, RelationKind, RoleName, SubmitRelation,
     SubmitThought, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos, Title,
     WirePath, WorkspaceGoal,
-};
-use signal_persona::engine_management::{
-    Operation as SupervisionRequest, Query as SupervisionQuery, Reply as SupervisionReply,
-};
-use signal_persona::{
-    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion, Presence,
 };
 use tokio::net::UnixStream;
 
@@ -94,7 +93,7 @@ async fn daemon_round_trip_uses_signal_frames_over_socket() {
 fn mind_frame_codec_decodes_contract_local_operation_payload() {
     let request = MindRequest::QueryThoughts(QueryThoughts {
         filter: ThoughtFilter::ByKind(ByThoughtKind { kinds: Vec::new() }),
-        limit: 1,
+        limit: QueryLimit::new(1),
     });
     let frame = Frame::new(FrameBody::Request {
         exchange: ExchangeIdentifier::new(
@@ -416,7 +415,7 @@ async fn mind_typed_thought_graph_survives_process_restart() {
             filter: ThoughtFilter::ByKind(ByThoughtKind {
                 kinds: vec![ThoughtKind::Goal],
             }),
-            limit: 10,
+            limit: QueryLimit::new(10),
         }))
         .await
         .expect("query reads durable typed graph");
@@ -491,7 +490,7 @@ async fn mind_typed_relation_round_trip_uses_committed_thought_ids() {
             filter: RelationFilter::ByKind(ByRelationKind {
                 kinds: vec![RelationKind::Requires],
             }),
-            limit: 10,
+            limit: QueryLimit::new(10),
         }))
         .await
         .expect("relations queried");
@@ -629,7 +628,7 @@ async fn mind_typed_graph_handles_goal_claim_observation_decision_scenario() {
                     ThoughtKind::Decision,
                 ],
             }),
-            limit: 10,
+            limit: QueryLimit::new(10),
         }))
         .await
         .expect("thoughts queried");

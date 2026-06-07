@@ -6,30 +6,30 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::Spawn;
-use mind::actors::choreography::{
-    AdjudicatorArguments, ApplyDecision, CallerArguments, ChoreographyAdjudicator,
-    MindOrchestrateCaller, OrchestrateDecision, OwnerEndpoint,
-};
-use mind::actors::{ActorTrace, TraceNode};
-use owner_signal_persona_orchestrate::{
-    CreateRoleOrder, Frame as OwnerOrchestrateFrame, FrameBody as OwnerOrchestrateFrameBody,
-    HarnessKind, OwnerOrchestrateReply, RefreshRepositoryIndexOrder, RetireRoleOrder, Retirement,
+use meta_signal_orchestrate::{
+    CreateRoleOrder, Frame as MetaOrchestrateFrame, FrameBody as MetaOrchestrateFrameBody,
+    HarnessKind, MetaOrchestrateReply, RefreshRepositoryIndexOrder, RetireRoleOrder, Retirement,
     RoleIdentifier,
 };
-use persona_orchestrate::{
+use mind::actors::choreography::{
+    AdjudicatorArguments, ApplyDecision, CallerArguments, ChoreographyAdjudicator, MetaEndpoint,
+    MindOrchestrateCaller, OrchestrateDecision,
+};
+use mind::actors::{ActorTrace, TraceNode};
+use orchestrate::{
     Observation, OrchestrateLayout, OrchestrateReply, OrchestrateRequest, OrchestrateService,
     StoreLocation,
 };
 
-struct OwnerSocketFixture {
+struct MetaSocketFixture {
     root: PathBuf,
     workspace: PathBuf,
     git_index: PathBuf,
-    owner_socket: PathBuf,
+    meta_socket: PathBuf,
     service: Arc<OrchestrateService>,
 }
 
-impl OwnerSocketFixture {
+impl MetaSocketFixture {
     fn new(test_name: &str) -> Self {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -43,12 +43,15 @@ impl OwnerSocketFixture {
         let git_index = root.join("git-index");
         std::fs::create_dir_all(workspace.join("reports")).expect("reports directory");
         std::fs::create_dir_all(workspace.join("repos")).expect("repos directory");
+        std::fs::create_dir_all(workspace.join("orchestrate")).expect("orchestrate directory");
+        std::fs::write(
+            workspace.join("orchestrate").join("roles.list"),
+            "operator\ndesigner\nsystem-operator\n",
+        )
+        .expect("role registry");
         std::fs::create_dir_all(&git_index).expect("git index directory");
-        let store = StoreLocation::new(
-            root.join("persona-orchestrate.sema")
-                .to_string_lossy()
-                .into_owned(),
-        );
+        let store =
+            StoreLocation::new(root.join("orchestrate.sema").to_string_lossy().into_owned());
         let service = Arc::new(
             OrchestrateService::open_with_layout(
                 &store,
@@ -58,7 +61,7 @@ impl OwnerSocketFixture {
         );
 
         Self {
-            owner_socket: root.join("owner.sock"),
+            meta_socket: root.join("meta.sock"),
             root,
             workspace,
             git_index,
@@ -67,15 +70,15 @@ impl OwnerSocketFixture {
     }
 
     fn serve_one(&self) -> thread::JoinHandle<()> {
-        if self.owner_socket.exists() {
-            std::fs::remove_file(&self.owner_socket).expect("remove stale owner socket");
+        if self.meta_socket.exists() {
+            std::fs::remove_file(&self.meta_socket).expect("remove stale meta socket");
         }
-        let listener = UnixListener::bind(&self.owner_socket).expect("owner socket binds");
+        let listener = UnixListener::bind(&self.meta_socket).expect("meta socket binds");
         let service = Arc::clone(&self.service);
         thread::spawn(move || {
-            let (mut stream, _address) = listener.accept().expect("owner socket accept");
-            let response = handle_owner_stream(&mut stream, &service);
-            stream.write_all(&response).expect("owner reply write");
+            let (mut stream, _address) = listener.accept().expect("meta socket accept");
+            let response = handle_meta_stream(&mut stream, &service);
+            stream.write_all(&response).expect("meta reply write");
         })
     }
 
@@ -91,29 +94,29 @@ impl OwnerSocketFixture {
     }
 }
 
-impl Drop for OwnerSocketFixture {
+impl Drop for MetaSocketFixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn choreography_create_decision_calls_orchestrate_owner_create() {
-    let fixture = OwnerSocketFixture::new("create");
+async fn choreography_create_decision_calls_orchestrate_meta_create() {
+    let fixture = MetaSocketFixture::new("create");
     let server = fixture.serve_one();
     let role = role("primary-mind-orchestrate-create-zxq9");
 
     let result = apply_decision(
-        fixture.owner_socket.clone(),
+        fixture.meta_socket.clone(),
         OrchestrateDecision::Create(CreateRoleOrder {
             role: role.clone(),
             harness: HarnessKind::Codex,
         }),
     )
     .await;
-    server.join().expect("owner server joins");
+    server.join().expect("meta server joins");
 
-    let Some(OwnerOrchestrateReply::RoleCreated(created)) = result.reply() else {
+    let Some(MetaOrchestrateReply::RoleCreated(created)) = result.reply() else {
         panic!("expected role created, got {result:?}");
     };
     assert_eq!(created.role, role);
@@ -127,29 +130,29 @@ async fn choreography_create_decision_calls_orchestrate_owner_create() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn choreography_retire_decision_calls_orchestrate_owner_retire() {
-    let fixture = OwnerSocketFixture::new("retire");
+async fn choreography_retire_decision_calls_orchestrate_meta_retire() {
+    let fixture = MetaSocketFixture::new("retire");
     let role = role("primary-mind-orchestrate-retire-zxq9");
     fixture
         .service
-        .handle_owner(
-            owner_signal_persona_orchestrate::OwnerOrchestrateRequest::Create(CreateRoleOrder {
+        .handle_meta(meta_signal_orchestrate::MetaOrchestrateRequest::Create(
+            CreateRoleOrder {
                 role: role.clone(),
                 harness: HarnessKind::Codex,
-            }),
-        )
+            },
+        ))
         .expect("seed role");
     assert!(fixture.role_exists(&role));
     let server = fixture.serve_one();
 
     let result = apply_decision(
-        fixture.owner_socket.clone(),
+        fixture.meta_socket.clone(),
         OrchestrateDecision::Retire(Retirement::Role(RetireRoleOrder { role: role.clone() })),
     )
     .await;
-    server.join().expect("owner server joins");
+    server.join().expect("meta server joins");
 
-    let Some(OwnerOrchestrateReply::RoleRetired(retired)) = result.reply() else {
+    let Some(MetaOrchestrateReply::RoleRetired(retired)) = result.reply() else {
         panic!("expected role retired, got {result:?}");
     };
     assert_eq!(retired.role, role);
@@ -157,20 +160,20 @@ async fn choreography_retire_decision_calls_orchestrate_owner_retire() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn choreography_refresh_decision_calls_orchestrate_owner_refresh() {
-    let fixture = OwnerSocketFixture::new("refresh");
+async fn choreography_refresh_decision_calls_orchestrate_meta_refresh() {
+    let fixture = MetaSocketFixture::new("refresh");
     let repository_name = "primary-mind-orchestrate-refresh-zxq9";
     std::fs::create_dir_all(fixture.git_index.join(repository_name)).expect("repository");
     let server = fixture.serve_one();
 
     let result = apply_decision(
-        fixture.owner_socket.clone(),
+        fixture.meta_socket.clone(),
         OrchestrateDecision::Refresh(RefreshRepositoryIndexOrder {}),
     )
     .await;
-    server.join().expect("owner server joins");
+    server.join().expect("meta server joins");
 
-    let Some(OwnerOrchestrateReply::RepositoryIndexRefreshed(refreshed)) = result.reply() else {
+    let Some(MetaOrchestrateReply::RepositoryIndexRefreshed(refreshed)) = result.reply() else {
         panic!("expected repository refresh, got {result:?}");
     };
     assert_eq!(refreshed.repositories, 1);
@@ -187,11 +190,10 @@ async fn choreography_refresh_decision_calls_orchestrate_owner_refresh() {
 }
 
 async fn apply_decision(
-    owner_socket: PathBuf,
+    meta_socket: PathBuf,
     decision: OrchestrateDecision,
 ) -> mind::actors::choreography::ApplicationResult {
-    let caller =
-        MindOrchestrateCaller::spawn(CallerArguments::new(OwnerEndpoint::new(owner_socket)));
+    let caller = MindOrchestrateCaller::spawn(CallerArguments::new(MetaEndpoint::new(meta_socket)));
     caller.wait_for_startup().await;
     let adjudicator = ChoreographyAdjudicator::spawn(AdjudicatorArguments::new(caller.clone()));
     adjudicator.wait_for_startup().await;
@@ -220,16 +222,16 @@ async fn apply_decision(
     result
 }
 
-fn handle_owner_stream(stream: &mut UnixStream, service: &OrchestrateService) -> Vec<u8> {
+fn handle_meta_stream(stream: &mut UnixStream, service: &OrchestrateService) -> Vec<u8> {
     let bytes = read_length_prefixed(stream);
-    let frame = OwnerOrchestrateFrame::decode_length_prefixed(&bytes).expect("owner frame decodes");
-    let OwnerOrchestrateFrameBody::Request { exchange, request } = frame.into_body() else {
-        panic!("expected owner request frame");
+    let frame = MetaOrchestrateFrame::decode_length_prefixed(&bytes).expect("meta frame decodes");
+    let MetaOrchestrateFrameBody::Request { exchange, request } = frame.into_body() else {
+        panic!("expected meta request frame");
     };
-    let reply = service.handle_owner_request(request);
-    OwnerOrchestrateFrame::new(OwnerOrchestrateFrameBody::Reply { exchange, reply })
+    let reply = service.handle_meta_request(request);
+    MetaOrchestrateFrame::new(MetaOrchestrateFrameBody::Reply { exchange, reply })
         .encode_length_prefixed()
-        .expect("owner reply encodes")
+        .expect("meta reply encodes")
 }
 
 fn read_length_prefixed(stream: &mut UnixStream) -> Vec<u8> {

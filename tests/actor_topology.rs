@@ -313,7 +313,7 @@ async fn typed_thought_query_uses_reader_without_writer() {
             filter: ThoughtFilter::ByKind(ByThoughtKind {
                 kinds: vec![ThoughtKind::Goal],
             }),
-            limit: 10,
+            limit: QueryLimit::new(10),
         }))
         .await;
 
@@ -676,7 +676,7 @@ async fn superseded_thought_excluded_from_current_query() {
             filter: ThoughtFilter::ByKind(ByThoughtKind {
                 kinds: vec![ThoughtKind::Goal],
             }),
-            limit: 10,
+            limit: QueryLimit::new(10),
         }))
         .await;
 
@@ -747,7 +747,7 @@ async fn supersedes_relation_rejects_different_thought_kinds() {
             filter: RelationFilter::ByKind(ByRelationKind {
                 kinds: vec![RelationKind::Supersedes],
             }),
-            limit: 10,
+            limit: QueryLimit::new(10),
         }))
         .await;
 
@@ -837,7 +837,7 @@ async fn relation_kind_rejects_wrong_domain() {
             filter: RelationFilter::ByKind(ByRelationKind {
                 kinds: vec![RelationKind::Implements],
             }),
-            limit: 10,
+            limit: QueryLimit::new(10),
         }))
         .await;
 
@@ -902,7 +902,7 @@ async fn authored_relation_rejects_non_identity_reference_source() {
             filter: RelationFilter::ByKind(ByRelationKind {
                 kinds: vec![RelationKind::Authored],
             }),
-            limit: 10,
+            limit: QueryLimit::new(10),
         }))
         .await;
 

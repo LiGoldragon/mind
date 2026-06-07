@@ -253,7 +253,7 @@ fn non_memory_requests_are_not_handled_by_the_memory_reducer() {
             .state
             .dispatch(MindRequest::QueryThoughts(QueryThoughts {
                 filter: ThoughtFilter::ByKind(ByThoughtKind { kinds: Vec::new() }),
-                limit: 1,
+                limit: QueryLimit::new(1),
             }))
             .is_none()
     );

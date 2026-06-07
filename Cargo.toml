@@ -18,19 +18,19 @@ path = "src/main.rs"
 
 [dependencies]
 kameo               = { git = "https://github.com/LiGoldragon/kameo", branch = "persona-lifecycle-terminal-outcome", default-features = false, features = ["macros", "tracing"] }
-nota-codec          = { git = "https://github.com/LiGoldragon/nota-codec.git", branch = "main" }
-owner-signal-persona-orchestrate = { git = "https://github.com/LiGoldragon/owner-signal-persona-orchestrate.git", branch = "main" }
+nota-next           = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
+meta-signal-orchestrate = { git = "https://github.com/LiGoldragon/meta-signal-orchestrate.git", branch = "main" }
 rkyv                = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema                = { git = "https://github.com/LiGoldragon/sema.git" }
 sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git" }
 signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
-signal-persona      = { git = "https://github.com/LiGoldragon/signal-persona.git" }
-signal-mind = { git = "https://github.com/LiGoldragon/signal-mind.git" }
+signal-engine-management = { git = "https://github.com/LiGoldragon/signal-engine-management.git", branch = "main" }
+signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
 thiserror           = "2"
 tokio               = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util"] }
 
 [dev-dependencies]
-persona-orchestrate = { git = "https://github.com/LiGoldragon/persona-orchestrate.git", branch = "main" }
+orchestrate = { git = "https://github.com/LiGoldragon/orchestrate.git", branch = "main" }
 
 [lints.rust]
 unsafe_code = "forbid"

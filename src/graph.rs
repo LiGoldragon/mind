@@ -1,9 +1,10 @@
 use signal_mind::{
     ByRelationKind, ByRelationSource, ByRelationTarget, ByThoughtAuthor, ByThoughtKind,
     ByThoughtTimeRange, CompositeRelationFilter, CompositeThoughtFilter, DisplayIdentifier,
-    MindReply, MindRequestUnimplemented, MindUnimplementedReason, QueryRelations, QueryThoughts,
-    Relation, RelationCommitted, RelationFilter, RelationKind, RelationList, SubmitRelation,
-    SubmitThought, SubscriptionAccepted, Thought, ThoughtCommitted, ThoughtFilter, ThoughtList,
+    MindReply, MindRequestUnimplemented, MindUnimplementedReason, QueryLimit, QueryRelations,
+    QueryThoughts, Relation, RelationCommitted, RelationFilter, RelationKind, RelationList,
+    SubmitRelation, SubmitThought, SubscriptionAccepted, Thought, ThoughtCommitted, ThoughtFilter,
+    ThoughtList,
 };
 
 use crate::{MindEnvelope, MindTables, Result};
@@ -324,9 +325,9 @@ struct LimitedRecords<T> {
 }
 
 impl GraphLimit {
-    fn new(limit: u32) -> Self {
+    fn new(limit: QueryLimit) -> Self {
         Self {
-            value: limit as usize,
+            value: usize::from(limit.into_u16()),
         }
     }
 

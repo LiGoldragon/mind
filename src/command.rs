@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
 
-use nota_codec::{Decoder, Encoder, NotaDecode, NotaEncode};
+use nota_next::{NotaEncode, NotaSource};
 use signal_mind::{ActorName, MindReply, MindRequest};
 
 use crate::{
@@ -127,9 +127,7 @@ impl CommandRequest {
             });
         }
 
-        let mut decoder = Decoder::new(text);
-        let request = MindRequest::decode(&mut decoder)?;
-        CommandNotaEnd::new(&mut decoder).expect()?;
+        let request = NotaSource::new(text).parse::<MindRequest>()?;
         Ok(Self { request })
     }
 
@@ -152,30 +150,7 @@ impl CommandReply {
             return text_reply.to_nota();
         }
 
-        let mut encoder = Encoder::new();
-        self.reply.encode(&mut encoder)?;
-        Ok(encoder.into_string())
-    }
-}
-
-struct CommandNotaEnd<'decoder, 'input> {
-    decoder: &'decoder mut Decoder<'input>,
-}
-
-impl<'decoder, 'input> CommandNotaEnd<'decoder, 'input> {
-    fn new(decoder: &'decoder mut Decoder<'input>) -> Self {
-        Self { decoder }
-    }
-
-    fn expect(&mut self) -> nota_codec::Result<()> {
-        if let Some(token) = self.decoder.peek_token()? {
-            Err(nota_codec::Error::UnexpectedToken {
-                expected: "end of input",
-                got: token,
-            })
-        } else {
-            Ok(())
-        }
+        Ok(self.reply.to_nota())
     }
 }
 

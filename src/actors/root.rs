@@ -17,22 +17,19 @@ pub struct MindRoot {
 
 pub struct Arguments {
     pub store: StoreLocation,
-    pub orchestrate_owner_endpoint: Option<choreography::OwnerEndpoint>,
+    pub orchestrate_meta_endpoint: Option<choreography::MetaEndpoint>,
 }
 
 impl Arguments {
     pub fn new(store: StoreLocation) -> Self {
         Self {
             store,
-            orchestrate_owner_endpoint: None,
+            orchestrate_meta_endpoint: None,
         }
     }
 
-    pub fn with_orchestrate_owner_endpoint(
-        mut self,
-        endpoint: choreography::OwnerEndpoint,
-    ) -> Self {
-        self.orchestrate_owner_endpoint = Some(endpoint);
+    pub fn with_orchestrate_meta_endpoint(mut self, endpoint: choreography::MetaEndpoint) -> Self {
+        self.orchestrate_meta_endpoint = Some(endpoint);
         self
     }
 }
@@ -129,7 +126,7 @@ impl Actor for MindRoot {
         .spawn()
         .await;
 
-        let choreography = if let Some(endpoint) = arguments.orchestrate_owner_endpoint.clone() {
+        let choreography = if let Some(endpoint) = arguments.orchestrate_meta_endpoint.clone() {
             let caller = choreography::MindOrchestrateCaller::supervise(
                 &actor_reference,
                 choreography::CallerArguments::new(endpoint),

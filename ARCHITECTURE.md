@@ -21,14 +21,12 @@ command-line mind.*
 > for the scope it serves now. See `~/primary/ESSENCE.md` §"Today and
 > eventually — different things, different names".
 
----
-
 ## 0 · TL;DR
 
 `mind` owns Persona's central workspace state: work items, typed
 Thought and Relation records, notes, dependencies, decisions, aliases, event
 history, subscriptions, channel choreography policy, and ready/blocked views.
-Ordinary role claims, handoffs, and activity live in `persona-orchestrate`.
+Ordinary role claims, handoffs, and activity live in `orchestrate`.
 Lock files are not part of this implementation; they are a temporary workspace
 coordination mechanism that will be retired by the orchestrate/mind stack.
 BEADS entries may be imported as history/aliases, but BEADS is not a live
@@ -156,7 +154,7 @@ reply path, not a supervision relationship.
 ### ChoreographyAdjudicator
 
 `ChoreographyAdjudicator` is an optional child of `MindRoot` when the root
-is started with an orchestrate owner endpoint. The current shipped slice
+is started with an orchestrate meta endpoint. The current shipped slice
 owns the outbound `MindOrchestrateCaller` path for Create / Retire /
 Refresh decisions; the full channel-choreography policy plane is still
 destination work. That destination plane holds:
@@ -174,7 +172,7 @@ Both the retract request and the retracted reply are first-class per the
 `signal_channel!` streaming grammar.
 
 Status: partial. Manual decision injection is live and tested against
-orchestrate's real owner signal socket. Ordinary inbound choreography
+orchestrate's real meta signal socket. Ordinary inbound choreography
 request variants still route to
 `MindReply::MindRequestUnimplemented(NotInPrototypeScope)` until the
 policy that derives a concrete decision from those observations is built.
@@ -344,8 +342,8 @@ state optimized for queries.
 
 ## 5 · Orchestration Boundary
 
-Ordinary role claims, handoffs, and activity moved to `persona-orchestrate`.
-The corresponding wire records moved to `signal-persona-orchestrate`.
+Ordinary role claims, handoffs, and activity moved to `orchestrate`.
+The corresponding wire records moved to `signal-orchestrate`.
 
 `mind` still owns central state that orchestrate may read or propose
 against: typed work records, typed thoughts and relations, durable graph
@@ -404,7 +402,7 @@ answer, not a panic. The channel-choreography family
 `SubscriptionRetraction`) routes to `ChoreographyAdjudicator` in the
 destination shape. The first shipped slice is the outbound
 `MindOrchestrateCaller`: tests manually inject choreography decisions and
-prove they call orchestrate's owner socket. Ordinary inbound
+prove they call orchestrate's meta socket. Ordinary inbound
 `AdjudicationRequest` routing is still a typed
 `Unimplemented(NotInPrototypeScope)` until the policy that turns channel
 observations into decisions is built. The mind daemon reads its
@@ -429,7 +427,7 @@ symmetric:
 The shape is **observe up-tree, order down-tree** (per
 `~/primary/skills/component-triad.md` §"The six verbs and what each one
 means"). Mind subscribes to delivery / lifecycle / adjudication events from
-`router`, `harness`, and `persona-orchestrate`; mind *decides*;
+`router`, `harness`, and `orchestrate`; mind *decides*;
 mind issues `Mutate` / `Retract` orders down to those same components. Each
 recipient obeys and confirms; mind holds *possibly-mutated* state until the
 confirmation, then advances.
@@ -443,7 +441,7 @@ authority lives in mind. The `AdjudicationRequest` that surfaces a
 channel-miss is an inbound *observation* (`Assert`/`Match`-shaped),
 not an inbound order.
 
-Mind's `Mutate` chain extends downward through `persona-orchestrate`: mind
+Mind's `Mutate` chain extends downward through `orchestrate`: mind
 issues future `SpawnAgent` / `SuperviseAgent` / `EscalateBlockedWork` orders to
 orchestrate; orchestrate may then issue its own `Mutate` orders to
 `harness` (spawn) and `router` (install the agent's permitted
@@ -454,20 +452,20 @@ the canonical worked example in `~/primary/skills/component-triad.md`
 ## 6.7 · MindOrchestrateCaller
 
 `ChoreographyAdjudicator` now has a concrete outbound caller for the first
-three orchestrate owner verbs:
+three orchestrate meta verbs:
 
-| Decision | Owner request | Expected orchestrate effect |
+| Decision | Meta request | Expected orchestrate effect |
 |---|---|---|
-| `OrchestrateDecision::Create(CreateRoleOrder)` | `OwnerOrchestrateRequest::Create` | role registry records a new role and report lane |
-| `OrchestrateDecision::Retire(Retirement)` | `OwnerOrchestrateRequest::Retire` | role or lane is retired |
-| `OrchestrateDecision::Refresh(RefreshRepositoryIndexOrder)` | `OwnerOrchestrateRequest::Refresh` | repository index is refreshed |
+| `OrchestrateDecision::Create(CreateRoleOrder)` | `MetaOrchestrateRequest::Create` | role registry records a new role and report lane |
+| `OrchestrateDecision::Retire(Retirement)` | `MetaOrchestrateRequest::Retire` | role or lane is retired |
+| `OrchestrateDecision::Refresh(RefreshRepositoryIndexOrder)` | `MetaOrchestrateRequest::Refresh` | repository index is refreshed |
 
 `MindOrchestrateCaller` owns the Unix-socket client connection to
-orchestrate's owner socket and speaks the existing
-`owner-signal-persona-orchestrate` frame. It does not mutate mind-local
-state and does not call `persona-orchestrate` internals. Its job is the
-mind-to-body authority handoff: a typed mind decision becomes one owner
-signal frame, the owner reply returns through the adjudicator, and the
+orchestrate's meta socket and speaks the existing
+`meta-signal-orchestrate` frame. It does not mutate mind-local
+state and does not call `orchestrate` internals. Its job is the
+mind-to-body authority handoff: a typed mind decision becomes one meta
+signal frame, the meta reply returns through the adjudicator, and the
 trace records `ChoreographyAdjudicator -> MindOrchestrateCaller`.
 
 The current tests use manual decision injection because the upstream policy
@@ -493,7 +491,7 @@ This repo does not own:
 
 - `signal-mind` contract records;
 - ordinary role claim/release/handoff/activity behavior, which belongs to
-  `persona-orchestrate`;
+  `orchestrate`;
 - router delivery or harness messaging;
 - terminal transport, which belongs to `terminal`;
 - OS/window-manager observation;
@@ -578,7 +576,7 @@ This repo does not own:
   registrations and return an initial snapshot; later post-commit deltas
   require the push subscription actor/outbox surface.
 - Ordinary role claim, release, handoff, and activity are outside this repo and
-  belong to `persona-orchestrate`.
+  belong to `orchestrate`.
 - BEADS import creates aliases or external references only; there is no live
   BEADS bridge.
 - Lock files are outside the implementation; `mind` replaces them
@@ -667,7 +665,7 @@ src/command.rs             daemon/client command-line boundary
 src/error.rs               typed Error enum and actor call errors
 src/envelope.rs            MindEnvelope actor identity wrapper
 src/actors/mod.rs          actor module exports
-src/actors/choreography.rs choreography adjudicator and owner-orchestrate caller
+src/actors/choreography.rs choreography adjudicator and meta-orchestrate caller
 src/actors/root.rs         MindRoot
 src/actors/ingress.rs      ingress supervisor and envelope preparation trace
 src/actors/dispatch.rs     request classification and flow selection

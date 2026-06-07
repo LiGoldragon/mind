@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use mind::{MindCommand, MindDaemon, MindDaemonEndpoint, StoreLocation};
-use nota_codec::{Encoder, NotaEncode};
+use nota_next::NotaEncode;
 use signal_mind::{
     GoalBody, GoalScope, MindRequest, SubmitThought, TextBody, ThoughtBody, ThoughtKind,
     WorkspaceGoal,
@@ -298,8 +298,7 @@ async fn mind_cli_accepts_full_signal_mind_request_for_typed_graph() {
             }),
         }),
     });
-    let mut encoder = Encoder::new();
-    request.encode(&mut encoder).expect("request encodes");
+    let encoded_request = request.to_nota();
 
     let mut output = Vec::new();
     MindCommand::from_arguments([
@@ -307,7 +306,7 @@ async fn mind_cli_accepts_full_signal_mind_request_for_typed_graph() {
         endpoint.as_path().to_str().expect("socket path utf8"),
         "--actor",
         "operator",
-        &encoder.into_string(),
+        &encoded_request,
     ])
     .run(&mut output)
     .await

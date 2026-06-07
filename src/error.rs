@@ -36,7 +36,7 @@ pub enum Error {
     SignalPersonaMind(#[from] signal_mind::Error),
 
     #[error("nota: {0}")]
-    Nota(#[from] nota_codec::Error),
+    Nota(#[from] nota_next::NotaDecodeError),
 
     #[error("sema: {0}")]
     Sema(#[from] sema::Error),
