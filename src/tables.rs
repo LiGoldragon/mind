@@ -2,11 +2,11 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
-use sema::{SchemaVersion, Table};
 use sema_engine::{
-    Assertion, Engine, EngineOpen, EngineRecord, QueryPlan, RecordKey, SinkError,
-    SubscriptionDeliveryMode, SubscriptionEvent as EngineSubscriptionEvent, SubscriptionSink,
-    TableDescriptor, TableName, TableReference,
+    Assertion, Engine, EngineOpen, EngineRecord, QueryPlan, RecordKey, SchemaVersion, SinkError,
+    StorageKernelTable as Table, SubscriptionDeliveryMode,
+    SubscriptionEvent as EngineSubscriptionEvent, SubscriptionSink, TableDescriptor, TableName,
+    TableReference,
 };
 use signal_mind::{
     ActorName, RecordIdentifier, Relation, RelationIdentifier, SubmitRelation, SubmitThought,

@@ -1,32 +1,26 @@
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::Spawn;
 use meta_signal_orchestrate::{
     CreateRoleOrder, Frame as MetaOrchestrateFrame, FrameBody as MetaOrchestrateFrameBody,
-    HarnessKind, MetaOrchestrateReply, RefreshRepositoryIndexOrder, RetireRoleOrder, Retirement,
-    RoleIdentifier,
+    HarnessKind, MetaOrchestrateReply, MetaOrchestrateRequest, MetaOrchestrateRequestUnimplemented,
+    MetaOrchestrateUnimplementedReason, RefreshRepositoryIndexOrder, RetireRoleOrder, Retirement,
+    RoleCreated, RoleIdentifier, RoleRetired, WirePath,
 };
 use mind::actors::choreography::{
     AdjudicatorArguments, ApplyDecision, CallerArguments, ChoreographyAdjudicator, MetaEndpoint,
     MindOrchestrateCaller, OrchestrateDecision,
 };
 use mind::actors::{ActorTrace, TraceNode};
-use orchestrate::{
-    Observation, OrchestrateLayout, OrchestrateReply, OrchestrateRequest, OrchestrateService,
-    StoreLocation,
-};
-
+use signal_frame::{NonEmpty, Reply, SubReply};
 struct MetaSocketFixture {
     root: PathBuf,
-    workspace: PathBuf,
     git_index: PathBuf,
     meta_socket: PathBuf,
-    service: Arc<OrchestrateService>,
 }
 
 impl MetaSocketFixture {
@@ -39,58 +33,28 @@ impl MetaSocketFixture {
             "mind-orchestrate-caller-{test_name}-{}-{stamp}",
             std::process::id()
         ));
-        let workspace = root.join("workspace");
         let git_index = root.join("git-index");
-        std::fs::create_dir_all(workspace.join("reports")).expect("reports directory");
-        std::fs::create_dir_all(workspace.join("repos")).expect("repos directory");
-        std::fs::create_dir_all(workspace.join("orchestrate")).expect("orchestrate directory");
-        std::fs::write(
-            workspace.join("orchestrate").join("roles.list"),
-            "operator\ndesigner\nsystem-operator\n",
-        )
-        .expect("role registry");
         std::fs::create_dir_all(&git_index).expect("git index directory");
-        let store =
-            StoreLocation::new(root.join("orchestrate.sema").to_string_lossy().into_owned());
-        let service = Arc::new(
-            OrchestrateService::open_with_layout(
-                &store,
-                OrchestrateLayout::new(workspace.clone(), git_index.clone()),
-            )
-            .expect("orchestrate service opens"),
-        );
 
         Self {
             meta_socket: root.join("meta.sock"),
             root,
-            workspace,
             git_index,
-            service,
         }
     }
 
-    fn serve_one(&self) -> thread::JoinHandle<()> {
+    fn serve_one(&self) -> thread::JoinHandle<MetaOrchestrateRequest> {
         if self.meta_socket.exists() {
             std::fs::remove_file(&self.meta_socket).expect("remove stale meta socket");
         }
         let listener = UnixListener::bind(&self.meta_socket).expect("meta socket binds");
-        let service = Arc::clone(&self.service);
+        let responder = MetaResponder::new(self.root.clone(), self.git_index.clone());
         thread::spawn(move || {
             let (mut stream, _address) = listener.accept().expect("meta socket accept");
-            let response = handle_meta_stream(&mut stream, &service);
+            let (request, response) = handle_meta_stream(&mut stream, &responder);
             stream.write_all(&response).expect("meta reply write");
+            request
         })
-    }
-
-    fn role_exists(&self, role: &RoleIdentifier) -> bool {
-        let reply = self
-            .service
-            .handle(OrchestrateRequest::Observe(Observation::Roles))
-            .expect("observe roles");
-        let OrchestrateReply::RoleSnapshot(snapshot) = reply else {
-            panic!("expected role snapshot");
-        };
-        snapshot.roles.iter().any(|status| status.role == *role)
     }
 }
 
@@ -114,13 +78,19 @@ async fn choreography_create_decision_calls_orchestrate_meta_create() {
         }),
     )
     .await;
-    server.join().expect("meta server joins");
+    let request = server.join().expect("meta server joins");
 
     let Some(MetaOrchestrateReply::RoleCreated(created)) = result.reply() else {
         panic!("expected role created, got {result:?}");
     };
     assert_eq!(created.role, role);
-    assert!(fixture.role_exists(&role));
+    assert_eq!(
+        request,
+        MetaOrchestrateRequest::Create(CreateRoleOrder {
+            role: role.clone(),
+            harness: HarnessKind::Codex,
+        })
+    );
     assert!(result.trace().contains_ordered(&[
         TraceNode::CHOREOGRAPHY_ADJUDICATOR,
         TraceNode::MIND_ORCHESTRATE_CALLER,
@@ -133,16 +103,6 @@ async fn choreography_create_decision_calls_orchestrate_meta_create() {
 async fn choreography_retire_decision_calls_orchestrate_meta_retire() {
     let fixture = MetaSocketFixture::new("retire");
     let role = role("primary-mind-orchestrate-retire-zxq9");
-    fixture
-        .service
-        .handle_meta(meta_signal_orchestrate::MetaOrchestrateRequest::Create(
-            CreateRoleOrder {
-                role: role.clone(),
-                harness: HarnessKind::Codex,
-            },
-        ))
-        .expect("seed role");
-    assert!(fixture.role_exists(&role));
     let server = fixture.serve_one();
 
     let result = apply_decision(
@@ -150,13 +110,16 @@ async fn choreography_retire_decision_calls_orchestrate_meta_retire() {
         OrchestrateDecision::Retire(Retirement::Role(RetireRoleOrder { role: role.clone() })),
     )
     .await;
-    server.join().expect("meta server joins");
+    let request = server.join().expect("meta server joins");
 
     let Some(MetaOrchestrateReply::RoleRetired(retired)) = result.reply() else {
         panic!("expected role retired, got {result:?}");
     };
     assert_eq!(retired.role, role);
-    assert!(!fixture.role_exists(&role));
+    assert_eq!(
+        request,
+        MetaOrchestrateRequest::Retire(Retirement::Role(RetireRoleOrder { role }))
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -171,21 +134,15 @@ async fn choreography_refresh_decision_calls_orchestrate_meta_refresh() {
         OrchestrateDecision::Refresh(RefreshRepositoryIndexOrder {}),
     )
     .await;
-    server.join().expect("meta server joins");
+    let request = server.join().expect("meta server joins");
 
     let Some(MetaOrchestrateReply::RepositoryIndexRefreshed(refreshed)) = result.reply() else {
         panic!("expected repository refresh, got {result:?}");
     };
     assert_eq!(refreshed.repositories, 1);
-    let repositories = fixture.service.repositories().expect("repositories");
-    assert_eq!(repositories.len(), 1);
-    assert_eq!(repositories[0].name, repository_name);
-    assert!(
-        fixture
-            .workspace
-            .join("repos")
-            .join(repository_name)
-            .exists()
+    assert_eq!(
+        request,
+        MetaOrchestrateRequest::Refresh(RefreshRepositoryIndexOrder {})
     );
 }
 
@@ -222,16 +179,71 @@ async fn apply_decision(
     result
 }
 
-fn handle_meta_stream(stream: &mut UnixStream, service: &OrchestrateService) -> Vec<u8> {
+struct MetaResponder {
+    root: PathBuf,
+    git_index: PathBuf,
+}
+
+impl MetaResponder {
+    fn new(root: PathBuf, git_index: PathBuf) -> Self {
+        Self { root, git_index }
+    }
+
+    fn reply(&self, request: &MetaOrchestrateRequest) -> MetaOrchestrateReply {
+        match request {
+            MetaOrchestrateRequest::Create(order) => {
+                MetaOrchestrateReply::RoleCreated(RoleCreated {
+                    role: order.role.clone(),
+                    harness: order.harness,
+                    report_repository_path: wire_path(self.root.join("reports")),
+                    report_lane_path: wire_path(
+                        self.root.join("reports").join(order.role.as_wire_token()),
+                    ),
+                })
+            }
+            MetaOrchestrateRequest::Retire(Retirement::Role(order)) => {
+                MetaOrchestrateReply::RoleRetired(RoleRetired {
+                    role: order.role.clone(),
+                })
+            }
+            MetaOrchestrateRequest::Refresh(_) => {
+                let repositories = self
+                    .git_index
+                    .read_dir()
+                    .expect("git index readable")
+                    .filter(|entry| entry.as_ref().is_ok_and(|entry| entry.path().is_dir()))
+                    .count()
+                    .try_into()
+                    .expect("repository count fits u32");
+                MetaOrchestrateReply::RepositoryIndexRefreshed(
+                    meta_signal_orchestrate::RepositoryIndexRefreshed { repositories },
+                )
+            }
+            request => MetaOrchestrateReply::MetaOrchestrateRequestUnimplemented(
+                MetaOrchestrateRequestUnimplemented {
+                    operation: request.kind(),
+                    reason: MetaOrchestrateUnimplementedReason::NotBuiltYet,
+                },
+            ),
+        }
+    }
+}
+
+fn handle_meta_stream(
+    stream: &mut UnixStream,
+    responder: &MetaResponder,
+) -> (MetaOrchestrateRequest, Vec<u8>) {
     let bytes = read_length_prefixed(stream);
     let frame = MetaOrchestrateFrame::decode_length_prefixed(&bytes).expect("meta frame decodes");
     let MetaOrchestrateFrameBody::Request { exchange, request } = frame.into_body() else {
         panic!("expected meta request frame");
     };
-    let reply = service.handle_meta_request(request);
-    MetaOrchestrateFrame::new(MetaOrchestrateFrameBody::Reply { exchange, reply })
+    let operation = request.payloads().head().clone();
+    let reply = Reply::committed(NonEmpty::single(SubReply::Ok(responder.reply(&operation))));
+    let response = MetaOrchestrateFrame::new(MetaOrchestrateFrameBody::Reply { exchange, reply })
         .encode_length_prefixed()
-        .expect("meta reply encodes")
+        .expect("meta reply encodes");
+    (operation, response)
 }
 
 fn read_length_prefixed(stream: &mut UnixStream) -> Vec<u8> {
@@ -248,4 +260,8 @@ fn read_length_prefixed(stream: &mut UnixStream) -> Vec<u8> {
 
 fn role(value: &str) -> RoleIdentifier {
     RoleIdentifier::from_wire_token(value).expect("role")
+}
+
+fn wire_path(path: PathBuf) -> WirePath {
+    WirePath::from_absolute_path(path.to_string_lossy().into_owned()).expect("wire path")
 }

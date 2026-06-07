@@ -19,4 +19,4 @@ Ordinary role claims, handoffs, and activity belong to `orchestrate`.
 - No polling. Mind status is pushed through explicit writes and future
   Persona messages.
 - Durable mind state uses component-facing `.sema` files through
-  `sema-engine` / `sema` with rkyv-typed table values.
+  `sema-engine` with rkyv-typed table values.

@@ -3,12 +3,6 @@
 version = 4
 
 [[package]]
-name = "bitflags"
-version = "2.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8"
-
-[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -66,16 +60,6 @@ name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
-
-[[package]]
-name = "errno"
-version = "0.3.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
-dependencies = [
- "libc",
- "windows-sys",
-]
 
 [[package]]
 name = "futures"
@@ -202,42 +186,15 @@ dependencies = [
 [[package]]
 name = "kameo"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1dfd134d7a2c6ec05ee696dcbf3f7a034bdb97ecc623e981014652dcd124d77"
-dependencies = [
- "downcast-rs",
- "dyn-clone",
- "futures",
- "kameo_macros 0.20.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "kameo"
-version = "0.20.0"
 source = "git+https://github.com/LiGoldragon/kameo?branch=persona-lifecycle-terminal-outcome#22514f7c6900da00703a4a0ef096f21a45c95a99"
 dependencies = [
  "downcast-rs",
  "dyn-clone",
  "futures",
- "kameo_macros 0.20.0 (git+https://github.com/LiGoldragon/kameo?branch=persona-lifecycle-terminal-outcome)",
+ "kameo_macros",
  "serde",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "kameo_macros"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16c9002c9ecd16e1636f566c0bf62db48e70d86ed0d0a91b398955e883217a23"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -256,12 +213,6 @@ name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
-
-[[package]]
-name = "linux-raw-sys"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "memchr"
@@ -286,12 +237,10 @@ dependencies = [
 name = "mind"
 version = "0.1.0"
 dependencies = [
- "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo?branch=persona-lifecycle-terminal-outcome)",
+ "kameo",
  "meta-signal-orchestrate",
  "nota-next",
- "orchestrate",
  "rkyv",
- "sema",
  "sema-engine",
  "signal-engine-management",
  "signal-frame",
@@ -355,29 +304,6 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
-
-[[package]]
-name = "orchestrate"
-version = "0.3.1"
-source = "git+https://github.com/LiGoldragon/orchestrate.git?branch=main#0bc87f851aa3175ff72a475c23b76e6cc3000265"
-dependencies = [
- "futures",
- "meta-signal-orchestrate",
- "nota-next",
- "rkyv",
- "schema-rust-next",
- "sema",
- "sema-engine",
- "signal-executor",
- "signal-frame",
- "signal-orchestrate",
- "signal-sema",
- "signal-version-handover",
- "thiserror",
- "tokio",
- "triad-runtime",
- "version-projection",
-]
 
 [[package]]
 name = "paste"
@@ -497,19 +423,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustix"
-version = "1.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
-dependencies = [
- "bitflags",
- "errno",
- "libc",
- "linux-raw-sys",
- "windows-sys",
-]
-
-[[package]]
 name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -539,8 +452,8 @@ dependencies = [
 
 [[package]]
 name = "sema"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/sema.git#09f2a423ecaaa9984d913e6f009aa346280a29bd"
+version = "0.1.1"
+source = "git+https://github.com/LiGoldragon/sema.git?branch=main#da96de248cc3fe2e3191ca524d60cfc378f62a11"
 dependencies = [
  "redb",
  "rkyv",
@@ -549,8 +462,8 @@ dependencies = [
 
 [[package]]
 name = "sema-engine"
-version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/sema-engine.git#e94897338a3c81fe2867a77f380aab77a3bb0874"
+version = "0.2.2"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#5cee99380c4dbc22eba7615b15168f382f568751"
 dependencies = [
  "rkyv",
  "sema",
@@ -598,17 +511,6 @@ dependencies = [
  "rkyv",
  "signal-frame",
  "signal-persona-origin",
-]
-
-[[package]]
-name = "signal-executor"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-executor.git?branch=main#c34b9b93619b67082a1638b6b457c56c0f82be24"
-dependencies = [
- "rkyv",
- "signal-frame",
- "signal-sema",
- "thiserror",
 ]
 
 [[package]]
@@ -675,18 +577,6 @@ dependencies = [
  "nota-next",
  "rkyv",
  "thiserror",
-]
-
-[[package]]
-name = "signal-version-handover"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-version-handover.git?branch=main#a9af102b5a0db695bb89f5db2fb7ff1c99a1e8b8"
-dependencies = [
- "nota-next",
- "rkyv",
- "signal-frame",
- "thiserror",
- "version-projection",
 ]
 
 [[package]]
@@ -816,18 +706,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "triad-runtime"
-version = "0.5.0"
-source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#0b1746d47b4f569413e41772eae3aefe6981385b"
-dependencies = [
- "kameo 0.20.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "rustix",
- "signal-frame",
- "thiserror",
- "tokio",
-]
-
-[[package]]
 name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -841,16 +719,6 @@ checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "version-projection"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/version-projection.git?branch=main#51e85b51a7d6be37d8f0c840659cefbb0e526a47"
-dependencies = [
- "nota-next",
- "rkyv",
- "thiserror",
 ]
 
 [[package]]

@@ -38,8 +38,8 @@ pub enum Error {
     #[error("nota: {0}")]
     Nota(#[from] nota_next::NotaDecodeError),
 
-    #[error("sema: {0}")]
-    Sema(#[from] sema::Error),
+    #[error("storage kernel: {0}")]
+    StorageKernel(#[from] sema_engine::StorageKernelError),
 
     #[error("sema engine: {0}")]
     SemaEngine(#[from] sema_engine::Error),

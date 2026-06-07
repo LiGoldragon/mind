@@ -21,16 +21,12 @@ kameo               = { git = "https://github.com/LiGoldragon/kameo", branch = "
 nota-next           = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
 meta-signal-orchestrate = { git = "https://github.com/LiGoldragon/meta-signal-orchestrate.git", branch = "main" }
 rkyv                = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
-sema                = { git = "https://github.com/LiGoldragon/sema.git" }
-sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git" }
+sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-engine-management = { git = "https://github.com/LiGoldragon/signal-engine-management.git", branch = "main" }
 signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
 thiserror           = "2"
 tokio               = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util"] }
-
-[dev-dependencies]
-orchestrate = { git = "https://github.com/LiGoldragon/orchestrate.git", branch = "main" }
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -56,7 +56,7 @@ graph LR
     identity --> envelope[MindEnvelope]
     envelope --> root[MindRoot]
     root --> store[mind state writer]
-    store --> db[mind redb]
+    store --> db[mind sema]
     root --> reply[MindReply]
     reply --> encode[NOTA encode]
     encode --> text_reply[one NOTA reply]
@@ -218,7 +218,7 @@ graph LR
     domain --> store[StoreSupervisor]
     store --> memory[MemoryStore]
     memory --> kernel[StoreKernel]
-    kernel --> db[mind redb]
+    kernel --> db[mind sema]
     memory --> reducer[MemoryState reducer]
     store --> domain
     domain --> dispatch
@@ -252,7 +252,7 @@ Current implementation:
   over `mind.sema`.
 - `StoreKernel` runs on a dedicated OS thread via
   `supervise(...).spawn_in_thread()`. Every kernel handler performs a
-  synchronous redb transaction, so this follows Template 2 from
+  synchronous sema-engine/storage-kernel transaction, so this follows Template 2 from
   `~/primary/skills/kameo.md` §"Blocking-plane templates" and keeps blocking
   store work off Tokio's shared worker pool. The Kameo lifecycle fork is pinned
   through the stable `persona-lifecycle-terminal-outcome` branch and makes
@@ -271,8 +271,8 @@ Current implementation:
   `StoreKernel`, where `MindGraphLedger` writes typed `Thought`/`Relation`
   records through `sema-engine`, reads them through `sema-engine` Match
   queries, registers subscriptions through `sema-engine` Subscribe, and stores
-  only Persona-specific subscription filters through the same `sema` kernel
-  handle.
+  only Persona-specific subscription filters through the storage-kernel handle
+  exposed by `sema-engine`.
 - `SubscriptionSupervisor` receives post-commit graph deltas from
   `sema-engine` subscription sinks and publishes typed
   `signal-mind::SubscriptionEvent` records for matching durable
@@ -307,16 +307,16 @@ graph TB
     writer --> ids[IdMint]
     writer --> clock[Clock]
     writer --> events[EventAppender]
-    writer --> db[mind redb]
+    writer --> db[mind sema]
     reader[SemaReader] --> db
     views[view actors] --> reader
 ```
 
 The durable store is one workspace-local `mind.sema` owned by
-`mind`. `sema-engine` owns the single `sema::Sema` handle used by
+`mind`. `sema-engine` owns the single storage-kernel handle used by
 `MindTables`; migrated graph records use engine verbs, and unmigrated
 component-local tables temporarily use `Engine::storage_kernel()` so the
-process does not open two redb handles to the same file. The mind-specific
+process does not open two storage handles to the same file. The mind-specific
 Sema layer and table declarations belong to `mind` because mind owns
 this state. There is no shared `persona-sema` layer for mind state. Other
 components talk to mind through `signal-mind`.

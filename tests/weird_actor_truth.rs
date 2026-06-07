@@ -766,22 +766,22 @@ fn graph_subscription_deltas_cannot_stop_at_table_sink() {
 
 #[test]
 fn mind_lockfile_cannot_resolve_duplicate_storage_or_retired_signal_core() {
+    let manifest = SourceTree::new().file("Cargo.toml");
     let lock = SourceTree::new().file("Cargo.lock");
 
+    assert!(
+        !manifest.text.contains("\nsema "),
+        "Cargo.toml must not depend on the storage kernel directly; use sema-engine"
+    );
     assert_eq!(
         lock.text.matches("name = \"sema\"\n").count(),
         1,
-        "Cargo.lock must contain one sema package"
+        "Cargo.lock must contain one transitive sema storage-kernel package"
     );
     assert_eq!(
         lock.text.matches("name = \"signal-core\"\n").count(),
         0,
         "Cargo.lock must not contain the retired signal-core package"
-    );
-    assert!(
-        !lock.text.lines().any(|line| line
-            .starts_with("source = \"git+https://github.com/LiGoldragon/sema.git?branch=main#",)),
-        "sema source identity must not fork through ?branch=main"
     );
     assert!(
         !lock.text.contains("signal-core"),

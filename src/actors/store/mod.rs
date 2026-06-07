@@ -191,10 +191,10 @@ impl Actor for StoreSupervisor {
         arguments: Self::Args,
         actor_reference: ActorRef<Self>,
     ) -> Result<Self, Self::Error> {
-        // `StoreKernel` performs synchronous redb/sema-engine transactions on every
+        // `StoreKernel` performs synchronous sema-engine transactions on every
         // message, so it runs on its own OS thread. The forked Kameo lifecycle
         // contract makes supervised replacement wait until the old actor state has
-        // dropped, which releases the redb handle before a replacement opens the
+        // dropped, which releases the storage handle before a replacement opens the
         // same store path.
         let kernel = StoreKernel::supervise(
             &actor_reference,

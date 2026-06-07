@@ -202,7 +202,7 @@ async fn store_kernel_supervised_thread_restart_reopens_same_database() {
             .iter()
             .any(|item| item.id == opening.event.item.id
                 && item.title == Title::new("Durable actor work")),
-        "second StoreKernel opens the same redb after the first state drops"
+        "second StoreKernel opens the same sema store after the first state drops"
     );
     second.stop().await;
 }
