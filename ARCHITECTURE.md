@@ -429,7 +429,7 @@ symmetric:
 The shape is **observe up-tree, order down-tree** (per
 `~/primary/skills/component-triad.md` §"The six verbs and what each one
 means"). Mind subscribes to delivery / lifecycle / adjudication events from
-`persona-router`, `persona-harness`, and `persona-orchestrate`; mind *decides*;
+`router`, `harness`, and `persona-orchestrate`; mind *decides*;
 mind issues `Mutate` / `Retract` orders down to those same components. Each
 recipient obeys and confirms; mind holds *possibly-mutated* state until the
 confirmation, then advances.
@@ -446,7 +446,7 @@ not an inbound order.
 Mind's `Mutate` chain extends downward through `persona-orchestrate`: mind
 issues future `SpawnAgent` / `SuperviseAgent` / `EscalateBlockedWork` orders to
 orchestrate; orchestrate may then issue its own `Mutate` orders to
-`persona-harness` (spawn) and `persona-router` (install the agent's permitted
+`harness` (spawn) and `router` (install the agent's permitted
 channels). The `(mind -> orchestrate -> router -> harness)` authority chain is
 the canonical worked example in `~/primary/skills/component-triad.md`
 §"Authority chain — worked example".
@@ -495,7 +495,7 @@ This repo does not own:
 - ordinary role claim/release/handoff/activity behavior, which belongs to
   `persona-orchestrate`;
 - router delivery or harness messaging;
-- terminal transport, which belongs to `persona-terminal`;
+- terminal transport, which belongs to `terminal`;
 - OS/window-manager observation;
 - `sema` kernel internals;
 - a shared database for other components;
