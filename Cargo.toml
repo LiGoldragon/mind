@@ -23,7 +23,6 @@ owner-signal-persona-orchestrate = { git = "https://github.com/LiGoldragon/owner
 rkyv                = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema                = { git = "https://github.com/LiGoldragon/sema.git" }
 sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git" }
-signal-core         = { git = "https://github.com/LiGoldragon/signal-core.git" }
 signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-persona      = { git = "https://github.com/LiGoldragon/signal-persona.git" }
 signal-mind = { git = "https://github.com/LiGoldragon/signal-mind.git" }

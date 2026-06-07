@@ -2,9 +2,9 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use signal_core::{
+use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, RequestPayload, SessionEpoch,
-    SignalVerb, SubReply,
+    SubReply,
 };
 use signal_mind::{ActorName, MindFrame, MindFrameBody, MindReply, MindRequest};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -78,22 +78,22 @@ pub struct MindFrameCodec {
     maximum_frame_bytes: usize,
 }
 
-/// Synchronous request/reply transport — exchange identifier is
-/// degenerate. Real handshake + lane tracking lands when wave-2
-/// async multiplexing cuts over.
-fn synthetic_exchange() -> ExchangeIdentifier {
-    ExchangeIdentifier::new(
-        SessionEpoch::new(0),
-        ExchangeLane::Connector,
-        LaneSequence::first(),
-    )
-}
-
 impl MindFrameCodec {
     pub const fn new(maximum_frame_bytes: usize) -> Self {
         Self {
             maximum_frame_bytes,
         }
+    }
+
+    /// Synchronous request/reply transport uses a degenerate exchange
+    /// identifier until async multiplexing owns real lane tracking.
+    fn synthetic_exchange(&self) -> ExchangeIdentifier {
+        let _codec_configuration = self.maximum_frame_bytes;
+        ExchangeIdentifier::new(
+            SessionEpoch::new(0),
+            ExchangeLane::Connector,
+            LaneSequence::first(),
+        )
     }
 
     pub async fn read_frame(&self, stream: &mut UnixStream) -> Result<MindFrame> {
@@ -124,29 +124,21 @@ impl MindFrameCodec {
     pub fn request_frame(&self, actor: &ActorName, request: MindRequest) -> MindFrame {
         let _ingress_scaffold = actor;
         MindFrame::new(MindFrameBody::Request {
-            exchange: synthetic_exchange(),
+            exchange: self.synthetic_exchange(),
             request: request.into_request(),
         })
     }
 
-    pub fn reply_frame(&self, verb: SignalVerb, reply: MindReply) -> MindFrame {
+    pub fn reply_frame(&self, reply: MindReply) -> MindFrame {
         MindFrame::new(MindFrameBody::Reply {
-            exchange: synthetic_exchange(),
-            reply: Reply::completed(NonEmpty::single(SubReply::Ok {
-                verb,
-                payload: reply,
-            })),
+            exchange: self.synthetic_exchange(),
+            reply: Reply::committed(NonEmpty::single(SubReply::Ok(reply))),
         })
     }
 
     pub fn request_from_frame(&self, frame: MindFrame) -> Result<MindRequest> {
         match frame.into_body() {
-            MindFrameBody::Request { request, .. } => {
-                let checked = request
-                    .into_checked()
-                    .map_err(|(reason, _)| Error::RequestRejected(reason))?;
-                Ok(checked.operations.into_head().payload)
-            }
+            MindFrameBody::Request { request, .. } => Ok(request.payloads.into_head()),
             _ => Err(Error::UnexpectedFrame("expected mind request operation")),
         }
     }
@@ -155,10 +147,10 @@ impl MindFrameCodec {
         match frame.into_body() {
             MindFrameBody::Reply { reply, .. } => match reply {
                 Reply::Accepted { per_operation, .. } => match per_operation.into_head() {
-                    SubReply::Ok { payload, .. } => Ok(payload),
+                    SubReply::Ok(payload) => Ok(payload),
                     other => Err(Error::UnexpectedSubReply(format!("{other:?}"))),
                 },
-                Reply::Rejected { reason } => Err(Error::ReplyRejected(reason)),
+                Reply::Rejected { reason } => Err(Error::FrameReplyRejected(reason)),
             },
             _ => Err(Error::UnexpectedFrame("expected mind reply operation")),
         }
@@ -288,7 +280,6 @@ impl BoundMindDaemon {
         let frame = self.codec.read_frame(&mut stream).await?;
         let actor = ActorName::new("operator");
         let request = self.codec.request_from_frame(frame)?;
-        let request_verb = request.signal_verb();
         let envelope = MindEnvelope::new(actor, request);
         let root_reply = self
             .root
@@ -299,7 +290,7 @@ impl BoundMindDaemon {
             .reply()
             .cloned()
             .ok_or(Error::UnexpectedFrame("mind root returned no reply"))?;
-        let frame = self.codec.reply_frame(request_verb, reply.clone());
+        let frame = self.codec.reply_frame(reply.clone());
         self.codec.write_frame(&mut stream, &frame).await?;
         Ok(reply)
     }

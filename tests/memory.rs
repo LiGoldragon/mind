@@ -13,7 +13,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         Self {
-            state: MemoryState::open(StoreLocation::new("mind.redb")),
+            state: MemoryState::open(StoreLocation::new("mind.sema")),
         }
     }
 

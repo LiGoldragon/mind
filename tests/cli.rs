@@ -24,7 +24,7 @@ impl CliFixture {
         ));
         Self {
             endpoint: MindDaemonEndpoint::new(root.with_extension("sock")),
-            store: StoreLocation::new(root.with_extension("redb").to_string_lossy().to_string()),
+            store: StoreLocation::new(root.with_extension("sema").to_string_lossy().to_string()),
         }
     }
 
@@ -71,7 +71,7 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
     let item_display = "aab";
 
     let note = mind::MindTextRequest::from_nota(&format!(
-        "(NoteSubmission (Display {item_display}) \"note body\")"
+        "(NoteSubmission (Display {item_display}) [note body])"
     ))
     .expect("note text decodes")
     .into_request()
@@ -86,7 +86,7 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
     );
 
     let link = mind::MindTextRequest::from_nota(&format!(
-        "(Link (Display {item_display}) References (Report \"reports/operator/105-command-line-mind-architecture-survey.md\") None)"
+        "(Link (Display {item_display}) References (Report [reports/operator/105-command-line-mind-architecture-survey.md]) None)"
     ))
     .expect("link text decodes")
     .into_request()
@@ -98,7 +98,7 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
     assert_eq!(link.kind, signal_mind::EdgeKind::References);
 
     let status = mind::MindTextRequest::from_nota(&format!(
-        "(StatusChange (Display {item_display}) InProgress \"started\")"
+        "(StatusChange (Display {item_display}) InProgress [started])"
     ))
     .expect("status text decodes")
     .into_request()

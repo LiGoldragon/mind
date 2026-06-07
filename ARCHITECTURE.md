@@ -187,7 +187,7 @@ The destination shape for typed graph subscription push delivery splits
 - **`SubscriptionManager`** — owns subscription metadata: subscription IDs,
   registration state, the durable filter row, last-acked delta cursor.
   Persists through `StoreKernel` to `thought_subscriptions` /
-  `relation_subscriptions` in `mind.redb`.
+  `relation_subscriptions` in `mind.sema`.
 - **`StreamingReplyHandler`** (one per live subscription) — owns the reply
   channel for that subscription, buffers post-commit deltas under the
   consumer's signalled demand, and emits the terminal
@@ -251,7 +251,7 @@ Current implementation:
 
 - `StoreSupervisor` supervises `StoreKernel`, `MemoryStore`, and `GraphStore`.
 - `StoreKernel` is the only actor that opens and owns the `MindTables` handle
-  over `mind.redb`.
+  over `mind.sema`.
 - `StoreKernel` runs on a dedicated OS thread via
   `supervise(...).spawn_in_thread()`. Every kernel handler performs a
   synchronous redb transaction, so this follows Template 2 from
@@ -261,7 +261,7 @@ Current implementation:
   supervised replacement wait for terminal actor state absence before starting
   the replacement. The witness is
   `store_kernel_supervised_thread_restart_reopens_same_database`: a first
-  `MindRoot` commits to `mind.redb`, stops, and a second `MindRoot` immediately
+  `MindRoot` commits to `mind.sema`, stops, and a second `MindRoot` immediately
   reopens the same database and reads the committed state.
 - `MindTables` schema v7 owns the typed `memory_graph` snapshot table, typed
   graph subscription registration tables, and the `sema-engine` table
@@ -314,7 +314,7 @@ graph TB
     views[view actors] --> reader
 ```
 
-The durable store is one workspace-local `mind.redb` owned by
+The durable store is one workspace-local `mind.sema` owned by
 `mind`. `sema-engine` owns the single `sema::Sema` handle used by
 `MindTables`; migrated graph records use engine verbs, and unmigrated
 component-local tables temporarily use `Engine::storage_kernel()` so the
@@ -486,7 +486,7 @@ This repo owns:
 - typed Thought/Relation graph behavior;
 - graph subscription registration and post-commit delta delivery;
 - channel choreography policy and authorization state;
-- durable `mind.redb` ownership;
+- durable `mind.sema` ownership;
 - mind-specific architectural-truth tests.
 
 This repo does not own:
@@ -522,19 +522,19 @@ This repo does not own:
   auth proof.
 - A missing daemon cannot produce a client reply.
 - The daemon owns `MindRoot` for its process lifetime.
-- The daemon owns `mind.redb`; the CLI never opens the database.
+- The daemon owns `mind.sema`; the CLI never opens the database.
 - `StoreKernel` is the only store actor that opens and owns the `MindTables`
-  handle for `mind.redb`.
+  handle for `mind.sema`.
 - `MemoryStore` and `GraphStore` do not open separate database handles; they ask
   `StoreKernel`.
-- Work/memory writes replace the typed `memory_graph` snapshot in `mind.redb`
+- Work/memory writes replace the typed `memory_graph` snapshot in `mind.sema`
   before producing success replies.
 - Typed graph thought/relation writes use `sema-engine` Assert on registered
   `thoughts` / `relations` record families before producing success replies.
 - Typed graph IDs are compact sequence-derived tokens minted from the
   `sema-engine` snapshot sequence; they are not content hashes, timestamps,
   payload fields, or strings with embedded type prefixes.
-- Typed graph ID continuity survives reopening `mind.redb`; the next append
+- Typed graph ID continuity survives reopening `mind.sema`; the next append
   continues from the persisted engine snapshot and does not collide with
   existing graph records.
 - Typed graph thought/relation queries use `sema-engine` Match on registered
@@ -553,7 +553,7 @@ This repo does not own:
   of the same `ThoughtKind`; cross-kind supersession is rejected before
   persistence.
 - Current thought queries exclude Thoughts that are the target of a
-  `Supersedes` relation. The old Thought remains in `mind.redb`; correction is
+  `Supersedes` relation. The old Thought remains in `mind.sema`; correction is
   a view rule, not in-place mutation.
 - Typed graph subscriptions register the table-family subscription through
   `sema-engine` Subscribe before recording Persona-specific filters in
@@ -602,7 +602,7 @@ This repo does not own:
 - Writes append typed events.
 - Typed `Thought` and `Relation` records are immutable; correction is modeled
   as a new record plus a relation such as `Supersedes`.
-- Durable truth lives in `mind.redb`; lock files are outside this
+- Durable truth lives in `mind.sema`; lock files are outside this
   implementation and BEADS is import/history only.
 
 ## 10 · Architectural-truth Tests
@@ -615,12 +615,12 @@ constraints:
 | `mind-cli-accepts-one-nota-record-and-prints-one-nota-reply` | command surface shape through the production binary. |
 | `mind-cli-sends-signal-frames-to-long-lived-daemon` | two CLI invocations share daemon-owned state through Signal frames. |
 | `mind-cli-opens-and-queries-work-item-through-daemon` | work-graph text crosses the daemon path and returns typed NOTA replies. |
-| `mind-store-survives-process-restart` | durable state survives daemon restart on the same `mind.redb`. |
+| `mind-store-survives-process-restart` | durable state survives daemon restart on the same `mind.sema`. |
 | `mind_cli_accepts_one_nota_record_and_prints_one_nota_reply` | command surface shape in Rust fixtures. |
 | `mind_cli_uses_signal_mind_types` | no duplicate CLI request enum. |
 | `mind_cli_opens_and_queries_work_item_through_daemon` | work-graph text crosses the daemon path and returns typed NOTA replies. |
 | `mind_cli_mutates_work_item_through_daemon` | note/link/status/alias work-graph mutations cross the daemon path and return typed NOTA receipts. |
-| `mind_tables_open_stays_inside_the_store_actor_boundary` | `mind.redb` is opened only at the store actor boundary. |
+| `mind_tables_open_stays_inside_the_store_actor_boundary` | `mind.sema` is opened only at the store actor boundary. |
 | `dead_config_actor_cannot_return_without_real_mailbox_use` | no placeholder Config actor exists unless it owns a real mailbox path. |
 | `memory_state_cannot_hide_mutation_behind_refcell` | memory mutation is actor-owned mutable state, not interior mutability. |
 | `query_ready_uses_reader_without_writer` | read path cannot mutate state. |
@@ -629,10 +629,10 @@ constraints:
 | `daemon_uses_signal_auth_for_actor_identity` | caller identity is derived from Signal auth before building `MindEnvelope`. |
 | `daemon_rejects_request_frames_without_auth` | daemon cannot accept unauthenticated request frames. |
 | `client_cannot_reply_without_daemon_signal_frame` | clients cannot fabricate successful daemon replies. |
-| `mind_store_survives_process_restart` | work items committed by one daemon process are visible after a daemon restart on the same `mind.redb`. |
-| `mind_memory_graph_survives_process_restart` | work items opened by one daemon process are visible after a daemon restart on the same `mind.redb`. |
+| `mind_store_survives_process_restart` | work items committed by one daemon process are visible after a daemon restart on the same `mind.sema`. |
+| `mind_memory_graph_survives_process_restart` | work items opened by one daemon process are visible after a daemon restart on the same `mind.sema`. |
 | `typed_thought_runs_through_graph_actor_lane_and_store_mints_id` | typed graph writes pass through graph actors and mind mints compact IDs. |
-| `store_kernel_supervised_thread_restart_reopens_same_database` | StoreKernel runs on a supervised OS thread and releases `mind.redb` before a replacement opens the same store. |
+| `store_kernel_supervised_thread_restart_reopens_same_database` | StoreKernel runs on a supervised OS thread and releases `mind.sema` before a replacement opens the same store. |
 | `typed_thought_append_uses_sema_engine_operation_log` | typed graph Thought append writes through `sema-engine` and records an Assert operation-log entry. |
 | `graph_id_policy_mints_compact_typed_sequence_ids_without_prefixes` | graph IDs are short sequence tokens and type lives in `RecordIdentifier` / `RelationIdentifier`, not in the string. |
 | `graph_id_policy_continues_after_reopen_without_collision` | graph ID continuity comes from persisted `sema-engine` snapshot state. |

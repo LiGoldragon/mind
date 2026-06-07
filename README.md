@@ -7,7 +7,7 @@ relations, notes, dependencies, aliases, subscriptions, and ready-work views.
 Ordinary role claims, handoffs, and activity live in `persona-orchestrate`.
 
 It is not Persona's runtime router or harness adapter. The current runtime is
-`kameo`-backed and in-process; durable `mind.redb` storage through the
+`kameo`-backed and in-process; durable `mind.sema` storage through the
 mind-owned Sema layer is the storage target. Typed Thought/Relation graph
 records now pass through `sema-engine` assertions, match queries, and
 subscription registration plus post-commit subscription delta delivery through

@@ -14,12 +14,12 @@ ChannelRetract, AdjudicationDeny) that peer components obey and confirm.
 
 The CLI is a thin client boundary. The daemon owns `MindRoot` for its process lifetime.
 Requests enter through `MindEnvelope` (caller identity + typed `MindRequest`). The
-database is workspace-local `mind.redb` opened only by `StoreKernel`. Typed Thought/
+database is workspace-local `mind.sema` opened only by `StoreKernel`. Typed Thought/
 Relation graph records write through `sema-engine` Assert on registered table families.
 Graph IDs are compact sequence-derived tokens minted from engine snapshot; they are
 not content hashes, timestamps, or embedded type prefixes. Queries are read-only;
 writes append typed events. Work/memory mutations replace the typed memory_graph
-snapshot in `mind.redb` before success replies. Typed graph subscriptions register
+snapshot in `mind.sema` before success replies. Typed graph subscriptions register
 through `sema-engine` Subscribe and persist durable Persona-specific filters.
 
 Key constraints: the CLI accepts exactly one NOTA request and prints exactly one
@@ -27,5 +27,5 @@ reply. All public operations enter as one MindEnvelope. Caller identity, time, e
 sequence, operation IDs, and display IDs are minted by infrastructure/store actors,
 not by request payloads. State-bearing phases are actors or reducers owned by actors—
 no shared Arc<Mutex<T>>. Typed Thought and Relation records are immutable; correction
-is a new record plus a relation like Supersedes. Durable truth is mind.redb; lock
+is a new record plus a relation like Supersedes. Durable truth is mind.sema; lock
 files are outside this implementation, and BEADS is import/history only.

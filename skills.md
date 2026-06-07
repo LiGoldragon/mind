@@ -9,17 +9,17 @@ Rules for work here:
 
 - Never model BEADS as exclusively locked. Any agent may write BEADS while it
   remains the transitional task substrate.
-- Keep runtime message delivery in `persona-router`.
-- Keep harness lifecycle in `persona-harness`.
-- Keep ordinary role claims, handoffs, and activity in `persona-orchestrate`.
+- Keep runtime message delivery in `router`.
+- Keep harness lifecycle in `harness`.
+- Keep ordinary role claims, handoffs, and activity in `orchestrate`.
 - This component owns **its own** mind Sema layer over the `sema` kernel and
-  writes one `mind.redb`. The mind state actor sequences writes through that
+  writes one `mind.sema`. The mind state actor sequences writes through that
   database; no shared cross-component DB.
 - Typed Thought/Relation graph records use `sema-engine` for Assert/Match,
   operation-log snapshots, subscription registration, and post-commit
   subscription delta delivery. Unmigrated work tables use
   `Engine::storage_kernel()`;
-  do not open a second `sema::Sema` handle to the same `mind.redb`.
+  do not open a second `sema::Sema` handle to the same `mind.sema`.
 - Graph subscription deltas must become typed
   `signal-mind::SubscriptionEvent` values through
   `SubscriptionSupervisor`; do not leave delivery as a table-level callback.

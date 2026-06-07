@@ -18,4 +18,5 @@ Ordinary role claims, handoffs, and activity belong to `persona-orchestrate`.
 - BEADS is shared coordination state and is never claimed or exclusively locked.
 - No polling. Mind status is pushed through explicit writes and future
   Persona messages.
-- Durable mind state uses `redb + rkyv`.
+- Durable mind state uses component-facing `.sema` files through
+  `sema-engine` / `sema` with rkyv-typed table values.

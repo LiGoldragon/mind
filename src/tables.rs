@@ -752,7 +752,7 @@ mod tests {
             .expect("system time")
             .as_nanos();
         std::env::temp_dir()
-            .join(format!("mind-{name}-{}-{stamp}.redb", std::process::id()))
+            .join(format!("mind-{name}-{}-{stamp}.sema", std::process::id()))
             .to_string_lossy()
             .to_string()
     }

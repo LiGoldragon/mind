@@ -45,7 +45,7 @@ impl OwnerSocketFixture {
         std::fs::create_dir_all(workspace.join("repos")).expect("repos directory");
         std::fs::create_dir_all(&git_index).expect("git index directory");
         let store = StoreLocation::new(
-            root.join("persona-orchestrate.redb")
+            root.join("persona-orchestrate.sema")
                 .to_string_lossy()
                 .into_owned(),
         );

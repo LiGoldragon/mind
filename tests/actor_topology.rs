@@ -41,7 +41,7 @@ impl ActorFixture {
             .expect("system time")
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "mind-actor-topology-{}-{stamp}.redb",
+            "mind-actor-topology-{}-{stamp}.sema",
             std::process::id()
         ))
     }

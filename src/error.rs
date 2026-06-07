@@ -20,23 +20,14 @@ pub enum Error {
     #[error("system time: {0}")]
     SystemTime(#[from] std::time::SystemTimeError),
 
-    #[error("signal frame: {0}")]
-    SignalFrame(#[from] signal_core::FrameError),
-
     #[error("signal-frame: {0}")]
     SignalFrameLayer(#[from] signal_frame::FrameError),
-
-    #[error("request rejected: {0}")]
-    RequestRejected(signal_core::RequestRejectionReason),
 
     #[error("frame-layer request rejected: {0}")]
     FrameRequestRejected(signal_frame::RequestRejectionReason),
 
     #[error("unexpected sub-reply for single-op request: {0}")]
     UnexpectedSubReply(String),
-
-    #[error("signal reply rejected before execution: {0}")]
-    ReplyRejected(signal_core::RequestRejectionReason),
 
     #[error("frame-layer reply rejected before execution: {0}")]
     FrameReplyRejected(signal_frame::RequestRejectionReason),

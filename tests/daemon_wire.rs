@@ -3,13 +3,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::os::unix::fs::PermissionsExt;
 
 use mind::{
-    Error, MindClient, MindDaemon, MindDaemonEndpoint, MindFrameCodec, MindSocketMode,
-    StoreLocation, SupervisionFrameCodec, SupervisionListener, SupervisionSocketMode,
+    MindClient, MindDaemon, MindDaemonEndpoint, MindFrameCodec, MindSocketMode, StoreLocation,
+    SupervisionFrameCodec, SupervisionListener, SupervisionSocketMode,
 };
-use signal_core::{
-    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Request, RequestPayload,
-    RequestRejectionReason, SessionEpoch, SignalVerb,
-};
+use signal_frame::{ExchangeIdentifier, ExchangeLane, LaneSequence, RequestPayload, SessionEpoch};
 use signal_mind::{
     ActiveClaim, ActorName, Alternative, AlternativeIdentifier, ByRelationKind, ByThoughtKind,
     ClaimActivity, ClaimBody, ClaimScope, DecisionBody, GoalBody, GoalScope, ItemKind, Magnitude,
@@ -41,7 +38,7 @@ impl SocketFixture {
         let root =
             std::env::temp_dir().join(format!("mind-{test_name}-{}-{stamp}", std::process::id()));
         let socket = root.with_extension("sock");
-        let store = root.with_extension("redb");
+        let store = root.with_extension("sema");
         Self {
             endpoint: MindDaemonEndpoint::new(socket),
             store: StoreLocation::new(store.to_string_lossy().to_string()),
@@ -94,29 +91,24 @@ async fn daemon_round_trip_uses_signal_frames_over_socket() {
 }
 
 #[test]
-fn mind_frame_codec_rejects_mismatched_signal_verb() {
+fn mind_frame_codec_decodes_contract_local_operation_payload() {
+    let request = MindRequest::QueryThoughts(QueryThoughts {
+        filter: ThoughtFilter::ByKind(ByThoughtKind { kinds: Vec::new() }),
+        limit: 1,
+    });
     let frame = Frame::new(FrameBody::Request {
         exchange: ExchangeIdentifier::new(
             SessionEpoch::new(0),
             ExchangeLane::Connector,
             LaneSequence::first(),
         ),
-        request: Request::from_operations(NonEmpty::single(Operation::new(
-            SignalVerb::Assert,
-            MindRequest::QueryThoughts(QueryThoughts {
-                filter: ThoughtFilter::ByKind(ByThoughtKind { kinds: Vec::new() }),
-                limit: 1,
-            }),
-        ))),
+        request: request.clone().into_request(),
     });
-    let error = MindFrameCodec::default()
+    let decoded = MindFrameCodec::default()
         .request_from_frame(frame)
-        .expect_err("mismatched verb is rejected");
+        .expect("request payload decodes");
 
-    assert!(matches!(
-        error,
-        Error::RequestRejected(RequestRejectionReason::VerbPayloadMismatch { index: 0 })
-    ));
+    assert_eq!(decoded, request);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

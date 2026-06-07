@@ -236,7 +236,7 @@ impl ActorRuntimeFixture {
             .expect("system time")
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "mind-weird-actor-{}-{stamp}.redb",
+            "mind-weird-actor-{}-{stamp}.sema",
             std::process::id()
         ))
     }
@@ -477,7 +477,7 @@ fn mind_cli_cannot_open_the_mind_database() {
             reason: "CLI must not construct a store location",
         },
         ForbiddenFragment {
-            text: "mind.redb",
+            text: "mind.sema",
             reason: "CLI must not name the durable database",
         },
         ForbiddenFragment {
@@ -639,7 +639,7 @@ fn mind_tables_open_stays_inside_the_store_kernel() {
         .flat_map(|file| {
             file.violations_for(&ForbiddenFragment {
                 text: "MindTables::open",
-                reason: "mind.redb must be opened only by the store kernel",
+                reason: "mind.sema must be opened only by the store kernel",
             })
         })
         .collect::<Vec<_>>();
@@ -765,7 +765,7 @@ fn graph_subscription_deltas_cannot_stop_at_table_sink() {
 }
 
 #[test]
-fn mind_lockfile_cannot_resolve_two_sema_kernels() {
+fn mind_lockfile_cannot_resolve_duplicate_storage_or_retired_signal_core() {
     let lock = SourceTree::new().file("Cargo.lock");
 
     assert_eq!(
@@ -775,8 +775,8 @@ fn mind_lockfile_cannot_resolve_two_sema_kernels() {
     );
     assert_eq!(
         lock.text.matches("name = \"signal-core\"\n").count(),
-        1,
-        "Cargo.lock must contain one signal-core package"
+        0,
+        "Cargo.lock must not contain the retired signal-core package"
     );
     assert!(
         !lock.text.lines().any(|line| line
@@ -784,8 +784,8 @@ fn mind_lockfile_cannot_resolve_two_sema_kernels() {
         "sema source identity must not fork through ?branch=main"
     );
     assert!(
-        !lock.text.contains("signal-core.git?branch=main"),
-        "signal-core source identity must not fork through ?branch=main"
+        !lock.text.contains("signal-core"),
+        "signal-core must stay absent after the signal-frame migration"
     );
 }
 
