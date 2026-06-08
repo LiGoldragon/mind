@@ -682,8 +682,14 @@ src/graph.rs               typed Thought/Relation ledger, filters, and subscript
 src/memory.rs              memory/work graph reducer
 src/tables.rs              mind-local Sema schema, `sema-engine` graph families, and work tables
 src/text.rs                NOTA work-graph projection for mind CLI
-src/transport.rs           Unix-socket Signal-frame client/daemon transport
-src/main.rs                command-line entry point
+src/transport.rs           `MindFrame` client + working-tier codec (`serve_request`) and in-process test daemon harness
+src/supervision.rs         engine-management (supervision) codec (`serve_connection`) + in-process supervision test harness
+src/daemon.rs              `ComponentDaemon` hooks: `MindEngine` wraps the `MindRoot` actor tree; component-decoded working + meta hooks
+src/configuration.rs       binary rkyv `MindDaemonConfiguration` (single startup argument; daemons never parse NOTA)
+src/schema/daemon.rs       @generated daemon shell: argv -> binary config -> multi-listener accept/lifecycle/exit spine
+build.rs                   schema-rust-next generation driver (component-decoded `NexusDaemonShape` + meta tier)
+src/main.rs                `mind` CLI (client-only): one NOTA request -> daemon -> printed reply
+src/daemon_main.rs         `mind-daemon` process entry: `<MindProcessDaemon as DaemonEntry>::run_to_exit_code()`
 tests/actor_topology.rs    manifest and actor-path truth tests
 tests/weird_actor_truth.rs static actor-discipline and weird runtime tests
 tests/daemon_wire.rs       Signal-frame daemon/client socket tests

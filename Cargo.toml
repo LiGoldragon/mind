@@ -7,6 +7,7 @@ license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/LiGoldragon/mind"
 description  = "Typed mind state for Persona agents."
 publish      = false
+build        = "build.rs"
 
 [lib]
 name = "mind"
@@ -15,6 +16,15 @@ path = "src/lib.rs"
 [[bin]]
 name = "mind"
 path = "src/main.rs"
+required-features = ["nota-text"]
+
+[[bin]]
+name = "mind-daemon"
+path = "src/daemon_main.rs"
+
+[features]
+default   = ["nota-text"]
+nota-text = []
 
 [dependencies]
 kameo               = { git = "https://github.com/LiGoldragon/kameo", branch = "persona-lifecycle-terminal-outcome", default-features = false, features = ["macros", "tracing"] }
@@ -25,8 +35,12 @@ sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", 
 signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-engine-management = { git = "https://github.com/LiGoldragon/signal-engine-management.git", branch = "main" }
 signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
+triad-runtime       = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
 thiserror           = "2"
 tokio               = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util"] }
+
+[build-dependencies]
+schema-rust-next = { git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }
 
 [lints.rust]
 unsafe_code = "forbid"

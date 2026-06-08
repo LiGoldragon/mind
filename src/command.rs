@@ -5,10 +5,7 @@ use std::path::PathBuf;
 use nota_next::{NotaEncode, NotaSource};
 use signal_mind::{ActorName, MindReply, MindRequest};
 
-use crate::{
-    Error, MindClient, MindDaemon, MindDaemonEndpoint, MindTextReply, MindTextRequest, Result,
-    StoreLocation,
-};
+use crate::{Error, MindClient, MindDaemonEndpoint, MindTextReply, MindTextRequest, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MindCommand {
@@ -30,59 +27,28 @@ impl MindCommand {
         }
     }
 
+    /// The `mind` CLI is purely a daemon *client*: it encodes one NOTA request,
+    /// sends it to a long-lived `mind-daemon` over the working socket, and prints
+    /// the reply. The daemon process itself is the schema-emitted `mind-daemon`
+    /// binary (single binary rkyv startup, no flags) — the CLI never launches it.
     pub async fn run(self, output: impl Write) -> Result<()> {
         match self.into_action()? {
-            MindAction::Daemon(daemon) => daemon.run().await,
             MindAction::Submit(submission) => submission.run(output).await,
         }
     }
 
     fn into_action(self) -> Result<MindAction> {
-        let Some(first) = self.arguments.first() else {
+        if self.arguments.is_empty() {
             return Err(Error::MissingCommandInput);
-        };
-        if CommandArgument::new(first).matches("daemon") {
-            Ok(MindAction::Daemon(DaemonCommand::from_arguments(
-                self.arguments.into_iter().skip(1),
-            )?))
-        } else {
-            Ok(MindAction::Submit(SubmissionCommand::from_arguments(
-                self.arguments,
-            )?))
         }
+        Ok(MindAction::Submit(SubmissionCommand::from_arguments(
+            self.arguments,
+        )?))
     }
 }
 
 enum MindAction {
-    Daemon(DaemonCommand),
     Submit(SubmissionCommand),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DaemonCommand {
-    endpoint: MindDaemonEndpoint,
-    store: StoreLocation,
-}
-
-impl DaemonCommand {
-    fn from_arguments<I>(arguments: I) -> Result<Self>
-    where
-        I: IntoIterator<Item = OsString>,
-    {
-        let options = ParsedOptions::from_arguments(arguments)?;
-        Ok(Self {
-            endpoint: options.endpoint()?,
-            store: options.store()?,
-        })
-    }
-
-    async fn run(self) -> Result<()> {
-        MindDaemon::new(self.endpoint, self.store)
-            .bind()
-            .await?
-            .serve_forever()
-            .await
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,7 +123,6 @@ impl CommandReply {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ParsedOptions {
     socket: Option<PathBuf>,
-    store: Option<StoreLocation>,
     actor: Option<ActorName>,
     requests: Vec<String>,
 }
@@ -176,10 +141,6 @@ impl ParsedOptions {
             .clone()
             .map(MindDaemonEndpoint::new)
             .ok_or(Error::MissingSocketPath)
-    }
-
-    fn store(&self) -> Result<StoreLocation> {
-        self.store.clone().ok_or(Error::MissingStorePath)
     }
 
     fn actor(&self) -> Result<ActorName> {
@@ -212,7 +173,6 @@ impl OptionParser {
 
     fn parse(&mut self) -> Result<ParsedOptions> {
         let mut socket = None;
-        let mut store = None;
         let mut actor = None;
         let mut requests = Vec::new();
         let mut index = 0;
@@ -221,9 +181,6 @@ impl OptionParser {
             let argument = CommandArgument::new(&self.arguments[index]);
             if argument.matches("--socket") {
                 socket = Some(PathBuf::from(self.option_value(index, "--socket")?));
-                index += 2;
-            } else if argument.matches("--store") {
-                store = Some(StoreLocation::new(self.option_value(index, "--store")?));
                 index += 2;
             } else if argument.matches("--actor") {
                 actor = Some(ActorName::new(self.option_value(index, "--actor")?));
@@ -240,7 +197,6 @@ impl OptionParser {
 
         Ok(ParsedOptions {
             socket,
-            store,
             actor,
             requests,
         })

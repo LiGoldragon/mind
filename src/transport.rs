@@ -143,6 +143,32 @@ impl MindFrameCodec {
         }
     }
 
+    /// Serve one working `MindFrame` request over an accepted stream: decode the
+    /// request, stamp the local operator origin at ingress, drive it through the
+    /// mind root actor, and write the reply frame back. The emitted daemon
+    /// shell's working hook and the in-process test server share this body.
+    pub async fn serve_request(
+        &self,
+        stream: &mut UnixStream,
+        root: &crate::ActorRef<MindRoot>,
+    ) -> Result<MindReply> {
+        let frame = self.read_frame(stream).await?;
+        let actor = ActorName::new("operator");
+        let request = self.request_from_frame(frame)?;
+        let envelope = MindEnvelope::new(actor, request);
+        let root_reply = root
+            .ask(SubmitEnvelope { envelope })
+            .await
+            .map_err(|error| Error::ActorCall(error.to_string()))?;
+        let reply = root_reply
+            .reply()
+            .cloned()
+            .ok_or(Error::UnexpectedFrame("mind root returned no reply"))?;
+        let frame = self.reply_frame(reply.clone());
+        self.write_frame(stream, &frame).await?;
+        Ok(reply)
+    }
+
     pub fn reply_from_frame(&self, frame: MindFrame) -> Result<MindReply> {
         match frame.into_body() {
             MindFrameBody::Reply { reply, .. } => match reply {
@@ -267,31 +293,8 @@ impl BoundMindDaemon {
         result
     }
 
-    pub async fn serve_forever(self) -> Result<()> {
-        loop {
-            if let Err(error) = self.serve_next().await {
-                eprintln!("mind daemon client error: {error}");
-            }
-        }
-    }
-
     async fn serve_next(&self) -> Result<MindReply> {
         let (mut stream, _address) = self.listener.accept().await?;
-        let frame = self.codec.read_frame(&mut stream).await?;
-        let actor = ActorName::new("operator");
-        let request = self.codec.request_from_frame(frame)?;
-        let envelope = MindEnvelope::new(actor, request);
-        let root_reply = self
-            .root
-            .ask(SubmitEnvelope { envelope })
-            .await
-            .map_err(|error| Error::ActorCall(error.to_string()))?;
-        let reply = root_reply
-            .reply()
-            .cloned()
-            .ok_or(Error::UnexpectedFrame("mind root returned no reply"))?;
-        let frame = self.codec.reply_frame(reply.clone());
-        self.codec.write_frame(&mut stream, &frame).await?;
-        Ok(reply)
+        self.codec.serve_request(&mut stream, &self.root).await
     }
 }

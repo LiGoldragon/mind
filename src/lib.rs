@@ -1,5 +1,7 @@
 pub mod actors;
 pub mod command;
+pub mod configuration;
+pub mod daemon;
 pub mod envelope;
 pub mod error;
 pub mod graph;
@@ -9,10 +11,23 @@ pub mod tables;
 pub mod text;
 pub mod transport;
 
+pub mod schema {
+    #[rustfmt::skip]
+    pub mod signal;
+    #[rustfmt::skip]
+    pub mod sema;
+    #[rustfmt::skip]
+    pub mod nexus;
+    #[rustfmt::skip]
+    pub mod daemon;
+}
+
 pub use actors::root::{
     Arguments as MindRootArguments, MindRoot, RootReply as MindRootReply, SubmitEnvelope,
 };
 pub use command::MindCommand;
+pub use configuration::{ConfigurationError, MindDaemonConfiguration};
+pub use daemon::{MindDaemonError, MindEngine, MindProcessDaemon};
 pub use envelope::MindEnvelope;
 pub use error::{Error, Result};
 pub use kameo::actor::ActorRef;

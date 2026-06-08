@@ -1,0 +1,21 @@
+{
+  MindIngress mind:signal:MindIngress
+  MindAcceptance mind:signal:MindAcceptance
+  ErrorReport mind:signal:ErrorReport
+}
+[WriteInput ReadInput]
+[WriteOutput ReadOutput]
+{
+  WriteInput [(RecordMindRequest RecordMindRequest)]
+  RecordMindRequest MindIngress
+
+  ReadInput [(ReadMindState ReadMindState)]
+  ReadMindState MindStateQuery
+
+  WriteOutput [(Committed CommitReceipt) (WriteRejected ErrorReport)]
+  ReadOutput [(MindStateRead MindAcceptance) (ReadRejected ErrorReport)]
+
+  CommitSequence Integer
+  CommitReceipt { CommitSequence * }
+  MindStateQuery { CommitSequence * }
+}

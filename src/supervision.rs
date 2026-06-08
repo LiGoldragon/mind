@@ -197,7 +197,7 @@ pub struct HandleSupervisionRequest {
 }
 
 impl HandleSupervisionRequest {
-    fn new(request: SupervisionRequest) -> Self {
+    pub fn new(request: SupervisionRequest) -> Self {
         Self { request }
     }
 }
@@ -220,7 +220,7 @@ impl SupervisionPhaseReply {
         }
     }
 
-    fn into_reply(self) -> SupervisionReply {
+    pub(crate) fn into_reply(self) -> SupervisionReply {
         self.reply
     }
 }
@@ -270,15 +270,7 @@ impl SupervisionServer {
         codec: SupervisionFrameCodec,
         mut stream: UnixStream,
     ) -> Result<()> {
-        while let Ok((exchange, request)) = codec.read_request(&mut stream).await {
-            let reply = root
-                .ask(HandleSupervisionRequest::new(request))
-                .await
-                .map_err(|error| crate::Error::ActorCall(error.to_string()))?
-                .into_reply();
-            codec.write_reply(&mut stream, exchange, reply).await?;
-        }
-        Ok(())
+        codec.serve_connection(&mut stream, &root).await
     }
 }
 
@@ -292,6 +284,27 @@ impl SupervisionFrameCodec {
         Self {
             maximum_frame_bytes,
         }
+    }
+
+    /// Drive the owner-only engine-management protocol over one accepted
+    /// stream: read each supervision request, route it through the mind root
+    /// actor, and write the typed reply until the peer closes the connection.
+    /// The daemon shell's meta hook and the in-process supervision server share
+    /// this one body.
+    pub async fn serve_connection(
+        &self,
+        stream: &mut UnixStream,
+        root: &ActorRef<MindRoot>,
+    ) -> Result<()> {
+        while let Ok((exchange, request)) = self.read_request(stream).await {
+            let reply = root
+                .ask(HandleSupervisionRequest::new(request))
+                .await
+                .map_err(|error| crate::Error::ActorCall(error.to_string()))?
+                .into_reply();
+            self.write_reply(stream, exchange, reply).await?;
+        }
+        Ok(())
     }
 
     pub async fn read_reply(&self, stream: &mut UnixStream) -> Result<SupervisionReply> {

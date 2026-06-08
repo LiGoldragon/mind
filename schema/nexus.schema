@@ -1,0 +1,26 @@
+{
+  SignalInput mind:signal:Input
+  SignalOutput mind:signal:Output
+  MindIngress mind:signal:MindIngress
+  MindAcceptance mind:signal:MindAcceptance
+  ErrorReport mind:signal:ErrorReport
+  SemaWriteInput mind:sema:WriteInput
+  SemaReadInput mind:sema:ReadInput
+  SemaWriteOutput mind:sema:WriteOutput
+  SemaReadOutput mind:sema:ReadOutput
+}
+[SignalArrived SemaWriteCompleted SemaReadCompleted]
+[ReplyToSignal CommandSemaWrite CommandSemaRead Continue]
+{
+  SignalArrived SignalInput
+  SemaWriteCompleted SemaWriteOutput
+  SemaReadCompleted SemaReadOutput
+
+  ReplyToSignal SignalOutput
+  CommandSemaWrite SemaWriteInput
+  CommandSemaRead SemaReadInput
+  Continue NexusWork
+
+  NexusWork [(SignalArrived SignalArrived) (SemaWriteCompleted SemaWriteCompleted) (SemaReadCompleted SemaReadCompleted)]
+  NexusAction [(ReplyToSignal ReplyToSignal) (CommandSemaWrite CommandSemaWrite) (CommandSemaRead CommandSemaRead) (Continue Continue)]
+}
