@@ -6,11 +6,6 @@ use mind::{
     MindClient, MindDaemon, MindDaemonEndpoint, MindFrameCodec, MindSocketMode, StoreLocation,
     SupervisionFrameCodec, SupervisionListener, SupervisionSocketMode,
 };
-use signal_engine_management::{
-    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion,
-    Operation as SupervisionRequest, Presence, Query as SupervisionQuery,
-    Reply as SupervisionReply,
-};
 use signal_frame::{ExchangeIdentifier, ExchangeLane, LaneSequence, RequestPayload, SessionEpoch};
 use signal_mind::{
     ActiveClaim, ActorName, Alternative, AlternativeIdentifier, ByRelationKind, ByThoughtKind,
@@ -20,6 +15,11 @@ use signal_mind::{
     QueryRelations, QueryThoughts, RelationFilter, RelationKind, RoleName, SubmitRelation,
     SubmitThought, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos, Title,
     WirePath, WorkspaceGoal,
+};
+use signal_persona::{
+    ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion,
+    Operation as SupervisionRequest, Presence, Query as SupervisionQuery,
+    Reply as SupervisionReply,
 };
 use tokio::net::UnixStream;
 

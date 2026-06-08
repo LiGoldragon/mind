@@ -265,14 +265,14 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "memchr"
-version = "2.8.0"
+version = "2.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
+checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 
 [[package]]
 name = "meta-signal-orchestrate"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-orchestrate.git?branch=main#9da026c5d15a1408932897a165b2a4a17642a51f"
+source = "git+https://github.com/LiGoldragon/meta-signal-orchestrate.git?branch=main#74af12b5702db8e3bafadf421faf9b40ac82a77f"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -292,9 +292,9 @@ dependencies = [
  "rkyv",
  "schema-rust-next",
  "sema-engine",
- "signal-engine-management",
  "signal-frame",
  "signal-mind",
+ "signal-persona",
  "thiserror",
  "tokio",
  "triad-runtime",
@@ -302,9 +302,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1"
+checksum = "02bd0af71c67b473010cbbc60715ee815645a4dc942899111f494b4b737d6fda"
 dependencies = [
  "libc",
  "wasi",
@@ -526,8 +526,8 @@ dependencies = [
 
 [[package]]
 name = "sema-engine"
-version = "0.2.2"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#5cee99380c4dbc22eba7615b15168f382f568751"
+version = "0.2.3"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#ebee6e44ba6ee4afcb26998007bcfd128641b54c"
 dependencies = [
  "rkyv",
  "sema",
@@ -567,20 +567,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "signal-engine-management"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-engine-management.git?branch=main#305b7031668fed76c43af0d28cf70b94c933089d"
-dependencies = [
- "nota-next",
- "rkyv",
- "signal-frame",
- "signal-persona-origin",
-]
-
-[[package]]
 name = "signal-frame"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#904bb2fdb0210bbeec9f9f4edc9f8b88341522a3"
+version = "0.2.1"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#166bda84dc63bf8461fff11a41c43d6a1c92a941"
 dependencies = [
  "nota-next",
  "paste",
@@ -591,8 +580,8 @@ dependencies = [
 
 [[package]]
 name = "signal-frame-macros"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#904bb2fdb0210bbeec9f9f4edc9f8b88341522a3"
+version = "0.1.1"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#166bda84dc63bf8461fff11a41c43d6a1c92a941"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -602,20 +591,19 @@ dependencies = [
 [[package]]
 name = "signal-mind"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#bd55edb2ebfcc07297806821ddd07b6c415a2921"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#876be2c532fc22437a0daed75b0512f82a2df6a7"
 dependencies = [
  "nota-next",
  "rkyv",
  "signal-frame",
- "signal-persona-origin",
- "signal-sema",
+ "signal-persona",
  "thiserror",
 ]
 
 [[package]]
 name = "signal-orchestrate"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-orchestrate.git?branch=main#9679f824ad8b5b8e23f4ca97e5d1f720b0de65a6"
+source = "git+https://github.com/LiGoldragon/signal-orchestrate.git?branch=main#88c1fe687c14b44c7c57461b9bff2cbc846fab8a"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -625,20 +613,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "signal-persona-origin"
+name = "signal-persona"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-origin.git?branch=main#da2bee2e1a178f24a62d1eb5d3985e3937a79b5b"
+source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#ae9cf2629471097dd81e805e704c5da94ba4b16a"
 dependencies = [
  "nota-next",
  "rkyv",
+ "signal-frame",
 ]
 
 [[package]]
 name = "signal-sema"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#4f75d1c31b7481e3f212e1885b98939a5172ce1a"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#33f62840678530289e9b96485453f7d86e343182"
 dependencies = [
- "nota-next",
  "rkyv",
  "thiserror",
 ]
@@ -657,9 +645,9 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "socket2"
-version = "0.6.3"
+version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
+checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
  "windows-sys",
@@ -789,9 +777,9 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "uuid"
-version = "1.23.1"
+version = "1.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
+checksum = "d258b83ceec21034727ecee8c382cfa6c3e133699b0742c64571814fb420c9f7"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
