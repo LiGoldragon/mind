@@ -38,7 +38,7 @@ impl CliFixture {
 
 #[test]
 fn nota_opening_text_maps_to_signal_request() {
-    let request = mind::MindTextRequest::from_nota("(Opening Task High [Open work] [body])")
+    let request = mind::MindTextRequest::from_nota("(Opening Task High [Open work] body)")
         .expect("text decodes")
         .into_request()
         .expect("request maps to signal");
@@ -86,7 +86,7 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
     );
 
     let link = mind::MindTextRequest::from_nota(&format!(
-        "(Link (Display {item_display}) References (Report [reports/operator/105-command-line-mind-architecture-survey.md]) None)"
+        "(Link (Display {item_display}) References (Report reports/operator/105-command-line-mind-architecture-survey.md) None)"
     ))
     .expect("link text decodes")
     .into_request()
@@ -98,7 +98,7 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
     assert_eq!(link.kind, signal_mind::EdgeKind::References);
 
     let status = mind::MindTextRequest::from_nota(&format!(
-        "(StatusChange (Display {item_display}) InProgress [started])"
+        "(StatusChange (Display {item_display}) InProgress started)"
     ))
     .expect("status text decodes")
     .into_request()
@@ -219,7 +219,7 @@ async fn mind_cli_mutates_work_item_through_daemon() {
         "--actor",
         "operator",
         &format!(
-            "(Link (Display {item_display}) References (Report [reports/operator/105-command-line-mind-architecture-survey.md]) [source report])"
+            "(Link (Display {item_display}) References (Report reports/operator/105-command-line-mind-architecture-survey.md) [source report])"
         ),
     ])
     .run(&mut link_output)

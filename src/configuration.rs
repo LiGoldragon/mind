@@ -11,7 +11,7 @@ use std::path::Path;
 
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use signal_mind::WirePath;
-use triad_runtime::{RequestConcurrencyLimit, SocketMode};
+use triad_runtime::{BindingSurface, RequestConcurrencyLimit, SocketMode};
 
 const OWNER_ONLY_SOCKET_MODE: u32 = 0o600;
 const MAXIMUM_CONCURRENT_REQUESTS: usize = 64;
@@ -54,7 +54,7 @@ impl MindDaemonConfiguration {
     }
 }
 
-impl triad_runtime::DaemonConfiguration for MindDaemonConfiguration {
+impl BindingSurface for MindDaemonConfiguration {
     fn socket_path(&self) -> &Path {
         Path::new(self.socket_path.as_str())
     }

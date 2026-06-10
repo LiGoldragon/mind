@@ -2,13 +2,21 @@
 set -euo pipefail
 
 mind="${MIND_BIN:?MIND_BIN must point at the mind binary}"
+mind_daemon="${MIND_DAEMON_BIN:?MIND_DAEMON_BIN must point at the mind-daemon binary}"
+configuration_writer="${MIND_CONFIGURATION_WRITER_BIN:?MIND_CONFIGURATION_WRITER_BIN must point at the mind-write-configuration binary}"
 workspace="$(mktemp -d)"
 socket="$workspace/mind.sock"
+meta_socket="$workspace/mind.meta.sock"
 store="$workspace/mind.redb"
+configuration="$workspace/mind.rkyv"
 
 start_daemon() {
   rm -f "$socket"
-  "$mind" daemon --socket "$socket" --store "$store" >"$workspace/daemon-$1.log" 2>&1 &
+  rm -f "$meta_socket"
+  "$configuration_writer" \
+    "(ConfigurationWriteRequest $socket $meta_socket $store $configuration)" \
+    >"$workspace/configuration-$1.out"
+  "$mind_daemon" "$configuration" >"$workspace/daemon-$1.log" 2>&1 &
   daemon="$!"
   for _ in $(seq 1 100); do
     [[ -S "$socket" ]] && break

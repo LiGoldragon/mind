@@ -32,7 +32,20 @@
           "rust-src"
         ];
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
-        src = craneLib.cleanCargoSource ./.;
+        src = pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter =
+            path: type:
+            let
+              pathString = toString path;
+              schemaRoot = "${toString ./.}/schema";
+            in
+            type == "directory"
+            || craneLib.filterCargoSources path type
+            || pathString == schemaRoot
+            || pkgs.lib.hasPrefix "${schemaRoot}/" pathString;
+          name = "source";
+        };
         commonArgs = {
           inherit src;
           strictDeps = true;
@@ -44,6 +57,8 @@
             set -euo pipefail
 
             export MIND_BIN=${self.packages.${system}.default}/bin/mind
+            export MIND_DAEMON_BIN=${self.packages.${system}.default}/bin/mind-daemon
+            export MIND_CONFIGURATION_WRITER_BIN=${self.packages.${system}.default}/bin/mind-write-configuration
             ${pkgs.bash}/bin/bash ${script}
 
             touch "$out"
@@ -241,11 +256,14 @@
 
             workspace="$(mktemp -d)"
             socket="$workspace/mind.sock"
+            meta_socket="$workspace/mind.meta.sock"
             store="$workspace/mind.redb"
+            configuration="$workspace/mind.rkyv"
 
-            ${self.packages.${system}.default}/bin/mind daemon \
-              --socket "$socket" \
-              --store "$store" &
+            ${self.packages.${system}.default}/bin/mind-write-configuration \
+              "(ConfigurationWriteRequest $socket $meta_socket $store $configuration)"
+
+            ${self.packages.${system}.default}/bin/mind-daemon "$configuration" &
             daemon="$!"
             trap 'kill "$daemon" 2>/dev/null || true' EXIT
 

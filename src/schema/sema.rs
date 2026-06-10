@@ -28,7 +28,9 @@ pub enum WriteInput {
 }
 
 #[rustfmt::skip]
-pub type RecordMindRequest = MindIngress;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RecordMindRequest(MindIngress);
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
@@ -38,7 +40,9 @@ pub enum ReadInput {
 }
 
 #[rustfmt::skip]
-pub type ReadMindState = MindStateQuery;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ReadMindState(MindStateQuery);
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
@@ -57,17 +61,19 @@ pub enum ReadOutput {
 }
 
 #[rustfmt::skip]
-pub type CommitSequence = Integer;
+#[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct CommitSequence(Integer);
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct CommitReceipt(pub CommitSequence);
+pub struct CommitReceipt(CommitSequence);
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct MindStateQuery(pub CommitSequence);
+pub struct MindStateQuery(CommitSequence);
 
 #[rustfmt::skip]
 #[cfg_attr(feature = "nota-text", derive(nota_next::NotaDecode, nota_next::NotaEncode))]
@@ -83,6 +89,63 @@ pub enum Input {
 pub enum Output {
     WriteOutput(WriteOutput),
     ReadOutput(ReadOutput),
+}
+
+#[rustfmt::skip]
+impl RecordMindRequest {
+    pub fn new(payload: MindIngress) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &MindIngress {
+        &self.0
+    }
+    pub fn into_payload(self) -> MindIngress {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<MindIngress> for RecordMindRequest {
+    fn from(payload: MindIngress) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl ReadMindState {
+    pub fn new(payload: MindStateQuery) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &MindStateQuery {
+        &self.0
+    }
+    pub fn into_payload(self) -> MindStateQuery {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<MindStateQuery> for ReadMindState {
+    fn from(payload: MindStateQuery) -> Self {
+        Self::new(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl CommitSequence {
+    pub fn new(payload: Integer) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> &Integer {
+        &self.0
+    }
+    pub fn into_payload(self) -> Integer {
+        self.0
+    }
+}
+#[rustfmt::skip]
+impl From<Integer> for CommitSequence {
+    fn from(payload: Integer) -> Self {
+        Self::new(payload)
+    }
 }
 
 #[rustfmt::skip]
@@ -125,15 +188,15 @@ impl From<CommitSequence> for MindStateQuery {
 
 #[rustfmt::skip]
 impl WriteInput {
-    pub fn record_mind_request(payload: RecordMindRequest) -> Self {
-        Self::RecordMindRequest(payload)
+    pub fn record_mind_request(payload: MindIngress) -> Self {
+        Self::RecordMindRequest(RecordMindRequest::new(payload))
     }
 }
 
 #[rustfmt::skip]
 impl ReadInput {
-    pub fn read_mind_state(payload: ReadMindState) -> Self {
-        Self::ReadMindState(payload)
+    pub fn read_mind_state(payload: MindStateQuery) -> Self {
+        Self::ReadMindState(ReadMindState::new(payload))
     }
 }
 
@@ -174,6 +237,20 @@ impl Output {
     }
     pub fn read_output(payload: ReadOutput) -> Self {
         Self::ReadOutput(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl From<RecordMindRequest> for WriteInput {
+    fn from(payload: RecordMindRequest) -> Self {
+        Self::RecordMindRequest(payload)
+    }
+}
+
+#[rustfmt::skip]
+impl From<ReadMindState> for ReadInput {
+    fn from(payload: ReadMindState) -> Self {
+        Self::ReadMindState(payload)
     }
 }
 
@@ -246,7 +323,29 @@ impl WriteInput {
 
 #[rustfmt::skip]
 #[cfg(feature = "nota-text")]
+impl RecordMindRequest {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
 impl ReadInput {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl ReadMindState {
     pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
         <Self as NotaDecode>::from_nota_block(block)
     }
@@ -269,6 +368,17 @@ impl WriteOutput {
 #[rustfmt::skip]
 #[cfg(feature = "nota-text")]
 impl ReadOutput {
+    pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        <Self as NotaDecode>::from_nota_block(block)
+    }
+    pub fn to_nota(&self) -> String {
+        <Self as NotaEncode>::to_nota(self)
+    }
+}
+
+#[rustfmt::skip]
+#[cfg(feature = "nota-text")]
+impl CommitSequence {
     pub fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
         <Self as NotaDecode>::from_nota_block(block)
     }
@@ -576,7 +686,16 @@ impl TraceEvent {
     PartialEq,
     Eq,
 )]
-pub struct OriginRoute(pub Integer);
+pub struct OriginRoute(Integer);
+#[rustfmt::skip]
+impl OriginRoute {
+    pub fn new(payload: Integer) -> Self {
+        Self(payload)
+    }
+    pub fn payload(&self) -> Integer {
+        self.0
+    }
+}
 #[rustfmt::skip]
 #[cfg(feature = "nota-text")]
 impl OriginRoute {

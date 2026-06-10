@@ -1,6 +1,6 @@
 [package]
 name         = "mind"
-version      = "0.1.0"
+version      = "0.2.0"
 edition      = "2024"
 rust-version = "1.89"
 license      = "MIT OR Apache-2.0"
@@ -21,6 +21,11 @@ required-features = ["nota-text"]
 [[bin]]
 name = "mind-daemon"
 path = "src/daemon_main.rs"
+
+[[bin]]
+name = "mind-write-configuration"
+path = "src/bin/mind_write_configuration.rs"
+required-features = ["nota-text"]
 
 [features]
 default   = ["nota-text"]
