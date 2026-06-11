@@ -3,10 +3,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
 use sema_engine::{
-    Assertion, Engine, EngineOpen, EngineRecord, QueryPlan, RecordKey, SchemaVersion, SinkError,
-    StorageKernelTable as Table, SubscriptionDeliveryMode,
+    Assertion, Engine, EngineOpen, EngineRecord, QueryPlan, RecordKey, SchemaHash, SchemaVersion,
+    SinkError, StorageKernelTable as Table, SubscriptionDeliveryMode,
     SubscriptionEvent as EngineSubscriptionEvent, SubscriptionSink, TableDescriptor, TableName,
-    TableReference,
+    TableReference, VersionedStoreName, VersioningPolicy,
 };
 use signal_mind::{
     ActorName, RecordIdentifier, Relation, RelationIdentifier, SubmitRelation, SubmitThought,
@@ -140,7 +140,7 @@ impl MindTables {
         store: &StoreLocation,
         subscription_publisher: GraphSubscriptionPublisher,
     ) -> Result<Self> {
-        let mut engine = Engine::open(EngineOpen::new(store.as_path(), MIND_SCHEMA_VERSION))?;
+        let mut engine = Engine::open(Self::engine_open(store))?;
         engine.storage_kernel().write(|transaction| {
             MEMORY_GRAPH.ensure(transaction)?;
             THOUGHT_SUBSCRIPTIONS.ensure(transaction)?;
@@ -155,6 +155,18 @@ impl MindTables {
             relations,
             subscription_publisher,
         })
+    }
+
+    fn engine_open(store: &StoreLocation) -> EngineOpen {
+        EngineOpen::new(store.as_path(), MIND_SCHEMA_VERSION)
+            .with_versioning(Self::versioning_policy())
+    }
+
+    fn versioning_policy() -> VersioningPolicy {
+        VersioningPolicy::new(
+            VersionedStoreName::new("mind"),
+            SchemaHash::for_label(format!("mind-schema-v{}", MIND_SCHEMA_VERSION.value())),
+        )
     }
 
     pub(crate) fn memory_graph(&self) -> Result<Option<MemoryGraph>> {
@@ -656,6 +668,10 @@ mod tests {
             .expect("thought appends");
 
         let log = tables.engine.commit_log().expect("commit log reads");
+        let versioned_log = tables
+            .engine
+            .versioned_commit_log()
+            .expect("versioned commit log reads");
         let records = tables.thought_records().expect("thoughts read");
 
         assert_eq!(thought.id.as_str(), "aaa");
@@ -665,6 +681,27 @@ mod tests {
         assert_eq!(head.operation().as_record_head(), "Assert");
         assert_eq!(head.table_name(), "thoughts");
         assert_eq!(head.key().map(RecordKey::as_str), Some(thought.id.as_str()));
+        assert_eq!(versioned_log.len(), 1);
+        let versioned_head = versioned_log[0].operations().head();
+        assert_eq!(versioned_log[0].store_name().as_str(), "mind");
+        assert_eq!(
+            versioned_log[0].schema_hash(),
+            MindTables::versioning_policy().schema_hash()
+        );
+        assert_eq!(versioned_head.operation().as_record_head(), "Assert");
+        assert_eq!(versioned_head.table_name(), "thoughts");
+        assert_eq!(
+            versioned_head.key().map(RecordKey::as_str),
+            Some(thought.id.as_str())
+        );
+        let stored = rkyv::from_bytes::<StoredThought, rkyv::rancor::Error>(
+            versioned_head
+                .payload()
+                .bytes()
+                .expect("versioned thought payload carries record bytes"),
+        )
+        .expect("versioned thought payload decodes");
+        assert_eq!(stored.record, thought);
     }
 
     #[test]

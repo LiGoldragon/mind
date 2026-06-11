@@ -6,9 +6,10 @@ command-line mind.*
 > Status: the crate has a real Kameo runtime, mind-local Sema tables for
 > the work graph plus typed Thought/Relation records. Typed graph records use
 > `sema-engine` for Assert/Match, operation-log snapshots, subscription
-> registration, and post-commit subscription delta delivery into
-> `SubscriptionSupervisor`. Older work tables still use the same underlying
-> `sema` kernel handle while they await migration. The crate also has a
+> registration, reusable payload-bearing version replay, and post-commit
+> subscription delta delivery into `SubscriptionSupervisor`. Older work
+> tables still use the same underlying `sema` kernel handle while they await
+> migration. The crate also has a
 > Unix-socket Signal-frame daemon/client transport around `MindRoot`. The
 > `mind` binary can run a daemon and submit NOTA work-graph
 > opening/note/link/status/alias/query requests and full
@@ -321,6 +322,13 @@ Sema layer and table declarations belong to `mind` because mind owns
 this state. There is no shared `persona-sema` layer for mind state. Other
 components talk to mind through `signal-mind`.
 
+`MindTables` opens `sema-engine` with `VersioningPolicy` store name `mind`
+and a schema-version-derived hash label. That makes typed graph writes land
+in the engine-owned payload-bearing version log in the same `mind.sema`
+transaction as the graph row. Mind does not maintain a separate backup
+journal; remote mirror/server policy belongs to the reusable SEMA-state
+versioning layer above `sema-engine`.
+
 Recommended tables:
 
 | Table | Purpose |
@@ -539,6 +547,9 @@ This repo does not own:
   `thoughts` / `relations` record families.
 - Typed graph writes create `sema-engine` operation-log entries in the same
   transaction as the graph record.
+- Typed graph writes also create `sema-engine` payload-bearing version-log
+  entries when `MindTables` opens `mind.sema`; this is the reusable
+  SEMA-state versioning substrate, not a Mind-specific journal.
 - `SubmitThought.kind` must match `SubmitThought.body.kind()`; contradictory
   records are rejected before persistence.
 - `SubmitRelation` must reference existing thought IDs; missing endpoints are
@@ -631,7 +642,7 @@ constraints:
 | `mind_memory_graph_survives_process_restart` | work items opened by one daemon process are visible after a daemon restart on the same `mind.sema`. |
 | `typed_thought_runs_through_graph_actor_lane_and_store_mints_id` | typed graph writes pass through graph actors and mind mints compact IDs. |
 | `store_kernel_supervised_thread_restart_reopens_same_database` | StoreKernel runs on a supervised OS thread and releases `mind.sema` before a replacement opens the same store. |
-| `typed_thought_append_uses_sema_engine_operation_log` | typed graph Thought append writes through `sema-engine` and records an Assert operation-log entry. |
+| `typed_thought_append_uses_sema_engine_operation_log` | typed graph Thought append writes through `sema-engine` and records Assert entries in both the metadata operation log and payload-bearing version log. |
 | `graph_id_policy_mints_compact_typed_sequence_ids_without_prefixes` | graph IDs are short sequence tokens and type lives in `RecordIdentifier` / `RelationIdentifier`, not in the string. |
 | `graph_id_policy_continues_after_reopen_without_collision` | graph ID continuity comes from persisted `sema-engine` snapshot state. |
 | `typed_thought_query_uses_reader_without_writer` | typed graph queries are read-only. |

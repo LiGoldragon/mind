@@ -21,6 +21,9 @@ not content hashes, timestamps, or embedded type prefixes. Queries are read-only
 writes append typed events. Work/memory mutations replace the typed memory_graph
 snapshot in `mind.sema` before success replies. Typed graph subscriptions register
 through `sema-engine` Subscribe and persist durable Persona-specific filters.
+`MindTables` opts into `sema-engine`'s reusable payload-bearing version log so
+graph writes are available for shared SEMA-state backup/replay without a
+Mind-specific journal.
 
 Key constraints: the CLI accepts exactly one NOTA request and prints exactly one
 reply. All public operations enter as one MindEnvelope. Caller identity, time, event
