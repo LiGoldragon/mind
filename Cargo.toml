@@ -1,6 +1,6 @@
 [package]
 name         = "mind"
-version      = "0.2.0"
+version      = "0.3.0"
 edition      = "2024"
 rust-version = "1.89"
 license      = "MIT OR Apache-2.0"
@@ -23,6 +23,11 @@ name = "mind-daemon"
 path = "src/daemon_main.rs"
 
 [[bin]]
+name = "meta-mind"
+path = "src/bin/meta-mind.rs"
+required-features = ["nota-text"]
+
+[[bin]]
 name = "mind-write-configuration"
 path = "src/bin/mind_write_configuration.rs"
 required-features = ["nota-text"]
@@ -34,6 +39,7 @@ nota-text = []
 [dependencies]
 kameo               = { git = "https://github.com/LiGoldragon/kameo", branch = "persona-lifecycle-terminal-outcome", default-features = false, features = ["macros", "tracing"] }
 nota-next           = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
+meta-signal-mind    = { git = "https://github.com/LiGoldragon/meta-signal-mind.git", branch = "main" }
 meta-signal-orchestrate = { git = "https://github.com/LiGoldragon/meta-signal-orchestrate.git", branch = "main" }
 rkyv                = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }

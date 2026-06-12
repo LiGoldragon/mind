@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-mind="${MIND_BIN:?MIND_BIN must point at the mind binary}"
+meta_mind="${MIND_META_BIN:?MIND_META_BIN must point at the meta-mind binary}"
 mind_daemon="${MIND_DAEMON_BIN:?MIND_DAEMON_BIN must point at the mind-daemon binary}"
 configuration_writer="${MIND_CONFIGURATION_WRITER_BIN:?MIND_CONFIGURATION_WRITER_BIN must point at the mind-write-configuration binary}"
 workspace="$(mktemp -d)"
@@ -19,22 +19,16 @@ daemon="$!"
 trap 'kill "$daemon" 2>/dev/null || true' EXIT
 
 for _ in $(seq 1 100); do
-  [[ -S "$socket" ]] && break
+  [[ -S "$meta_socket" ]] && break
   sleep 0.05
 done
-test -S "$socket"
+test -S "$meta_socket"
 
-MIND_SOCKET="$socket" \
-MIND_ACTOR=operator \
-"$mind" \
-  '(Opening Task High [Daemon owns state] [sent through signal frames])' \
-  >"$workspace/opening.out"
+MIND_META_SOCKET="$meta_socket" \
+"$meta_mind" \
+  '(Inspect (All))' \
+  >"$workspace/meta.out"
 
-MIND_SOCKET="$socket" \
-MIND_ACTOR=operator \
-"$mind" \
-  '(Query (Open) 10)' \
-  >"$workspace/query.out"
-
-grep -Fq '(OpeningReceipt' "$workspace/opening.out"
-grep -Fq '[Daemon owns state]' "$workspace/query.out"
+grep -Fq '(RequestUnimplemented' "$workspace/meta.out"
+grep -Fq 'Inspect' "$workspace/meta.out"
+grep -Fq 'NotBuiltYet' "$workspace/meta.out"

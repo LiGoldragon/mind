@@ -78,10 +78,15 @@ The crate exposes:
 | `MindDaemonEndpoint` | Unix-socket endpoint value for the local daemon transport. |
 | `MindFrameCodec` | Length-prefixed Signal frame codec used by client and daemon. |
 | `MindClient` | Thin local client that attaches Signal auth, submits one request frame, and reads one reply frame. |
+| `MetaMindEndpoint` | Owner-only meta policy socket endpoint value. |
+| `MetaMindFrameCodec` | Length-prefixed `meta-signal-mind` frame codec. |
+| `MetaMindClient` | Thin local owner client for `meta-signal-mind` operations. |
 | `MindDaemon` | Bound one-shot daemon harness around `MindRoot`; reads actor identity from Signal auth before entering the root actor. |
 | `MindCommand` | Process-boundary command parser for daemon mode and one NOTA request submission. |
+| `MetaMindCommand` | Process-boundary parser for one owner meta-policy NOTA request. |
 | `MindTextRequest` / `MindTextReply` | Current NOTA projection for work-graph request/reply records plus full contract requests. |
 | `mind` binary | Daemon-backed command-line mind for central mind state. |
+| `meta-mind` binary | Daemon-backed owner-side meta policy client. |
 
 The public protocol is not defined here. `signal-mind` owns the
 request and reply records. `mind` consumes those records and applies
@@ -120,14 +125,23 @@ Process-boundary types should be small and data-bearing:
 
 | Type | Owns |
 |---|---|
-| `MindCommand` | argv, environment, exit rendering. |
+| `MindCommand` | exactly one ordinary NOTA argument, `MIND_SOCKET` / `MIND_ACTOR` environment defaults, exit rendering. |
+| `MetaMindCommand` | exactly one owner meta-policy NOTA argument, `MIND_META_SOCKET` environment default, exit rendering. |
 | `MindTextRequest` | exactly-one-record rule for implemented request records. |
 | `MindTextReply` | NOTA rendering for implemented reply records. |
 | `MindClient` | caller identity as Signal auth plus request/reply exchange. |
+| `MetaMindClient` | owner meta-policy request/reply exchange. |
 | `MindDaemonEndpoint` | local daemon endpoint default and explicit override. |
 
 No request payload mints authority. Actor identity, timestamps, event sequence,
 operation IDs, and display IDs are infrastructure/store concerns.
+
+The ordinary `mind` CLI takes no flags. It receives exactly one NOTA record
+or NOTA file path; socket and actor defaults come from `MIND_SOCKET` and
+`MIND_ACTOR`, with development defaults of `/tmp/mind.sock` and `operator`.
+The owner-side `meta-mind` CLI follows the same one-argument shape over the
+`meta-signal-mind` contract and reads its socket from `MIND_META_SOCKET`
+with a development default of `/tmp/meta-mind.sock`.
 
 ## 3 · Runtime Topology
 
@@ -291,6 +305,14 @@ Current implementation:
   `signal_channel!` macro emits a `closed_stream()` discriminant on the
   request enum from this pairing — that is the binding shape, not a
   transitional one.
+- The emitted daemon's owner socket accepts `meta-signal-mind` frames
+  and returns typed `RequestUnimplemented(NotBuiltYet)` replies for the
+  current `Configure` / `Inspect` policy operations. The same owner socket
+  still accepts the existing `signal-persona` supervision relation frames;
+  the daemon peeks at the first length-prefixed binary frame to select the
+  contract and then preserves the supervision stream when that was the
+  arriving protocol. Policy storage and policy evaluation remain destination
+  work.
 - Work/memory mutations append typed `Event` values in the reducer, then
   replace the typed Sema graph snapshot before success replies are emitted.
 - Queries read the loaded work graph through `MemoryStore` and produce typed
@@ -487,6 +509,7 @@ separate missing slice.
 This repo owns:
 
 - the `mind` CLI binary and process-boundary logic;
+- the `meta-mind` owner CLI binary and process-boundary logic;
 - Kameo runtime topology for the central mind;
 - work/memory graph behavior;
 - typed Thought/Relation graph behavior;
@@ -498,6 +521,7 @@ This repo owns:
 This repo does not own:
 
 - `signal-mind` contract records;
+- `meta-signal-mind` contract records;
 - ordinary role claim/release/handoff/activity behavior, which belongs to
   `orchestrate`;
 - router delivery or harness messaging;
@@ -511,6 +535,12 @@ This repo does not own:
 
 - The `mind` CLI accepts exactly one NOTA request record and prints exactly one
   NOTA reply record.
+- The `mind` CLI accepts no flags; socket and actor defaults come from
+  `MIND_SOCKET` and `MIND_ACTOR`.
+- The `meta-mind` CLI accepts exactly one `meta-signal-mind` NOTA request
+  record and prints exactly one meta reply record.
+- The `meta-mind` CLI accepts no flags; the owner socket default comes from
+  `MIND_META_SOCKET`.
 - CLI constraint tests run the production `mind` binary through Nix.
 - CLI constraint tests start a real daemon when the constraint requires
   runtime state.
@@ -526,6 +556,8 @@ This repo does not own:
   success replies without the actor path.
 - `MindDaemon` rejects request frames that do not carry a recognized Signal
   auth proof.
+- `MindDaemon` routes `meta-signal-mind` owner policy frames on the owner
+  socket to typed meta replies instead of closing the stream silently.
 - A missing daemon cannot produce a client reply.
 - The daemon owns `MindRoot` for its process lifetime.
 - The daemon owns `mind.sema`; the CLI never opens the database.
@@ -675,6 +707,8 @@ src/lib.rs                 crate surface
 src/command.rs             daemon/client command-line boundary
 src/error.rs               typed Error enum and actor call errors
 src/envelope.rs            MindEnvelope actor identity wrapper
+src/frame_bytes.rs         shared length-prefixed binary frame reader
+src/meta.rs                `meta-mind` client, codec, and meta policy skeleton replies
 src/actors/mod.rs          actor module exports
 src/actors/choreography.rs choreography adjudicator and meta-orchestrate caller
 src/actors/root.rs         MindRoot
@@ -700,6 +734,7 @@ src/configuration.rs       binary rkyv `MindDaemonConfiguration` (single startup
 src/schema/daemon.rs       @generated daemon shell: argv -> binary config -> multi-listener accept/lifecycle/exit spine
 build.rs                   schema-rust-next generation driver (component-decoded `NexusDaemonShape` + meta tier)
 src/main.rs                `mind` CLI (client-only): one NOTA request -> daemon -> printed reply
+src/bin/meta-mind.rs       owner policy CLI: one meta NOTA request -> daemon -> printed reply
 src/daemon_main.rs         `mind-daemon` process entry: `<MindProcessDaemon as DaemonEntry>::run_to_exit_code()`
 tests/actor_topology.rs    manifest and actor-path truth tests
 tests/weird_actor_truth.rs static actor-discipline and weird runtime tests

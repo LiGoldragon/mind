@@ -57,6 +57,7 @@
             set -euo pipefail
 
             export MIND_BIN=${self.packages.${system}.default}/bin/mind
+            export MIND_META_BIN=${self.packages.${system}.default}/bin/meta-mind
             export MIND_DAEMON_BIN=${self.packages.${system}.default}/bin/mind-daemon
             export MIND_CONFIGURATION_WRITER_BIN=${self.packages.${system}.default}/bin/mind-write-configuration
             ${pkgs.bash}/bin/bash ${script}
@@ -275,16 +276,16 @@
             done
             test -S "$socket"
 
+            MIND_SOCKET="$socket" \
+            MIND_ACTOR=operator \
             ${self.packages.${system}.default}/bin/mind \
-              --socket "$socket" \
-              --actor operator \
               '(Opening Task High [Binary check work] [opened by the binary check])' \
               > "$workspace/opening.out"
             grep -F '(OpeningReceipt' "$workspace/opening.out"
 
+            MIND_SOCKET="$socket" \
+            MIND_ACTOR=operator \
             ${self.packages.${system}.default}/bin/mind \
-              --socket "$socket" \
-              --actor operator \
               '(Query (Open) 10)' \
               > "$workspace/query.out"
             grep -F '[Binary check work]' "$workspace/query.out"
@@ -295,6 +296,7 @@
           mind-cli-sends-signal-frames-to-long-lived-daemon = mindConstraintCheck "mind-cli-sends-signal-frames-to-long-lived-daemon" ./scripts/mind-cli-sends-signal-frames-to-long-lived-daemon;
           mind-cli-opens-and-queries-work-item-through-daemon = mindConstraintCheck "mind-cli-opens-and-queries-work-item-through-daemon" ./scripts/mind-cli-opens-and-queries-work-item-through-daemon;
           mind-store-survives-process-restart = mindConstraintCheck "mind-store-survives-process-restart" ./scripts/mind-store-survives-process-restart;
+          mind-meta-cli-reaches-owner-policy-socket = mindConstraintCheck "mind-meta-cli-reaches-owner-policy-socket" ./scripts/mind-meta-cli-reaches-owner-policy-socket;
           test-doc = craneLib.cargoTest (
             commonArgs
             // {

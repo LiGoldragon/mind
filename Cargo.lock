@@ -327,6 +327,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 
 [[package]]
+name = "meta-signal-mind"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/meta-signal-mind.git?branch=main#d10cbe966c944fce404140c35f9a6b023388c38b"
+dependencies = [
+ "nota-next",
+ "rkyv",
+ "signal-frame",
+ "thiserror",
+]
+
+[[package]]
 name = "meta-signal-orchestrate"
 version = "0.3.0"
 source = "git+https://github.com/LiGoldragon/meta-signal-orchestrate.git?branch=main#49334f7ff5a1addab0e37cc73cc63621c4a81854"
@@ -341,9 +352,10 @@ dependencies = [
 
 [[package]]
 name = "mind"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo?branch=persona-lifecycle-terminal-outcome)",
+ "meta-signal-mind",
  "meta-signal-orchestrate",
  "nota-next",
  "rkyv",

@@ -34,6 +34,12 @@ Rules for work here:
   timestamp strings without a new architecture decision.
 - The convenience CLI projection may be smaller than the full contract, but the
   CLI must still accept a full `signal-mind::MindRequest` NOTA record.
+- The `mind` CLI accepts exactly one NOTA record or NOTA file path. Do not add
+  flags; ordinary socket and actor defaults come from `MIND_SOCKET` and
+  `MIND_ACTOR`.
+- The `meta-mind` CLI accepts exactly one `meta-signal-mind` NOTA record or
+  NOTA file path. Do not add flags; the owner socket default comes from
+  `MIND_META_SOCKET`.
 - Lock files are outside the implementation target. They are temporary
   workspace coordination artifacts and should not be regenerated or projected
   by `mind`.

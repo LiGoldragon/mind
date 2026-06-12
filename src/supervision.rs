@@ -15,23 +15,11 @@ use signal_persona::{
     Operation as SupervisionRequest, Presence, Query as SupervisionQuery,
     Reply as SupervisionReply, StopAcknowledgement,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::task::JoinHandle;
 
-use crate::{MindRoot, Result};
-
-/// Same wave-1 placeholder as [`crate::transport::synthetic_exchange`]
-/// — supervision uses synchronous request/reply, so the
-/// `ExchangeIdentifier` is degenerate until handshake/lane tracking
-/// lands.
-fn supervision_synthetic_exchange() -> ExchangeIdentifier {
-    ExchangeIdentifier::new(
-        SessionEpoch::new(0),
-        ExchangeLane::Connector,
-        LaneSequence::first(),
-    )
-}
+use crate::{MindRoot, Result, frame_bytes::LengthPrefixedFrameBytes};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupervisionProfile {
@@ -297,14 +285,20 @@ impl SupervisionFrameCodec {
         root: &ActorRef<MindRoot>,
     ) -> Result<()> {
         while let Ok((exchange, request)) = self.read_request(stream).await {
-            let reply = root
-                .ask(HandleSupervisionRequest::new(request))
-                .await
-                .map_err(|error| crate::Error::ActorCall(error.to_string()))?
-                .into_reply();
-            self.write_reply(stream, exchange, reply).await?;
+            self.serve_request(stream, root, exchange, request).await?;
         }
         Ok(())
+    }
+
+    pub async fn serve_connection_with_first_frame(
+        &self,
+        stream: &mut UnixStream,
+        root: &ActorRef<MindRoot>,
+        first_frame: LengthPrefixedFrameBytes,
+    ) -> Result<()> {
+        let (exchange, request) = self.request_from_frame_bytes(first_frame)?;
+        self.serve_request(stream, root, exchange, request).await?;
+        self.serve_connection(stream, root).await
     }
 
     pub async fn read_reply(&self, stream: &mut UnixStream) -> Result<SupervisionReply> {
@@ -329,17 +323,54 @@ impl SupervisionFrameCodec {
         request: SupervisionRequest,
     ) -> Result<()> {
         let frame = SupervisionFrame::new(FrameBody::Request {
-            exchange: supervision_synthetic_exchange(),
+            exchange: self.synthetic_exchange(),
             request: Request::from_payload(request),
         });
         self.write_frame(stream, &frame).await
+    }
+
+    fn synthetic_exchange(&self) -> ExchangeIdentifier {
+        let _codec_configuration = self.maximum_frame_bytes;
+        ExchangeIdentifier::new(
+            SessionEpoch::new(0),
+            ExchangeLane::Connector,
+            LaneSequence::first(),
+        )
+    }
+
+    async fn serve_request(
+        &self,
+        stream: &mut UnixStream,
+        root: &ActorRef<MindRoot>,
+        exchange: ExchangeIdentifier,
+        request: SupervisionRequest,
+    ) -> Result<()> {
+        let reply = root
+            .ask(HandleSupervisionRequest::new(request))
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))?
+            .into_reply();
+        self.write_reply(stream, exchange, reply).await
     }
 
     async fn read_request(
         &self,
         stream: &mut UnixStream,
     ) -> Result<(ExchangeIdentifier, SupervisionRequest)> {
-        let frame = self.read_frame(stream).await?;
+        self.request_from_frame(self.read_frame(stream).await?)
+    }
+
+    fn request_from_frame_bytes(
+        &self,
+        bytes: LengthPrefixedFrameBytes,
+    ) -> Result<(ExchangeIdentifier, SupervisionRequest)> {
+        self.request_from_frame(SupervisionFrame::decode_length_prefixed(bytes.as_slice())?)
+    }
+
+    fn request_from_frame(
+        &self,
+        frame: SupervisionFrame,
+    ) -> Result<(ExchangeIdentifier, SupervisionRequest)> {
         match frame.into_body() {
             FrameBody::Request { exchange, request } => {
                 let mut operations = request.payloads.into_vec();
@@ -370,21 +401,9 @@ impl SupervisionFrameCodec {
     }
 
     async fn read_frame(&self, stream: &mut UnixStream) -> Result<SupervisionFrame> {
-        let mut prefix = [0_u8; 4];
-        stream.read_exact(&mut prefix).await?;
-        let length = u32::from_be_bytes(prefix) as usize;
-        if length > self.maximum_frame_bytes {
-            return Err(crate::Error::FrameTooLarge {
-                found: length,
-                limit: self.maximum_frame_bytes,
-            });
-        }
-
-        let mut bytes = Vec::with_capacity(4 + length);
-        bytes.extend_from_slice(&prefix);
-        bytes.resize(4 + length, 0);
-        stream.read_exact(&mut bytes[4..]).await?;
-        Ok(SupervisionFrame::decode_length_prefixed(&bytes)?)
+        let bytes =
+            LengthPrefixedFrameBytes::read_from_stream(stream, self.maximum_frame_bytes).await?;
+        Ok(SupervisionFrame::decode_length_prefixed(bytes.as_slice())?)
     }
 
     async fn write_frame(&self, stream: &mut UnixStream, frame: &SupervisionFrame) -> Result<()> {

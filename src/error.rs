@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use signal_mind::{RelationKindMismatch, ThoughtKind};
 use thiserror::Error;
 
@@ -19,6 +21,16 @@ pub enum Error {
 
     #[error("system time: {0}")]
     SystemTime(#[from] std::time::SystemTimeError),
+
+    #[error("component argument error: {0}")]
+    Argument(#[from] triad_runtime::ArgumentError),
+
+    #[error("failed to read NOTA file {}: {source}", path.display())]
+    ReadNotaFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 
     #[error("signal-frame: {0}")]
     SignalFrameLayer(#[from] signal_frame::FrameError),
@@ -50,29 +62,8 @@ pub enum Error {
     #[error("frame is larger than configured limit: {found} > {limit}")]
     FrameTooLarge { found: usize, limit: usize },
 
-    #[error("missing command line input")]
-    MissingCommandInput,
-
-    #[error("unknown command line option: {option}")]
-    UnknownCommandLineOption { option: String },
-
-    #[error("missing value for command line option: {option}")]
-    MissingCommandLineOptionValue { option: String },
-
-    #[error("invalid command line argument: {argument}")]
-    InvalidCommandLineArgument { argument: String },
-
-    #[error("missing required --socket path")]
-    MissingSocketPath,
-
-    #[error("missing required --actor name")]
-    MissingActorName,
-
     #[error("missing required --store path")]
     MissingStorePath,
-
-    #[error("expected one NOTA request argument, got {count}")]
-    WrongRequestArgumentCount { count: usize },
 
     #[error("mind graph thought kind mismatch: declared {declared:?}, body {actual:?}")]
     MindGraphThoughtKindMismatch {

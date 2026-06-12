@@ -7,11 +7,12 @@ use signal_frame::{
     SubReply,
 };
 use signal_mind::{ActorName, MindFrame, MindFrameBody, MindReply, MindRequest};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::{
     Error, MindEnvelope, MindRoot, MindRootArguments, Result, StoreLocation, SubmitEnvelope,
+    frame_bytes::LengthPrefixedFrameBytes,
     supervision::{SupervisionHandle, SupervisionListener, SupervisionProfile},
 };
 
@@ -97,21 +98,9 @@ impl MindFrameCodec {
     }
 
     pub async fn read_frame(&self, stream: &mut UnixStream) -> Result<MindFrame> {
-        let mut prefix = [0_u8; 4];
-        stream.read_exact(&mut prefix).await?;
-        let length = u32::from_be_bytes(prefix) as usize;
-        if length > self.maximum_frame_bytes {
-            return Err(Error::FrameTooLarge {
-                found: length,
-                limit: self.maximum_frame_bytes,
-            });
-        }
-
-        let mut bytes = Vec::with_capacity(4 + length);
-        bytes.extend_from_slice(&prefix);
-        bytes.resize(4 + length, 0);
-        stream.read_exact(&mut bytes[4..]).await?;
-        Ok(MindFrame::decode_length_prefixed(&bytes)?)
+        let bytes =
+            LengthPrefixedFrameBytes::read_from_stream(stream, self.maximum_frame_bytes).await?;
+        Ok(MindFrame::decode_length_prefixed(bytes.as_slice())?)
     }
 
     pub async fn write_frame(&self, stream: &mut UnixStream, frame: &MindFrame) -> Result<()> {

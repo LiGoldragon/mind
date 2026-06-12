@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use mind::{MindCommand, MindDaemon, MindDaemonEndpoint, StoreLocation};
+use mind::{MindCommand, MindCommandEnvironment, MindDaemon, MindDaemonEndpoint, StoreLocation};
 use nota_next::NotaEncode;
 use signal_mind::{
     GoalBody, GoalScope, MindRequest, SubmitThought, TextBody, ThoughtBody, ThoughtKind,
@@ -33,6 +33,13 @@ impl CliFixture {
             .bind()
             .await
             .expect("daemon binds")
+    }
+
+    fn environment(&self, actor: &str) -> MindCommandEnvironment {
+        MindCommandEnvironment::new(
+            self.endpoint.as_path().to_str().expect("socket path utf8"),
+            actor,
+        )
     }
 }
 
@@ -126,29 +133,22 @@ fn nota_work_mutation_text_maps_to_signal_requests() {
 async fn mind_cli_opens_and_queries_work_item_through_daemon() {
     let fixture = CliFixture::new("opening-query");
     let daemon = fixture.bind().await;
-    let endpoint = daemon.endpoint().clone();
     let server = tokio::spawn(async move { daemon.serve_count(2).await });
 
     let mut opening_output = Vec::new();
-    MindCommand::from_arguments([
-        "--socket",
-        endpoint.as_path().to_str().expect("socket path utf8"),
-        "--actor",
-        "operator",
-        "(Opening Task High [Open CLI-visible work] [created through mind text])",
-    ])
+    MindCommand::from_arguments_with_environment(
+        ["(Opening Task High [Open CLI-visible work] [created through mind text])"],
+        fixture.environment("operator"),
+    )
     .run(&mut opening_output)
     .await
     .expect("cli opens work item");
 
     let mut query_output = Vec::new();
-    MindCommand::from_arguments([
-        "--socket",
-        endpoint.as_path().to_str().expect("socket path utf8"),
-        "--actor",
-        "operator",
-        "(Query (Open) 10)",
-    ])
+    MindCommand::from_arguments_with_environment(
+        ["(Query (Open) 10)"],
+        fixture.environment("operator"),
+    )
     .run(&mut query_output)
     .await
     .expect("cli queries work items");
@@ -171,81 +171,67 @@ async fn mind_cli_opens_and_queries_work_item_through_daemon() {
 async fn mind_cli_mutates_work_item_through_daemon() {
     let fixture = CliFixture::new("mutate-work-item");
     let daemon = fixture.bind().await;
-    let endpoint = daemon.endpoint().clone();
     let server = tokio::spawn(async move { daemon.serve_count(6).await });
-    let socket = endpoint.as_path().to_str().expect("socket path utf8");
     let item_display = "aab";
 
     let mut opening_output = Vec::new();
-    MindCommand::from_arguments([
-        "--socket",
-        socket,
-        "--actor",
-        "operator",
-        "(Opening Task High [Mutate CLI-visible work] [created through mind text])",
-    ])
+    MindCommand::from_arguments_with_environment(
+        ["(Opening Task High [Mutate CLI-visible work] [created through mind text])"],
+        fixture.environment("operator"),
+    )
     .run(&mut opening_output)
     .await
     .expect("cli opens work item");
 
     let mut note_output = Vec::new();
-    MindCommand::from_arguments([
-        "--socket",
-        socket,
-        "--actor",
-        "designer",
-        &format!("(NoteSubmission (Display {item_display}) [designer note])"),
-    ])
+    MindCommand::from_arguments_with_environment(
+        [format!(
+            "(NoteSubmission (Display {item_display}) [designer note])"
+        )],
+        fixture.environment("designer"),
+    )
     .run(&mut note_output)
     .await
     .expect("cli adds note");
 
     let mut alias_output = Vec::new();
-    MindCommand::from_arguments([
-        "--socket",
-        socket,
-        "--actor",
-        "operator",
-        &format!("(AliasAssignment (Display {item_display}) primary-mind-text)"),
-    ])
+    MindCommand::from_arguments_with_environment(
+        [format!(
+            "(AliasAssignment (Display {item_display}) primary-mind-text)"
+        )],
+        fixture.environment("operator"),
+    )
     .run(&mut alias_output)
     .await
     .expect("cli adds alias");
 
     let mut link_output = Vec::new();
-    MindCommand::from_arguments([
-        "--socket",
-        socket,
-        "--actor",
-        "operator",
-        &format!(
+    MindCommand::from_arguments_with_environment(
+        [format!(
             "(Link (Display {item_display}) References (Report reports/operator/105-command-line-mind-architecture-survey.md) [source report])"
-        ),
-    ])
+        )],
+        fixture.environment("operator"),
+    )
     .run(&mut link_output)
     .await
     .expect("cli adds report link");
 
     let mut status_output = Vec::new();
-    MindCommand::from_arguments([
-        "--socket",
-        socket,
-        "--actor",
-        "operator",
-        &format!("(StatusChange (Display {item_display}) InProgress [implementation started])"),
-    ])
+    MindCommand::from_arguments_with_environment(
+        [format!(
+            "(StatusChange (Display {item_display}) InProgress [implementation started])"
+        )],
+        fixture.environment("operator"),
+    )
     .run(&mut status_output)
     .await
     .expect("cli changes status");
 
     let mut query_output = Vec::new();
-    MindCommand::from_arguments([
-        "--socket",
-        socket,
-        "--actor",
-        "operator",
-        &format!("(Query (ByItem (Display {item_display})) 20)"),
-    ])
+    MindCommand::from_arguments_with_environment(
+        [format!("(Query (ByItem (Display {item_display})) 20)")],
+        fixture.environment("operator"),
+    )
     .run(&mut query_output)
     .await
     .expect("cli queries work item");
@@ -287,7 +273,6 @@ async fn mind_cli_mutates_work_item_through_daemon() {
 async fn mind_cli_accepts_full_signal_mind_request_for_typed_graph() {
     let fixture = CliFixture::new("typed-graph");
     let daemon = fixture.bind().await;
-    let endpoint = daemon.endpoint().clone();
     let server = tokio::spawn(async move { daemon.serve_one().await });
     let request = MindRequest::SubmitThought(SubmitThought {
         kind: ThoughtKind::Goal,
@@ -301,13 +286,10 @@ async fn mind_cli_accepts_full_signal_mind_request_for_typed_graph() {
     let encoded_request = request.to_nota();
 
     let mut output = Vec::new();
-    MindCommand::from_arguments([
-        "--socket",
-        endpoint.as_path().to_str().expect("socket path utf8"),
-        "--actor",
-        "operator",
-        &encoded_request,
-    ])
+    MindCommand::from_arguments_with_environment(
+        [encoded_request],
+        fixture.environment("operator"),
+    )
     .run(&mut output)
     .await
     .expect("cli sends typed graph request");

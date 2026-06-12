@@ -34,17 +34,17 @@ daemon=""
 trap '[[ -n "${daemon:-}" ]] && kill "$daemon" 2>/dev/null || true' EXIT
 
 start_daemon first
+MIND_SOCKET="$socket" \
+MIND_ACTOR=operator \
 "$mind" \
-  --socket "$socket" \
-  --actor operator \
   '(Opening Task High [Survives restart] [created before daemon restart])' \
   >"$workspace/first-opening.out"
 stop_daemon
 
 start_daemon second
+MIND_SOCKET="$socket" \
+MIND_ACTOR=operator \
 "$mind" \
-  --socket "$socket" \
-  --actor operator \
   '(Query (Open) 10)' \
   >"$workspace/second-query.out"
 stop_daemon

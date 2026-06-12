@@ -21,8 +21,8 @@ use triad_runtime::{AcceptedConnection, FrameError};
 
 use crate::schema::daemon::ComponentDaemon;
 use crate::{
-    ActorRef, Error as MindError, MindFrameCodec, MindRoot, MindRootArguments, StoreLocation,
-    SupervisionFrameCodec,
+    ActorRef, Error as MindError, MetaMindFrameCodec, MindFrameCodec, MindRoot, MindRootArguments,
+    StoreLocation, SupervisionFrameCodec,
 };
 
 /// The type-level selector for mind's emitted daemon. It carries no runtime
@@ -40,6 +40,7 @@ pub struct MindEngine {
     store: StoreLocation,
     root: OnceCell<ActorRef<MindRoot>>,
     working_codec: MindFrameCodec,
+    meta_mind_codec: MetaMindFrameCodec,
     supervision_codec: SupervisionFrameCodec,
 }
 
@@ -61,6 +62,7 @@ impl MindEngine {
             store,
             root: OnceCell::new(),
             working_codec: MindFrameCodec::default(),
+            meta_mind_codec: MetaMindFrameCodec::default(),
             supervision_codec: SupervisionFrameCodec::new(1024 * 1024),
         }
     }
@@ -90,10 +92,30 @@ impl MindEngine {
         mut connection: AcceptedConnection,
     ) -> Result<(), MindDaemonError> {
         let root = self.root().await?;
-        self.supervision_codec
-            .serve_connection(connection.stream_mut(), root)
+        let first_frame = self
+            .meta_mind_codec
+            .read_frame_bytes(connection.stream_mut())
             .await?;
-        Ok(())
+        match self.meta_mind_codec.decode_request_frame(&first_frame) {
+            Ok((exchange, operation)) => {
+                self.meta_mind_codec
+                    .write_unimplemented_reply(connection.stream_mut(), exchange, operation)
+                    .await?;
+                Ok(())
+            }
+            Err(crate::meta::MetaMindFrameDecode::NotMeta) => {
+                self.supervision_codec
+                    .serve_connection_with_first_frame(connection.stream_mut(), root, first_frame)
+                    .await?;
+                Ok(())
+            }
+            Err(crate::meta::MetaMindFrameDecode::UnexpectedFrame(message)) => {
+                Err(MindDaemonError::Engine(MindError::UnexpectedFrame(message)))
+            }
+            Err(crate::meta::MetaMindFrameDecode::UnexpectedSubReply(reply)) => Err(
+                MindDaemonError::Engine(MindError::UnexpectedSubReply(reply)),
+            ),
+        }
     }
 }
 
