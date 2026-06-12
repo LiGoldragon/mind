@@ -42,7 +42,7 @@ nota-next           = { git = "https://github.com/LiGoldragon/nota-next.git", br
 meta-signal-mind    = { git = "https://github.com/LiGoldragon/meta-signal-mind.git", branch = "main" }
 meta-signal-orchestrate = { git = "https://github.com/LiGoldragon/meta-signal-orchestrate.git", branch = "main" }
 rkyv                = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
-sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "versioned-family-identity" }
+sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-persona      = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
 signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }

@@ -340,7 +340,7 @@ dependencies = [
 [[package]]
 name = "meta-signal-orchestrate"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-orchestrate.git?branch=main#49334f7ff5a1addab0e37cc73cc63621c4a81854"
+source = "git+https://github.com/LiGoldragon/meta-signal-orchestrate.git?branch=main#9e0aff9c7603861eae7c830dd7612c513acb590b"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -403,7 +403,7 @@ dependencies = [
 [[package]]
 name = "nota-next"
 version = "0.4.0"
-source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#065fa2ad2fa05bac87677f0bfa826bd92dbd139a"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#3d6c2cdf4a7a62b36640b8622fdcaa2b931f0d43"
 dependencies = [
  "nota-next-derive",
  "rkyv",
@@ -412,7 +412,7 @@ dependencies = [
 [[package]]
 name = "nota-next-derive"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#065fa2ad2fa05bac87677f0bfa826bd92dbd139a"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#3d6c2cdf4a7a62b36640b8622fdcaa2b931f0d43"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -564,8 +564,9 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 [[package]]
 name = "schema-next"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#9a9b769bacd6f24517dce98d341ee63cbb332cf0"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#f460e7b6e76ef8766e45b870c323becd0ef461bf"
 dependencies = [
+ "blake3",
  "nota-next",
  "rkyv",
 ]
@@ -573,7 +574,7 @@ dependencies = [
 [[package]]
 name = "schema-rust-next"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#b1c36e1ab61756d4f6afc9fafe7b9c9a3ab68611"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#7c15bc3fa3d07f4710acca16f14eef1aa68b02dd"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -595,8 +596,8 @@ dependencies = [
 
 [[package]]
 name = "sema-engine"
-version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=versioned-family-identity#53426b1457eb458c4891738b8e5824484dcc2667"
+version = "0.4.0"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#dbe29427d9a2c6c194909385485ad42b008048b8"
 dependencies = [
  "blake3",
  "rkyv",
@@ -679,7 +680,7 @@ dependencies = [
 [[package]]
 name = "signal-orchestrate"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-orchestrate.git?branch=main#a7b221302b33fcb8526ef5a1e1f7f0f554dcb575"
+source = "git+https://github.com/LiGoldragon/signal-orchestrate.git?branch=main#e17c5cd717975ffb05e59d98a7b3caba031dc2da"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -836,7 +837,7 @@ dependencies = [
 [[package]]
 name = "triad-runtime"
 version = "0.6.1"
-source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#6ea831627d13793a4c42d7f9b9174b47279a9b2b"
+source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#1b5d0f17840793d00af73e8f16ad7908cad72a38"
 dependencies = [
  "kameo 0.20.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustix",
