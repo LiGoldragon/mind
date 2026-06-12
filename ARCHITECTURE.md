@@ -276,9 +276,12 @@ Current implementation:
   `store_kernel_supervised_thread_restart_reopens_same_database`: a first
   `MindRoot` commits to `mind.sema`, stops, and a second `MindRoot` immediately
   reopens the same database and reads the committed state.
-- `MindTables` schema v7 owns the typed `memory_graph` snapshot table, typed
-  graph subscription registration tables, and the `sema-engine` table
-  registrations for typed Thought/Relation graph records.
+- `MindTables` schema v8 registers every durable mind table as a
+  `sema-engine` record family with typed family identity: the
+  `memory_graph` snapshot, the typed Thought/Relation graph records,
+  and the graph subscription registrations. There are no
+  component-local storage-kernel tables left; every durable write goes
+  through the engine's logged choke points.
 - `MemoryStore` owns the private `MemoryState` reducer and commits accepted
   work/memory snapshots through `StoreKernel`.
 - `GraphStore` routes `SubmitThought`, `SubmitRelation`, `QueryThoughts`,
@@ -337,17 +340,22 @@ graph TB
 
 The durable store is one workspace-local `mind.sema` owned by
 `mind`. `sema-engine` owns the single storage-kernel handle used by
-`MindTables`; migrated graph records use engine verbs, and unmigrated
-component-local tables temporarily use `Engine::storage_kernel()` so the
-process does not open two storage handles to the same file. The mind-specific
-Sema layer and table declarations belong to `mind` because mind owns
-this state. There is no shared `persona-sema` layer for mind state. Other
-components talk to mind through `signal-mind`.
+`MindTables`; every durable mind table is a registered engine record
+family written through engine verbs, so every durable write lands in the
+commit log and the versioned log. The engine hands out only a read-only
+`StorageReader`; mind no longer holds any write path around the logged
+choke points. The mind-specific Sema layer and table declarations belong
+to `mind` because mind owns this state. There is no shared
+`persona-sema` layer for mind state. Other components talk to mind
+through `signal-mind`.
 
-`MindTables` opens `sema-engine` with `VersioningPolicy` store name `mind`
-and a schema-version-derived hash label. That makes typed graph writes land
-in the engine-owned payload-bearing version log in the same `mind.sema`
-transaction as the graph row. Mind does not maintain a separate backup
+`MindTables` opens `sema-engine` with `VersioningPolicy` store name
+`mind`; each registered family declares a `FamilyName` and a per-family
+schema hash (a typed label-derived stand-in until schema generation
+supplies content hashes), and the store-level schema hash is derived by
+the engine from that inventory. That makes every durable write land in
+the engine-owned payload-bearing version log in the same `mind.sema`
+transaction as the data row. Mind does not maintain a separate backup
 journal; remote mirror/server policy belongs to the reusable SEMA-state
 versioning layer above `sema-engine`.
 

@@ -17,9 +17,9 @@ Rules for work here:
   no shared cross-component DB.
 - Typed Thought/Relation graph records use `sema-engine` for Assert/Match,
   operation-log snapshots, subscription registration, and post-commit
-  subscription delta delivery. Unmigrated work tables use
-  `Engine::storage_kernel()` through `sema-engine`; do not open a second
-  storage handle to the same `mind.sema`.
+  subscription delta delivery. Every durable mind table is a registered
+  engine record family; there is no storage-kernel write path, and do not
+  open a second storage handle to the same `mind.sema`.
 - Graph subscription deltas must become typed
   `signal-mind::SubscriptionEvent` values through
   `SubscriptionSupervisor`; do not leave delivery as a table-level callback.

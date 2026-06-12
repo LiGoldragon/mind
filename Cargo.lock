@@ -403,7 +403,7 @@ dependencies = [
 [[package]]
 name = "nota-next"
 version = "0.4.0"
-source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#af6a2080d52b88ef5c6c89755ecfd3e818ffdea4"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#065fa2ad2fa05bac87677f0bfa826bd92dbd139a"
 dependencies = [
  "nota-next-derive",
  "rkyv",
@@ -412,7 +412,7 @@ dependencies = [
 [[package]]
 name = "nota-next-derive"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#af6a2080d52b88ef5c6c89755ecfd3e818ffdea4"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#065fa2ad2fa05bac87677f0bfa826bd92dbd139a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -595,8 +595,8 @@ dependencies = [
 
 [[package]]
 name = "sema-engine"
-version = "0.2.3"
-source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=main#c970d3f2f463534d5ef640fb18ab5c0da971129c"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/sema-engine.git?branch=versioned-family-identity#53426b1457eb458c4891738b8e5824484dcc2667"
 dependencies = [
  "blake3",
  "rkyv",

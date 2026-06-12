@@ -3,8 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
 use sema_engine::{
-    Assertion, Engine, EngineOpen, EngineRecord, QueryPlan, RecordKey, SchemaHash, SchemaVersion,
-    SinkError, StorageKernelTable as Table, SubscriptionDeliveryMode,
+    Assertion, Engine, EngineOpen, EngineRecord, FamilyName, Mutation, QueryPlan, RecordKey,
+    SchemaHash, SchemaVersion, SinkError, SubscriptionDeliveryMode,
     SubscriptionEvent as EngineSubscriptionEvent, SubscriptionSink, TableDescriptor, TableName,
     TableReference, VersionedStoreName, VersioningPolicy,
 };
@@ -18,21 +18,22 @@ use crate::actors::subscription::{
 };
 use crate::{MemoryGraph, Result, StoreLocation};
 
-const MIND_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(7);
+const MIND_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(8);
 
-const MEMORY_GRAPH: Table<&'static str, MemoryGraph> = Table::new("memory_graph");
-const THOUGHT_SUBSCRIPTIONS: Table<&'static str, StoredThoughtSubscription> =
-    Table::new("thought_subscriptions");
-const RELATION_SUBSCRIPTIONS: Table<&'static str, StoredRelationSubscription> =
-    Table::new("relation_subscriptions");
+const MEMORY_GRAPH: TableName = TableName::new("memory_graph");
+const THOUGHT_SUBSCRIPTIONS: TableName = TableName::new("thought_subscriptions");
+const RELATION_SUBSCRIPTIONS: TableName = TableName::new("relation_subscriptions");
 const MEMORY_GRAPH_KEY: &str = "current";
 const THOUGHTS: TableName = TableName::new("thoughts");
 const RELATIONS: TableName = TableName::new("relations");
 
 pub struct MindTables {
     engine: Engine,
+    memory: TableReference<MemoryGraph>,
     thoughts: TableReference<StoredThought>,
     relations: TableReference<StoredRelation>,
+    thought_subscriptions: TableReference<StoredThoughtSubscription>,
+    relation_subscriptions: TableReference<StoredRelationSubscription>,
     subscription_publisher: GraphSubscriptionPublisher,
 }
 
@@ -135,24 +136,49 @@ impl EngineRecord for StoredRelation {
     }
 }
 
+impl EngineRecord for MemoryGraph {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(MEMORY_GRAPH_KEY)
+    }
+}
+
+impl EngineRecord for StoredThoughtSubscription {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.subscription.as_str())
+    }
+}
+
+impl EngineRecord for StoredRelationSubscription {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.subscription.as_str())
+    }
+}
+
 impl MindTables {
     pub(crate) fn open(
         store: &StoreLocation,
         subscription_publisher: GraphSubscriptionPublisher,
     ) -> Result<Self> {
         let mut engine = Engine::open(Self::engine_open(store))?;
-        engine.storage_kernel().write(|transaction| {
-            MEMORY_GRAPH.ensure(transaction)?;
-            THOUGHT_SUBSCRIPTIONS.ensure(transaction)?;
-            RELATION_SUBSCRIPTIONS.ensure(transaction)?;
-            Ok(())
-        })?;
-        let thoughts = engine.register_table(TableDescriptor::new(THOUGHTS))?;
-        let relations = engine.register_table(TableDescriptor::new(RELATIONS))?;
+        let memory =
+            engine.register_table(Self::family_descriptor(MEMORY_GRAPH, "memory-graph"))?;
+        let thoughts = engine.register_table(Self::family_descriptor(THOUGHTS, "thought"))?;
+        let relations = engine.register_table(Self::family_descriptor(RELATIONS, "relation"))?;
+        let thought_subscriptions = engine.register_table(Self::family_descriptor(
+            THOUGHT_SUBSCRIPTIONS,
+            "thought-subscription",
+        ))?;
+        let relation_subscriptions = engine.register_table(Self::family_descriptor(
+            RELATION_SUBSCRIPTIONS,
+            "relation-subscription",
+        ))?;
         Ok(Self {
             engine,
+            memory,
             thoughts,
             relations,
+            thought_subscriptions,
+            relation_subscriptions,
             subscription_publisher,
         })
     }
@@ -163,24 +189,44 @@ impl MindTables {
     }
 
     fn versioning_policy() -> VersioningPolicy {
-        VersioningPolicy::new(
-            VersionedStoreName::new("mind"),
-            SchemaHash::for_label(format!("mind-schema-v{}", MIND_SCHEMA_VERSION.value())),
+        VersioningPolicy::new(VersionedStoreName::new("mind"))
+    }
+
+    /// Family identity per registered table. The schema hash is a
+    /// typed stand-in derived from the family label and mind schema
+    /// version until schema generation supplies content hashes from
+    /// the `.schema` source.
+    fn family_descriptor<RecordValue>(
+        table: TableName,
+        family: &str,
+    ) -> TableDescriptor<RecordValue> {
+        TableDescriptor::new(
+            table,
+            FamilyName::new(family),
+            SchemaHash::for_label(format!("mind-{family}-v{}", MIND_SCHEMA_VERSION.value())),
         )
     }
 
     pub(crate) fn memory_graph(&self) -> Result<Option<MemoryGraph>> {
         Ok(self
             .engine
-            .storage_kernel()
-            .read(|transaction| MEMORY_GRAPH.get(transaction, MEMORY_GRAPH_KEY))?)
+            .match_records(QueryPlan::key(
+                self.memory,
+                RecordKey::new(MEMORY_GRAPH_KEY),
+            ))?
+            .records()
+            .first()
+            .cloned())
     }
 
     pub(crate) fn replace_memory_graph(&self, graph: &MemoryGraph) -> Result<()> {
-        self.engine.storage_kernel().write(|transaction| {
-            MEMORY_GRAPH.insert(transaction, MEMORY_GRAPH_KEY, graph)?;
-            Ok(())
-        })?;
+        if self.memory_graph()?.is_some() {
+            self.engine
+                .mutate(Mutation::new(self.memory, graph.clone()))?;
+        } else {
+            self.engine
+                .assert(Assertion::new(self.memory, graph.clone()))?;
+        }
         Ok(())
     }
 
@@ -290,10 +336,8 @@ impl MindTables {
             subscription: Self::subscription_identifier_from_engine(receipt.handle().id()),
             filter,
         };
-        self.engine.storage_kernel().write(|transaction| {
-            THOUGHT_SUBSCRIPTIONS.insert(transaction, record.subscription.as_str(), &record)?;
-            Ok(())
-        })?;
+        self.engine
+            .assert(Assertion::new(self.thought_subscriptions, record.clone()))?;
         Ok(OpenedThoughtSubscription::new(record, initial))
     }
 
@@ -322,10 +366,8 @@ impl MindTables {
             subscription: Self::subscription_identifier_from_engine(receipt.handle().id()),
             filter,
         };
-        self.engine.storage_kernel().write(|transaction| {
-            RELATION_SUBSCRIPTIONS.insert(transaction, record.subscription.as_str(), &record)?;
-            Ok(())
-        })?;
+        self.engine
+            .assert(Assertion::new(self.relation_subscriptions, record.clone()))?;
         Ok(OpenedRelationSubscription::new(record, initial))
     }
 
@@ -612,11 +654,14 @@ mod tests {
             .expect("tables reopen");
         let persisted = reopened
             .engine
-            .storage_kernel()
-            .read(|transaction| {
-                THOUGHT_SUBSCRIPTIONS.get(transaction, stored.subscription.as_str())
-            })
+            .match_records(QueryPlan::key(
+                reopened.thought_subscriptions,
+                RecordKey::new(stored.subscription.as_str()),
+            ))
             .expect("subscription lookup")
+            .records()
+            .first()
+            .cloned()
             .expect("subscription stored");
 
         assert_eq!(persisted, stored);
@@ -686,7 +731,7 @@ mod tests {
         assert_eq!(versioned_log[0].store_name().as_str(), "mind");
         assert_eq!(
             versioned_log[0].schema_hash(),
-            MindTables::versioning_policy().schema_hash()
+            tables.engine.store_schema_hash()
         );
         assert_eq!(versioned_head.operation().as_record_head(), "Assert");
         assert_eq!(versioned_head.table_name(), "thoughts");
