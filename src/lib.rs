@@ -35,10 +35,9 @@ pub use error::{Error, Result};
 pub use kameo::actor::ActorRef;
 pub(crate) use memory::MemoryGraph;
 pub use memory::{MemoryState, StoreLocation};
-pub use meta::{
-    MetaMindClient, MetaMindCommand, MetaMindCommandEnvironment, MetaMindEndpoint,
-    MetaMindFrameCodec,
-};
+pub use meta::{MetaMindClient, MetaMindEndpoint, MetaMindFrameCodec};
+#[cfg(feature = "nota-text")]
+pub use meta::{MetaMindCommand, MetaMindCommandEnvironment};
 pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };

@@ -329,10 +329,11 @@ checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 [[package]]
 name = "meta-signal-mind"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-mind.git?branch=main#d10cbe966c944fce404140c35f9a6b023388c38b"
+source = "git+https://github.com/LiGoldragon/meta-signal-mind.git?branch=main#c8d481ae8449ad22337f71e31d26f43161d7ec16"
 dependencies = [
  "nota-next",
  "rkyv",
+ "schema-rust-next",
  "signal-frame",
  "thiserror",
 ]

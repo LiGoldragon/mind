@@ -34,12 +34,12 @@ required-features = ["nota-text"]
 
 [features]
 default   = ["nota-text"]
-nota-text = []
+nota-text = ["meta-signal-mind/nota-text"]
 
 [dependencies]
 kameo               = { git = "https://github.com/LiGoldragon/kameo", branch = "persona-lifecycle-terminal-outcome", default-features = false, features = ["macros", "tracing"] }
 nota-next           = { git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
-meta-signal-mind    = { git = "https://github.com/LiGoldragon/meta-signal-mind.git", branch = "main" }
+meta-signal-mind    = { git = "https://github.com/LiGoldragon/meta-signal-mind.git", branch = "main", default-features = false }
 meta-signal-orchestrate = { git = "https://github.com/LiGoldragon/meta-signal-orchestrate.git", branch = "main" }
 rkyv                = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }

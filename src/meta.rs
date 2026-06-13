@@ -1,12 +1,14 @@
-use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "nota-text")]
+use std::{fs, io::Write};
 
+#[cfg(feature = "nota-text")]
+use meta_signal_mind::Request as MetaMindRequest;
 use meta_signal_mind::{
     Frame as MetaMindFrame, FrameBody as MetaMindFrameBody, MetaMindReply,
-    Operation as MetaMindOperation, Request as MetaMindRequest, RequestUnimplemented,
-    UnimplementedReason,
+    Operation as MetaMindOperation, RequestUnimplemented, UnimplementedReason,
 };
+#[cfg(feature = "nota-text")]
 use nota_next::{NotaEncode, NotaSource};
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, RequestPayload, SessionEpoch,
@@ -14,11 +16,13 @@ use signal_frame::{
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixStream;
+#[cfg(feature = "nota-text")]
 use triad_runtime::{ComponentArgument, ComponentCommand};
 
 use crate::frame_bytes::LengthPrefixedFrameBytes;
 use crate::{Error, Result};
 
+#[cfg(feature = "nota-text")]
 const DEFAULT_META_MIND_SOCKET: &str = "/tmp/meta-mind.sock";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -179,16 +183,19 @@ impl MetaMindClient {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(feature = "nota-text")]
 pub struct MetaMindCommand {
     command: ComponentCommand,
     environment: MetaMindCommandEnvironment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(feature = "nota-text")]
 pub struct MetaMindCommandEnvironment {
     socket: String,
 }
 
+#[cfg(feature = "nota-text")]
 impl MetaMindCommand {
     pub fn from_env() -> Self {
         Self {
@@ -229,6 +236,7 @@ impl MetaMindCommand {
     }
 }
 
+#[cfg(feature = "nota-text")]
 impl MetaMindCommandEnvironment {
     pub fn new(socket: impl Into<String>) -> Self {
         Self {
@@ -248,10 +256,12 @@ impl MetaMindCommandEnvironment {
     }
 }
 
+#[cfg(feature = "nota-text")]
 struct MetaMindOperationSource {
     text: String,
 }
 
+#[cfg(feature = "nota-text")]
 impl MetaMindOperationSource {
     fn from_command(command: ComponentCommand) -> Result<Self> {
         match command.nota_argument()? {
