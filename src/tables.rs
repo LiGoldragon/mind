@@ -725,7 +725,10 @@ mod tests {
         let head = log[0].operations().head();
         assert_eq!(head.operation().as_record_head(), "Assert");
         assert_eq!(head.table_name(), "thoughts");
-        assert_eq!(head.key().map(RecordKey::as_str), Some(thought.id.as_str()));
+        assert_eq!(
+            head.key().map(RecordKey::to_owned_string).as_deref(),
+            Some(thought.id.as_str())
+        );
         assert_eq!(versioned_log.len(), 1);
         let versioned_head = versioned_log[0].operations().head();
         assert_eq!(versioned_log[0].store_name().as_str(), "mind");
@@ -736,7 +739,10 @@ mod tests {
         assert_eq!(versioned_head.operation().as_record_head(), "Assert");
         assert_eq!(versioned_head.table_name(), "thoughts");
         assert_eq!(
-            versioned_head.key().map(RecordKey::as_str),
+            versioned_head
+                .key()
+                .map(RecordKey::to_owned_string)
+                .as_deref(),
             Some(thought.id.as_str())
         );
         let stored = rkyv::from_bytes::<StoredThought, rkyv::rancor::Error>(
