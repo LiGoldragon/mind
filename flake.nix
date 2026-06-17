@@ -158,7 +158,7 @@
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoTestExtraArgs = "--test weird_actor_truth mind_lockfile_cannot_resolve_two_sema_kernels";
+              cargoTestExtraArgs = "--test weird_actor_truth mind_lockfile_cannot_resolve_duplicate_storage_or_retired_signal_core";
             }
           );
           mind-typed-thought-graph-survives-process-restart = craneLib.cargoTest (
