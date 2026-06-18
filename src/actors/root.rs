@@ -10,9 +10,26 @@ use super::{choreography, dispatch, domain, ingress, reply, store, subscription,
 
 pub struct MindRoot {
     ingress: ActorRef<ingress::IngressPhase>,
+    dispatch: ActorRef<dispatch::DispatchPhase>,
+    domain: ActorRef<domain::DomainPhase>,
+    view: ActorRef<view::ViewPhase>,
+    store: ActorRef<store::StoreSupervisor>,
+    reply: ActorRef<reply::ReplyShaper>,
     subscription: ActorRef<subscription::SubscriptionSupervisor>,
     supervision: ActorRef<supervision::SupervisionPhase>,
     _choreography: Option<ActorRef<choreography::ChoreographyAdjudicator>>,
+}
+
+struct RootChildren {
+    ingress: ActorRef<ingress::IngressPhase>,
+    dispatch: ActorRef<dispatch::DispatchPhase>,
+    domain: ActorRef<domain::DomainPhase>,
+    view: ActorRef<view::ViewPhase>,
+    store: ActorRef<store::StoreSupervisor>,
+    reply: ActorRef<reply::ReplyShaper>,
+    subscription: ActorRef<subscription::SubscriptionSupervisor>,
+    supervision: ActorRef<supervision::SupervisionPhase>,
+    choreography: Option<ActorRef<choreography::ChoreographyAdjudicator>>,
 }
 
 pub struct Arguments {
@@ -38,6 +55,8 @@ pub struct SubmitEnvelope {
     pub envelope: MindEnvelope,
 }
 
+struct ShutdownChildren;
+
 #[derive(Debug, kameo::Reply)]
 pub struct RootReply {
     reply: Option<MindReply>,
@@ -58,21 +77,23 @@ impl RootReply {
     }
 }
 
-impl MindRoot {
-    fn new(
-        ingress: ActorRef<ingress::IngressPhase>,
-        subscription: ActorRef<subscription::SubscriptionSupervisor>,
-        supervision: ActorRef<supervision::SupervisionPhase>,
-        choreography: Option<ActorRef<choreography::ChoreographyAdjudicator>>,
-    ) -> Self {
+impl From<RootChildren> for MindRoot {
+    fn from(children: RootChildren) -> Self {
         Self {
-            ingress,
-            subscription,
-            supervision,
-            _choreography: choreography,
+            ingress: children.ingress,
+            dispatch: children.dispatch,
+            domain: children.domain,
+            view: children.view,
+            store: children.store,
+            reply: children.reply,
+            subscription: children.subscription,
+            supervision: children.supervision,
+            _choreography: children.choreography,
         }
     }
+}
 
+impl MindRoot {
     pub async fn start(arguments: Arguments) -> Result<ActorRef<Self>> {
         let actor_reference = Self::spawn(arguments);
         actor_reference.wait_for_startup().await;
@@ -80,11 +101,9 @@ impl MindRoot {
     }
 
     pub async fn stop(actor_reference: ActorRef<Self>) -> Result<()> {
-        actor_reference
-            .stop_gracefully()
-            .await
-            .map_err(|error| Error::ActorCall(error.to_string()))?;
-        actor_reference.wait_for_shutdown().await;
+        let _ = actor_reference.ask(ShutdownChildren).await;
+        actor_reference.kill();
+        let _ = actor_reference.wait_for_shutdown().await;
         Ok(())
     }
 
@@ -102,6 +121,28 @@ impl MindRoot {
             .record(TraceNode::MIND_ROOT, TraceAction::MessageReplied);
 
         Ok(RootReply::new(pipeline.reply, pipeline.trace))
+    }
+
+    async fn request_stop_child<Child>(child: &ActorRef<Child>)
+    where
+        Child: Actor,
+    {
+        let _ = child.stop_gracefully().await;
+    }
+
+    async fn stop_children(&mut self) {
+        Self::request_stop_child(&self.ingress).await;
+        Self::request_stop_child(&self.dispatch).await;
+        Self::request_stop_child(&self.domain).await;
+        Self::request_stop_child(&self.view).await;
+        Self::request_stop_child(&self.reply).await;
+        let _ = self.store.ask(store::ShutdownStore).await;
+        Self::request_stop_child(&self.store).await;
+        if let Some(choreography) = &self._choreography {
+            Self::request_stop_child(choreography).await;
+        }
+        Self::request_stop_child(&self.supervision).await;
+        Self::request_stop_child(&self.subscription).await;
     }
 }
 
@@ -185,20 +226,35 @@ impl Actor for MindRoot {
         let dispatch = dispatch::DispatchPhase::supervise(
             &actor_reference,
             dispatch::Arguments {
-                domain,
-                view,
-                reply,
+                domain: domain.clone(),
+                view: view.clone(),
+                reply: reply.clone(),
             },
         )
         .spawn()
         .await;
 
-        let ingress =
-            ingress::IngressPhase::supervise(&actor_reference, ingress::Arguments { dispatch })
-                .spawn()
-                .await;
+        let ingress = ingress::IngressPhase::supervise(
+            &actor_reference,
+            ingress::Arguments {
+                dispatch: dispatch.clone(),
+            },
+        )
+        .spawn()
+        .await;
 
-        Ok(Self::new(ingress, subscription, supervision, choreography))
+        Ok(RootChildren {
+            ingress,
+            dispatch,
+            domain,
+            view,
+            store,
+            reply,
+            subscription,
+            supervision,
+            choreography,
+        }
+        .into())
     }
 }
 
@@ -219,6 +275,19 @@ impl Message<SubmitEnvelope> for MindRoot {
                 RootReply::new(None, trace)
             }
         }
+    }
+}
+
+impl Message<ShutdownChildren> for MindRoot {
+    type Reply = bool;
+
+    async fn handle(
+        &mut self,
+        _message: ShutdownChildren,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.stop_children().await;
+        true
     }
 }
 

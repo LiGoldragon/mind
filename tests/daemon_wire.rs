@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::os::unix::fs::PermissionsExt;
+use std::sync::{Mutex, MutexGuard};
 
 use mind::{
     MindClient, MindDaemon, MindDaemonEndpoint, MindFrameCodec, MindSocketMode, StoreLocation,
@@ -23,13 +24,19 @@ use signal_persona::{
 };
 use tokio::net::UnixStream;
 
+static SOCKET_FIXTURE_LOCK: Mutex<()> = Mutex::new(());
+
 struct SocketFixture {
     endpoint: MindDaemonEndpoint,
     store: StoreLocation,
+    _guard: MutexGuard<'static, ()>,
 }
 
 impl SocketFixture {
     fn new(test_name: &str) -> Self {
+        let guard = SOCKET_FIXTURE_LOCK
+            .lock()
+            .expect("socket fixture lock is available");
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time")
@@ -41,6 +48,7 @@ impl SocketFixture {
         Self {
             endpoint: MindDaemonEndpoint::new(socket),
             store: StoreLocation::new(store.to_string_lossy().to_string()),
+            _guard: guard,
         }
     }
 
@@ -173,8 +181,8 @@ async fn mind_daemon_answers_component_supervision_relation() {
             &mut stream,
             SupervisionRequest::Announce(
                 Presence {
-                    expected_component: ComponentName::new("mind"),
-                    expected_kind: ComponentKind::Mind,
+                    expected_component: ComponentName::new("mind").into(),
+                    expected_kind: ComponentKind::Mind.into(),
                     engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
                 }
                 .into(),
@@ -188,8 +196,8 @@ async fn mind_daemon_answers_component_supervision_relation() {
             .await
             .expect("component identity reply"),
         SupervisionReply::Identified(identity)
-            if identity.payload().name.as_ref() == "mind"
-                && identity.payload().kind == ComponentKind::Mind
+            if identity.payload().component_name.as_ref() == "mind"
+                && identity.payload().component_kind == ComponentKind::Mind
     ));
 
     supervision_codec

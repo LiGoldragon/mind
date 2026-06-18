@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use mind::actors::{ActorManifest, ActorResidency, ReadSubscriptionEvents, TraceAction, TraceNode};
@@ -15,14 +16,21 @@ use signal_mind::{
     ThoughtKind, TimestampNanos, Title, WirePath, WorkspaceGoal,
 };
 
+static ACTOR_FIXTURE_LOCK: Mutex<()> = Mutex::new(());
+
 struct ActorFixture {
     root: ActorRef<MindRoot>,
     actor: ActorName,
     store: PathBuf,
+    _guard: MutexGuard<'static, ()>,
 }
 
 impl ActorFixture {
+    #[allow(clippy::await_holding_lock)]
     async fn new() -> Self {
+        let guard = ACTOR_FIXTURE_LOCK
+            .lock()
+            .expect("actor fixture lock is available");
         let store = Self::store_path();
         Self {
             root: MindRoot::start(MindRootArguments::new(StoreLocation::new(
@@ -32,6 +40,7 @@ impl ActorFixture {
             .expect("mind root starts"),
             actor: ActorName::new("operator-assistant"),
             store,
+            _guard: guard,
         }
     }
 
@@ -186,6 +195,9 @@ async fn store_kernel_supervised_thread_restart_reopens_same_database() {
         .expect("mind root restarts on same store"),
         actor: ActorName::new("operator-assistant"),
         store,
+        _guard: ACTOR_FIXTURE_LOCK
+            .lock()
+            .expect("actor fixture lock is available"),
     };
     let response = second
         .submit(MindRequest::Query(Query {

@@ -10,7 +10,7 @@ use super::GraphRecords;
 use super::persistence::PersistenceRejection;
 
 pub(super) struct StoreKernel {
-    tables: MindTables,
+    tables: Option<MindTables>,
 }
 
 #[derive(Clone)]
@@ -50,6 +50,8 @@ pub(super) struct SubscribeRelations {
 }
 
 pub(super) struct ReadGraphRecords;
+
+pub(super) struct ShutdownKernel;
 
 #[derive(kameo::Reply)]
 pub(super) struct KernelReply {
@@ -132,27 +134,40 @@ impl SubscribeRelations {
 impl StoreKernel {
     fn open(arguments: Arguments) -> crate::Result<Self> {
         Ok(Self {
-            tables: MindTables::open(
+            tables: Some(MindTables::open(
                 &arguments.store,
                 GraphSubscriptionPublisher::actor(arguments.subscription),
-            )?,
+            )?),
         })
     }
 
-    fn commit_memory_graph(&self, graph: MemoryGraph) -> KernelCommit {
+    fn tables(&self) -> crate::Result<&MindTables> {
         self.tables
-            .replace_memory_graph(&graph)
+            .as_ref()
+            .ok_or_else(|| crate::Error::ActorCall("store kernel is closed".to_string()))
+    }
+
+    fn shutdown(&mut self) {
+        let _closed = self.tables.take();
+    }
+
+    fn commit_memory_graph(&self, graph: MemoryGraph) -> KernelCommit {
+        self.tables()
+            .and_then(|tables| tables.replace_memory_graph(&graph))
             .map(|()| KernelCommit::accepted())
             .unwrap_or_else(KernelCommit::rejected)
     }
 
     fn load_memory_graph(&self) -> Option<MemoryGraph> {
-        self.tables.memory_graph().ok().flatten()
+        self.tables()
+            .ok()
+            .and_then(|tables| tables.memory_graph().ok().flatten())
     }
 
     fn write_thought(&self, envelope: MindEnvelope) -> KernelReply {
-        let reply = MindGraphLedger::new(&self.tables)
-            .submit_thought(envelope)
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).submit_thought(envelope))
             .map(Some)
             .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
 
@@ -160,8 +175,9 @@ impl StoreKernel {
     }
 
     fn write_relation(&self, envelope: MindEnvelope) -> KernelReply {
-        let reply = MindGraphLedger::new(&self.tables)
-            .submit_relation(envelope)
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).submit_relation(envelope))
             .map(Some)
             .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
 
@@ -169,8 +185,9 @@ impl StoreKernel {
     }
 
     fn read_thoughts(&self, envelope: MindEnvelope) -> KernelReply {
-        let reply = MindGraphLedger::new(&self.tables)
-            .query_thoughts(envelope)
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).query_thoughts(envelope))
             .map(Some)
             .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
 
@@ -178,8 +195,9 @@ impl StoreKernel {
     }
 
     fn read_relations(&self, envelope: MindEnvelope) -> KernelReply {
-        let reply = MindGraphLedger::new(&self.tables)
-            .query_relations(envelope)
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).query_relations(envelope))
             .map(Some)
             .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
 
@@ -187,8 +205,9 @@ impl StoreKernel {
     }
 
     fn subscribe_thoughts(&self, envelope: MindEnvelope) -> KernelReply {
-        let reply = MindGraphLedger::new(&self.tables)
-            .subscribe_thoughts(envelope)
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).subscribe_thoughts(envelope))
             .map(Some)
             .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
 
@@ -196,8 +215,9 @@ impl StoreKernel {
     }
 
     fn subscribe_relations(&self, envelope: MindEnvelope) -> KernelReply {
-        let reply = MindGraphLedger::new(&self.tables)
-            .subscribe_relations(envelope)
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).subscribe_relations(envelope))
             .map(Some)
             .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
 
@@ -206,7 +226,10 @@ impl StoreKernel {
 
     fn read_graph_records(&self) -> GraphRecords {
         GraphRecords {
-            relations: self.tables.relation_records().unwrap_or_default(),
+            relations: self
+                .tables()
+                .and_then(MindTables::relation_records)
+                .unwrap_or_default(),
         }
     }
 }
@@ -328,5 +351,18 @@ impl Message<ReadGraphRecords> for StoreKernel {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.read_graph_records()
+    }
+}
+
+impl Message<ShutdownKernel> for StoreKernel {
+    type Reply = bool;
+
+    async fn handle(
+        &mut self,
+        _message: ShutdownKernel,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.shutdown();
+        true
     }
 }

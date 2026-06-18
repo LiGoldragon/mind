@@ -265,14 +265,12 @@ Current implementation:
 - `StoreSupervisor` supervises `StoreKernel`, `MemoryStore`, and `GraphStore`.
 - `StoreKernel` is the only actor that opens and owns the `MindTables` handle
   over `mind.sema`.
-- `StoreKernel` runs on a dedicated OS thread via
-  `supervise(...).spawn_in_thread()`. Every kernel handler performs a
-  synchronous sema-engine/storage-kernel transaction, so this follows Template 2 from
-  `~/primary/skills/kameo.md` §"Blocking-plane templates" and keeps blocking
-  store work off Tokio's shared worker pool. The Kameo lifecycle fork is pinned
-  through the stable `persona-lifecycle-terminal-outcome` branch and makes
-  supervised replacement wait for terminal actor state absence before starting
-  the replacement. The witness is
+- `StoreKernel` runs as a normal supervised Kameo child, not
+  `spawn_in_thread()`. It owns the `MindTables` handle, and Kameo 0.20 signals
+  supervised dedicated-thread shutdown before actor state is necessarily
+  dropped; keeping the durable store owner on `.spawn()` avoids that lifecycle
+  race. `StoreSupervisor` still sends `ShutdownKernel` before stopping children,
+  so the database handle is closed explicitly. The witness is
   `store_kernel_supervised_thread_restart_reopens_same_database`: a first
   `MindRoot` commits to `mind.sema`, stops, and a second `MindRoot` immediately
   reopens the same database and reads the committed state.

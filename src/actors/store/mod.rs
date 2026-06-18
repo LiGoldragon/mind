@@ -4,7 +4,8 @@ mod memory;
 mod persistence;
 mod write_trace;
 
-use kameo::actor::{Actor, ActorRef, Spawn};
+use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
+use kameo::error::ActorStopReason;
 use kameo::message::{Context, Message};
 
 use crate::{MindEnvelope, StoreLocation};
@@ -12,7 +13,7 @@ use crate::{MindEnvelope, StoreLocation};
 use super::pipeline::PipelineReply;
 use super::trace::{ActorTrace, TraceAction, TraceNode};
 use graph::GraphStore;
-use kernel::{LoadMemoryGraph, StoreKernel};
+use kernel::{LoadMemoryGraph, ShutdownKernel, StoreKernel};
 use memory::MemoryStore;
 use persistence::PersistenceRejection;
 
@@ -23,6 +24,7 @@ pub(super) struct Arguments {
 }
 
 pub(super) struct StoreSupervisor {
+    kernel: ActorRef<StoreKernel>,
     memory: ActorRef<MemoryStore>,
     graph: ActorRef<GraphStore>,
 }
@@ -69,14 +71,24 @@ pub struct SubscribeRelations {
 
 pub(super) struct ReadGraphRecords;
 
+pub(super) struct ShutdownStore;
+
 #[derive(kameo::Reply)]
 pub(super) struct GraphRecords {
     pub(super) relations: Vec<signal_mind::Relation>,
 }
 
 impl StoreSupervisor {
-    fn new(memory: ActorRef<MemoryStore>, graph: ActorRef<GraphStore>) -> Self {
-        Self { memory, graph }
+    fn new(
+        kernel: ActorRef<StoreKernel>,
+        memory: ActorRef<MemoryStore>,
+        graph: ActorRef<GraphStore>,
+    ) -> Self {
+        Self {
+            kernel,
+            memory,
+            graph,
+        }
     }
 
     async fn apply_memory(
@@ -181,6 +193,20 @@ impl StoreSupervisor {
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
+
+    async fn request_stop_child<Child>(child: &ActorRef<Child>)
+    where
+        Child: Actor,
+    {
+        let _ = child.stop_gracefully().await;
+    }
+
+    async fn stop_children(&mut self) {
+        let _ = self.kernel.ask(ShutdownKernel).await;
+        Self::request_stop_child(&self.memory).await;
+        Self::request_stop_child(&self.graph).await;
+        Self::request_stop_child(&self.kernel).await;
+    }
 }
 
 impl Actor for StoreSupervisor {
@@ -191,11 +217,9 @@ impl Actor for StoreSupervisor {
         arguments: Self::Args,
         actor_reference: ActorRef<Self>,
     ) -> Result<Self, Self::Error> {
-        // `StoreKernel` performs synchronous sema-engine transactions on every
-        // message, so it runs on its own OS thread. The forked Kameo lifecycle
-        // contract makes supervised replacement wait until the old actor state has
-        // dropped, which releases the storage handle before a replacement opens the
-        // same store path.
+        // `StoreKernel` owns the durable store handle. Under Kameo 0.20 a
+        // supervised state-bearing actor must stay on the normal spawn path so
+        // terminal notification does not race the actor state's drop.
         let kernel = StoreKernel::supervise(
             &actor_reference,
             kernel::Arguments {
@@ -203,7 +227,7 @@ impl Actor for StoreSupervisor {
                 subscription: arguments.subscription.clone(),
             },
         )
-        .spawn_in_thread()
+        .spawn()
         .await;
         let graph = kernel
             .ask(LoadMemoryGraph)
@@ -228,7 +252,16 @@ impl Actor for StoreSupervisor {
         .spawn()
         .await;
 
-        Ok(Self::new(memory, graph))
+        Ok(Self::new(kernel, memory, graph))
+    }
+
+    async fn on_stop(
+        &mut self,
+        _actor_reference: WeakActorRef<Self>,
+        _reason: ActorStopReason,
+    ) -> Result<(), Self::Error> {
+        self.stop_children().await;
+        Ok(())
     }
 }
 
@@ -245,6 +278,19 @@ impl Message<ReadGraphRecords> for StoreSupervisor {
             .unwrap_or_else(|_| GraphRecords {
                 relations: Vec::new(),
             })
+    }
+}
+
+impl Message<ShutdownStore> for StoreSupervisor {
+    type Reply = bool;
+
+    async fn handle(
+        &mut self,
+        _message: ShutdownStore,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.stop_children().await;
+        true
     }
 }
 
