@@ -16,6 +16,6 @@
   ReadOutput [(MindStateRead MindAcceptance) (ReadRejected ErrorReport)]
 
   CommitSequence Integer
-  CommitReceipt { CommitSequence * }
-  MindStateQuery { CommitSequence * }
+  CommitReceipt CommitSequence
+  MindStateQuery CommitSequence
 }

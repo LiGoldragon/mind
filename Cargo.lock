@@ -329,7 +329,7 @@ checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 [[package]]
 name = "meta-signal-mind"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-mind.git?branch=main#b77248559e0c1617a1c1fdd5cafc13f5148097e6"
+source = "git+https://github.com/LiGoldragon/meta-signal-mind.git?branch=main#0ac8f093190ff2660747ded706dc73b56b3c44fa"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -341,7 +341,7 @@ dependencies = [
 [[package]]
 name = "meta-signal-orchestrate"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-orchestrate.git?branch=main#fae98099b1240add1b50df0ed74c4c6d522a3f44"
+source = "git+https://github.com/LiGoldragon/meta-signal-orchestrate.git?branch=main#4ff3264d0a2a9e367dba836d18e682d0da27547d"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -565,7 +565,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 [[package]]
 name = "schema-cc"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#e721626038e81cce49a7b193b07903b2868e1f68"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#1de72dde6241b15299cd37fe096b3ef0e2f618b6"
 dependencies = [
  "nota-next",
  "prettyplease",
@@ -578,7 +578,7 @@ dependencies = [
 [[package]]
 name = "schema-next"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#e721626038e81cce49a7b193b07903b2868e1f68"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#1de72dde6241b15299cd37fe096b3ef0e2f618b6"
 dependencies = [
  "blake3",
  "nota-next",
@@ -590,7 +590,7 @@ dependencies = [
 [[package]]
 name = "schema-rust-next"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#6e04d70ff679181938c50b6a5488035efa0979b8"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#733b76d39cbd3009bedd22899f2695b7d68b283a"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -684,7 +684,7 @@ dependencies = [
 [[package]]
 name = "signal-mind"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#42cbf6e6cefcfcb03e748a864eeb5424688090c3"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#e97c1419ba0c8854c54d58546000c13a19b9dfd5"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -696,7 +696,7 @@ dependencies = [
 [[package]]
 name = "signal-orchestrate"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-orchestrate.git?branch=main#4e8fdc792e55622cfc1e148d345d91c9d263b486"
+source = "git+https://github.com/LiGoldragon/signal-orchestrate.git?branch=main#3b6241a6678bb17385af7da92ee1c72e2c537ac9"
 dependencies = [
  "nota-next",
  "rkyv",
@@ -707,11 +707,12 @@ dependencies = [
 
 [[package]]
 name = "signal-persona"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#5953c8fc98b81e06034ebffbf8bc92d216de4777"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#8c427aadafc90c6c73d364665162f0d896076f7c"
 dependencies = [
  "nota-next",
  "rkyv",
+ "schema-rust-next",
  "signal-frame",
 ]
 

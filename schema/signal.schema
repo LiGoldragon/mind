@@ -11,7 +11,7 @@
   ReplyText String
   ErrorMessage String
 
-  MindIngress { RequestText * }
-  MindAcceptance { ReplyText * }
-  ErrorReport { ErrorMessage * }
+  MindIngress RequestText
+  MindAcceptance ReplyText
+  ErrorReport ErrorMessage
 }

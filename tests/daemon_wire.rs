@@ -171,11 +171,14 @@ async fn mind_daemon_answers_component_supervision_relation() {
     supervision_codec
         .write_request(
             &mut stream,
-            SupervisionRequest::Announce(Presence {
-                expected_component: ComponentName::new("mind"),
-                expected_kind: ComponentKind::Mind,
-                engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
-            }),
+            SupervisionRequest::Announce(
+                Presence {
+                    expected_component: ComponentName::new("mind"),
+                    expected_kind: ComponentKind::Mind,
+                    engine_management_protocol_version: EngineManagementProtocolVersion::new(1),
+                }
+                .into(),
+            ),
         )
         .await
         .expect("component hello writes");
@@ -185,16 +188,16 @@ async fn mind_daemon_answers_component_supervision_relation() {
             .await
             .expect("component identity reply"),
         SupervisionReply::Identified(identity)
-            if identity.name.as_str() == "mind"
-                && identity.kind == ComponentKind::Mind
+            if identity.payload().name.as_ref() == "mind"
+                && identity.payload().kind == ComponentKind::Mind
     ));
 
     supervision_codec
         .write_request(
             &mut stream,
-            SupervisionRequest::Query(SupervisionQuery::ReadinessStatus(ComponentName::new(
-                "mind",
-            ))),
+            SupervisionRequest::Query(
+                SupervisionQuery::ReadinessStatus(ComponentName::new("mind")).into(),
+            ),
         )
         .await
         .expect("readiness query writes");
@@ -209,7 +212,9 @@ async fn mind_daemon_answers_component_supervision_relation() {
     supervision_codec
         .write_request(
             &mut stream,
-            SupervisionRequest::Query(SupervisionQuery::HealthStatus(ComponentName::new("mind"))),
+            SupervisionRequest::Query(
+                SupervisionQuery::HealthStatus(ComponentName::new("mind")).into(),
+            ),
         )
         .await
         .expect("health query writes");
@@ -219,7 +224,7 @@ async fn mind_daemon_answers_component_supervision_relation() {
             .await
             .expect("health reply"),
         SupervisionReply::HealthReport(report)
-            if report.health == ComponentHealth::Running
+            if *report.payload().payload() == ComponentHealth::Running
     ));
 
     let server = tokio::spawn(async move { daemon.serve_one().await });
