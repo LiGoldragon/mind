@@ -196,7 +196,7 @@ async fn mind_daemon_answers_component_supervision_relation() {
             .await
             .expect("component identity reply"),
         SupervisionReply::Identified(identity)
-            if identity.payload().component_name.as_ref() == "mind"
+            if identity.payload().component_name.payload() == "mind"
                 && identity.payload().component_kind == ComponentKind::Mind
     ));
 

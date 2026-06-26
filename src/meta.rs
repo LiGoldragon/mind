@@ -2,14 +2,12 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "nota-text")]
 use std::{fs, io::Write};
 
-#[cfg(feature = "nota-text")]
-use meta_signal_mind::Request as MetaMindRequest;
 use meta_signal_mind::{
     Frame as MetaMindFrame, FrameBody as MetaMindFrameBody, MetaMindReply,
     Operation as MetaMindOperation, RequestUnimplemented, UnimplementedReason,
 };
 #[cfg(feature = "nota-text")]
-use nota_next::{NotaEncode, NotaSource};
+use meta_signal_mind::{NotaEncode, NotaSource};
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, RequestPayload, SessionEpoch,
     SubReply,
@@ -286,7 +284,8 @@ impl MetaMindOperationSource {
     }
 
     fn into_operation(self) -> Result<MetaMindOperation> {
-        let request = NotaSource::new(&self.text).parse::<MetaMindRequest>()?;
-        Ok(request.payloads().head().clone())
+        NotaSource::new(&self.text)
+            .parse::<MetaMindOperation>()
+            .map_err(|error| Error::MetaNota(error.to_string()))
     }
 }

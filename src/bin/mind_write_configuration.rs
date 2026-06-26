@@ -4,6 +4,9 @@ use std::{
 };
 
 use mind::{ConfigurationError, MindDaemonConfiguration};
+#[allow(unused_extern_crates)]
+extern crate nota_next as nota;
+
 use nota_next::{Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
 use signal_mind::WirePath;
 use thiserror::Error;

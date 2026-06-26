@@ -50,6 +50,9 @@ pub enum Error {
     #[error("nota: {0}")]
     Nota(#[from] nota_next::NotaDecodeError),
 
+    #[error("meta nota: {0}")]
+    MetaNota(String),
+
     #[error("storage kernel: {0}")]
     StorageKernel(#[from] sema_engine::StorageKernelError),
 

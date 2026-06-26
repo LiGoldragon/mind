@@ -1,3 +1,6 @@
+#[allow(unused_extern_crates)]
+extern crate nota_next as nota;
+
 pub mod actors;
 pub mod command;
 pub mod configuration;

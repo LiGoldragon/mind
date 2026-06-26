@@ -2,10 +2,10 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-use nota_next::{NotaEncode, NotaSource};
 use signal_mind::{ActorName, MindReply, MindRequest};
 use triad_runtime::{ComponentArgument, ComponentCommand};
 
+use crate::nota::{NotaEncode, NotaSource};
 use crate::{Error, MindClient, MindDaemonEndpoint, MindTextReply, MindTextRequest, Result};
 
 const DEFAULT_MIND_SOCKET: &str = "/tmp/mind.sock";

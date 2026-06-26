@@ -89,6 +89,12 @@ impl DispatchPhase {
             }
             MindRequest::AdjudicationRequest(_)
             | MindRequest::ChannelList(_)
+            | MindRequest::SubmitTechnicalNode(_)
+            | MindRequest::SubmitTechnicalRelation(_)
+            | MindRequest::QueryTechnicalNodes(_)
+            | MindRequest::QueryTechnicalRelations(_)
+            | MindRequest::SubscribeTechnicalNodes(_)
+            | MindRequest::SubscribeTechnicalRelations(_)
             | MindRequest::SubscriptionRetraction(_) => self.unimplemented(trace),
         };
 
