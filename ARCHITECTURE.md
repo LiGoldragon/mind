@@ -274,10 +274,11 @@ Current implementation:
   `store_kernel_supervised_thread_restart_reopens_same_database`: a first
   `MindRoot` commits to `mind.sema`, stops, and a second `MindRoot` immediately
   reopens the same database and reads the committed state.
-- `MindTables` schema v8 registers every durable mind table as a
+- `MindTables` schema v9 registers every durable mind table as a
   `sema-engine` record family with typed family identity: the
   `memory_graph` snapshot, the typed Thought/Relation graph records,
-  and the graph subscription registrations. There are no
+  typed TechnicalNode/TechnicalRelation records, and the graph plus
+  technical subscription registrations. There are no
   component-local storage-kernel tables left; every durable write goes
   through the engine's logged choke points.
 - `MemoryStore` owns the private `MemoryState` reducer and commits accepted

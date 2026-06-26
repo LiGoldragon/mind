@@ -210,20 +210,24 @@
               cargoTestExtraArgs = "--test actor_topology typed_relation_subscription_registers_and_returns_initial_snapshot";
             }
           );
-          mind-typed-thought-subscription-delivers-live-delta-through-subscription-actor = craneLib.cargoTest (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-              cargoTestExtraArgs = "--test actor_topology typed_thought_subscription_delivers_live_delta_through_subscription_actor";
-            }
-          );
-          mind-typed-relation-subscription-delivers-live-delta-through-subscription-actor = craneLib.cargoTest (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-              cargoTestExtraArgs = "--test actor_topology typed_relation_subscription_delivers_live_delta_through_subscription_actor";
-            }
-          );
+          mind-typed-thought-subscription-delivers-live-delta-through-subscription-actor =
+            craneLib.cargoTest
+              (
+                commonArgs
+                // {
+                  inherit cargoArtifacts;
+                  cargoTestExtraArgs = "--test actor_topology typed_thought_subscription_delivers_live_delta_through_subscription_actor";
+                }
+              );
+          mind-typed-relation-subscription-delivers-live-delta-through-subscription-actor =
+            craneLib.cargoTest
+              (
+                commonArgs
+                // {
+                  inherit cargoArtifacts;
+                  cargoTestExtraArgs = "--test actor_topology typed_relation_subscription_delivers_live_delta_through_subscription_actor";
+                }
+              );
           mind-graph-subscription-deltas-cannot-stop-at-table-sink = craneLib.cargoTest (
             commonArgs
             // {
@@ -236,6 +240,34 @@
             // {
               inherit cargoArtifacts;
               cargoTestExtraArgs = "thought_subscription_is_durable_table_data";
+            }
+          );
+          mind-technical-node-family-persists-compact-identifier-and-stable-key = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "technical_node_family_persists_compact_identifier_and_stable_key";
+            }
+          );
+          mind-technical-relation-family-persists-endpoint-stable-keys = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "technical_relation_family_persists_endpoint_stable_keys";
+            }
+          );
+          mind-technical-subscription-families-persist-filters-without-delivery-logic = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "technical_subscription_families_persist_filters_without_delivery_logic";
+            }
+          );
+          mind-v8-store-opens-as-v9-and-preserves-existing-graph-rows = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "v8_store_opens_as_v9_and_preserves_existing_graph_rows";
             }
           );
           cli = craneLib.cargoTest (

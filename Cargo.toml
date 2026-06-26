@@ -1,6 +1,6 @@
 [package]
 name         = "mind"
-version      = "0.3.0"
+version      = "0.4.0"
 edition      = "2024"
 rust-version = "1.89"
 license      = "MIT OR Apache-2.0"
@@ -42,6 +42,7 @@ nota-next           = { package = "nota", git = "https://github.com/LiGoldragon/
 meta-signal-mind    = { git = "https://github.com/LiGoldragon/meta-signal-mind.git", rev = "0ac8f093190ff2660747ded706dc73b56b3c44fa", default-features = false }
 meta-signal-orchestrate = { git = "ssh://git@github.com/LiGoldragon/meta-signal-orchestrate.git", rev = "a2594ed875b4631fab13ecd652aaf4b52d7b6aef" }
 rkyv                = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
+redb                = "4.1"
 sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-persona      = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
+use redb::{Database, TableDefinition};
 use sema_engine::{
     Assertion, Engine, EngineOpen, EngineRecord, FamilyName, Mutation, QueryPlan, RecordKey,
     SchemaHash, SchemaVersion, SinkError, SubscriptionDeliveryMode,
@@ -10,7 +11,8 @@ use sema_engine::{
 };
 use signal_mind::{
     ActorName, RecordIdentifier, Relation, RelationIdentifier, SubmitRelation, SubmitThought,
-    SubscribeRelations, SubscribeThoughts, SubscriptionIdentifier, Thought, TimestampNanos,
+    SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations, SubscribeThoughts,
+    SubscriptionIdentifier, TechnicalNode, TechnicalRelation, Thought, TimestampNanos,
 };
 
 use crate::actors::subscription::{
@@ -18,22 +20,38 @@ use crate::actors::subscription::{
 };
 use crate::{MemoryGraph, Result, StoreLocation};
 
-const MIND_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(8);
+const MIND_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(9);
+const MIND_SCHEMA_VERSION_V8: SchemaVersion = SchemaVersion::new(8);
 
 const MEMORY_GRAPH: TableName = TableName::new("memory_graph");
 const THOUGHT_SUBSCRIPTIONS: TableName = TableName::new("thought_subscriptions");
 const RELATION_SUBSCRIPTIONS: TableName = TableName::new("relation_subscriptions");
+const TECHNICAL_NODE_SUBSCRIPTIONS: TableName = TableName::new("technical_node_subscriptions");
+const TECHNICAL_RELATION_SUBSCRIPTIONS: TableName =
+    TableName::new("technical_relation_subscriptions");
 const MEMORY_GRAPH_KEY: &str = "current";
 const THOUGHTS: TableName = TableName::new("thoughts");
 const RELATIONS: TableName = TableName::new("relations");
+const TECHNICAL_NODES: TableName = TableName::new("technical_nodes");
+const TECHNICAL_RELATIONS: TableName = TableName::new("technical_relations");
+const SEMA_META: TableDefinition<&str, u64> = TableDefinition::new("__sema_meta");
+const SEMA_SCHEMA_VERSION_KEY: &str = "schema_version";
 
 pub struct MindTables {
     engine: Engine,
     memory: TableReference<MemoryGraph>,
     thoughts: TableReference<StoredThought>,
     relations: TableReference<StoredRelation>,
+    #[allow(dead_code)]
+    technical_nodes: TableReference<StoredTechnicalNode>,
+    #[allow(dead_code)]
+    technical_relations: TableReference<StoredTechnicalRelation>,
     thought_subscriptions: TableReference<StoredThoughtSubscription>,
     relation_subscriptions: TableReference<StoredRelationSubscription>,
+    #[allow(dead_code)]
+    technical_node_subscriptions: TableReference<StoredTechnicalNodeSubscription>,
+    #[allow(dead_code)]
+    technical_relation_subscriptions: TableReference<StoredTechnicalRelationSubscription>,
     subscription_publisher: GraphSubscriptionPublisher,
 }
 
@@ -50,6 +68,18 @@ pub(crate) struct StoredRelationSubscription {
 }
 
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredTechnicalNodeSubscription {
+    pub subscription: SubscriptionIdentifier,
+    pub filter: signal_mind::TechnicalNodeFilter,
+}
+
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredTechnicalRelationSubscription {
+    pub subscription: SubscriptionIdentifier,
+    pub filter: signal_mind::TechnicalRelationFilter,
+}
+
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StoredThought {
     record: Thought,
 }
@@ -57,6 +87,16 @@ pub(crate) struct StoredThought {
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StoredRelation {
     record: Relation,
+}
+
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredTechnicalNode {
+    record: TechnicalNode,
+}
+
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredTechnicalRelation {
+    record: TechnicalRelation,
 }
 
 pub(crate) struct OpenedThoughtSubscription {
@@ -92,6 +132,28 @@ impl StoredRelation {
     }
 
     fn into_record(self) -> Relation {
+        self.record
+    }
+}
+
+#[allow(dead_code)]
+impl StoredTechnicalNode {
+    fn new(record: TechnicalNode) -> Self {
+        Self { record }
+    }
+
+    fn into_record(self) -> TechnicalNode {
+        self.record
+    }
+}
+
+#[allow(dead_code)]
+impl StoredTechnicalRelation {
+    fn new(record: TechnicalRelation) -> Self {
+        Self { record }
+    }
+
+    fn into_record(self) -> TechnicalRelation {
         self.record
     }
 }
@@ -136,6 +198,18 @@ impl EngineRecord for StoredRelation {
     }
 }
 
+impl EngineRecord for StoredTechnicalNode {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.record.identifier.as_str())
+    }
+}
+
+impl EngineRecord for StoredTechnicalRelation {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.record.identifier.as_str())
+    }
+}
+
 impl EngineRecord for MemoryGraph {
     fn record_key(&self) -> RecordKey {
         RecordKey::new(MEMORY_GRAPH_KEY)
@@ -154,57 +228,168 @@ impl EngineRecord for StoredRelationSubscription {
     }
 }
 
+impl EngineRecord for StoredTechnicalNodeSubscription {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.subscription.as_str())
+    }
+}
+
+impl EngineRecord for StoredTechnicalRelationSubscription {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.subscription.as_str())
+    }
+}
+
 impl MindTables {
     pub(crate) fn open(
         store: &StoreLocation,
         subscription_publisher: GraphSubscriptionPublisher,
     ) -> Result<Self> {
-        let mut engine = Engine::open(Self::engine_open(store))?;
-        let memory =
-            engine.register_table(Self::family_descriptor(MEMORY_GRAPH, "memory-graph"))?;
-        let thoughts = engine.register_table(Self::family_descriptor(THOUGHTS, "thought"))?;
-        let relations = engine.register_table(Self::family_descriptor(RELATIONS, "relation"))?;
+        let mut engine = match Engine::open(Self::engine_open(store)) {
+            Ok(engine) => engine,
+            Err(error) if Self::is_v8_store_opened_as_v9(&error) => {
+                Self::migrate_v8_to_v9(store)?;
+                Engine::open(Self::engine_open(store))?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let memory = engine.register_table(Self::family_descriptor(
+            MEMORY_GRAPH,
+            "memory-graph",
+            MIND_SCHEMA_VERSION_V8,
+        ))?;
+        let thoughts = engine.register_table(Self::family_descriptor(
+            THOUGHTS,
+            "thought",
+            MIND_SCHEMA_VERSION_V8,
+        ))?;
+        let relations = engine.register_table(Self::family_descriptor(
+            RELATIONS,
+            "relation",
+            MIND_SCHEMA_VERSION_V8,
+        ))?;
+        let technical_nodes = engine.register_table(Self::family_descriptor(
+            TECHNICAL_NODES,
+            "technical-node",
+            MIND_SCHEMA_VERSION,
+        ))?;
+        let technical_relations = engine.register_table(Self::family_descriptor(
+            TECHNICAL_RELATIONS,
+            "technical-relation",
+            MIND_SCHEMA_VERSION,
+        ))?;
         let thought_subscriptions = engine.register_table(Self::family_descriptor(
             THOUGHT_SUBSCRIPTIONS,
             "thought-subscription",
+            MIND_SCHEMA_VERSION_V8,
         ))?;
         let relation_subscriptions = engine.register_table(Self::family_descriptor(
             RELATION_SUBSCRIPTIONS,
             "relation-subscription",
+            MIND_SCHEMA_VERSION_V8,
+        ))?;
+        let technical_node_subscriptions = engine.register_table(Self::family_descriptor(
+            TECHNICAL_NODE_SUBSCRIPTIONS,
+            "technical-node-subscription",
+            MIND_SCHEMA_VERSION,
+        ))?;
+        let technical_relation_subscriptions = engine.register_table(Self::family_descriptor(
+            TECHNICAL_RELATION_SUBSCRIPTIONS,
+            "technical-relation-subscription",
+            MIND_SCHEMA_VERSION,
         ))?;
         Ok(Self {
             engine,
             memory,
             thoughts,
             relations,
+            technical_nodes,
+            technical_relations,
             thought_subscriptions,
             relation_subscriptions,
+            technical_node_subscriptions,
+            technical_relation_subscriptions,
             subscription_publisher,
         })
     }
 
     fn engine_open(store: &StoreLocation) -> EngineOpen {
-        EngineOpen::new(store.as_path(), MIND_SCHEMA_VERSION)
-            .with_versioning(Self::versioning_policy())
+        Self::engine_open_with_version(store, MIND_SCHEMA_VERSION)
+    }
+
+    fn engine_open_with_version(store: &StoreLocation, version: SchemaVersion) -> EngineOpen {
+        EngineOpen::new(store.as_path(), version).with_versioning(Self::versioning_policy())
     }
 
     fn versioning_policy() -> VersioningPolicy {
         VersioningPolicy::new(VersionedStoreName::new("mind"))
     }
 
-    /// Family identity per registered table. The schema hash is a
-    /// typed stand-in derived from the family label and mind schema
-    /// version until schema generation supplies content hashes from
-    /// the `.schema` source.
+    /// Family identity per registered table. Existing family hashes
+    /// stay at their introduction version so schema bumps can add
+    /// families without rewriting older catalog rows.
     fn family_descriptor<RecordValue>(
         table: TableName,
         family: &str,
+        version: SchemaVersion,
     ) -> TableDescriptor<RecordValue> {
         TableDescriptor::new(
             table,
             FamilyName::new(family),
-            SchemaHash::for_label(format!("mind-{family}-v{}", MIND_SCHEMA_VERSION.value())),
+            SchemaHash::for_label(format!("mind-{family}-v{}", version.value())),
         )
+    }
+
+    fn is_v8_store_opened_as_v9(error: &sema_engine::Error) -> bool {
+        matches!(
+            error,
+            sema_engine::Error::Sema(sema_engine::StorageKernelError::SchemaVersionMismatch {
+                expected,
+                found,
+            }) if *expected == MIND_SCHEMA_VERSION && *found == MIND_SCHEMA_VERSION_V8
+        )
+    }
+
+    fn migrate_v8_to_v9(store: &StoreLocation) -> Result<()> {
+        let mut engine = Engine::open(Self::engine_open_with_version(
+            store,
+            MIND_SCHEMA_VERSION_V8,
+        ))?;
+        engine.register_table(Self::family_descriptor::<MemoryGraph>(
+            MEMORY_GRAPH,
+            "memory-graph",
+            MIND_SCHEMA_VERSION_V8,
+        ))?;
+        engine.register_table(Self::family_descriptor::<StoredThought>(
+            THOUGHTS,
+            "thought",
+            MIND_SCHEMA_VERSION_V8,
+        ))?;
+        engine.register_table(Self::family_descriptor::<StoredRelation>(
+            RELATIONS,
+            "relation",
+            MIND_SCHEMA_VERSION_V8,
+        ))?;
+        engine.register_table(Self::family_descriptor::<StoredThoughtSubscription>(
+            THOUGHT_SUBSCRIPTIONS,
+            "thought-subscription",
+            MIND_SCHEMA_VERSION_V8,
+        ))?;
+        engine.register_table(Self::family_descriptor::<StoredRelationSubscription>(
+            RELATION_SUBSCRIPTIONS,
+            "relation-subscription",
+            MIND_SCHEMA_VERSION_V8,
+        ))?;
+        drop(engine);
+
+        let database = Database::create(store.as_path())?;
+        let transaction = database.begin_write()?;
+        {
+            let mut meta = transaction.open_table(SEMA_META)?;
+            meta.insert(SEMA_SCHEMA_VERSION_KEY, MIND_SCHEMA_VERSION.value() as u64)?;
+        }
+        transaction.commit()?;
+        Ok(())
     }
 
     pub(crate) fn memory_graph(&self) -> Result<Option<MemoryGraph>> {
@@ -311,6 +496,51 @@ impl MindTables {
             .collect())
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn assert_technical_node(&self, node: TechnicalNode) -> Result<TechnicalNode> {
+        self.engine.assert(Assertion::new(
+            self.technical_nodes,
+            StoredTechnicalNode::new(node.clone()),
+        ))?;
+        Ok(node)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn assert_technical_relation(
+        &self,
+        relation: TechnicalRelation,
+    ) -> Result<TechnicalRelation> {
+        self.engine.assert(Assertion::new(
+            self.technical_relations,
+            StoredTechnicalRelation::new(relation.clone()),
+        ))?;
+        Ok(relation)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn technical_node_records(&self) -> Result<Vec<TechnicalNode>> {
+        Ok(self
+            .engine
+            .match_records(QueryPlan::all(self.technical_nodes))?
+            .records()
+            .iter()
+            .cloned()
+            .map(StoredTechnicalNode::into_record)
+            .collect())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn technical_relation_records(&self) -> Result<Vec<TechnicalRelation>> {
+        Ok(self
+            .engine
+            .match_records(QueryPlan::all(self.technical_relations))?
+            .records()
+            .iter()
+            .cloned()
+            .map(StoredTechnicalRelation::into_record)
+            .collect())
+    }
+
     pub(crate) fn append_thought_subscription(
         &self,
         subscription: SubscribeThoughts,
@@ -371,6 +601,38 @@ impl MindTables {
         Ok(OpenedRelationSubscription::new(record, initial))
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn append_technical_node_subscription(
+        &self,
+        subscription: SubscribeTechnicalNodes,
+    ) -> Result<StoredTechnicalNodeSubscription> {
+        let record = StoredTechnicalNodeSubscription {
+            subscription: Self::next_technical_subscription_identifier(&self.engine)?,
+            filter: subscription.filter,
+        };
+        self.engine.assert(Assertion::new(
+            self.technical_node_subscriptions,
+            record.clone(),
+        ))?;
+        Ok(record)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn append_technical_relation_subscription(
+        &self,
+        subscription: SubscribeTechnicalRelations,
+    ) -> Result<StoredTechnicalRelationSubscription> {
+        let record = StoredTechnicalRelationSubscription {
+            subscription: Self::next_technical_subscription_identifier(&self.engine)?,
+            filter: subscription.filter,
+        };
+        self.engine.assert(Assertion::new(
+            self.technical_relation_subscriptions,
+            record.clone(),
+        ))?;
+        Ok(record)
+    }
+
     fn read_thought(&self, record: &RecordIdentifier) -> Result<Thought> {
         self.engine
             .match_records(QueryPlan::key(
@@ -395,6 +657,17 @@ impl MindTables {
             )
             .into_string(),
         )
+    }
+
+    #[allow(dead_code)]
+    fn next_technical_subscription_identifier(engine: &Engine) -> Result<SubscriptionIdentifier> {
+        let next_snapshot = engine.latest_snapshot()?.next();
+        Ok(SubscriptionIdentifier::new(
+            CompactGraphIdentifier::from_zero_based_sequence(
+                next_snapshot.value().saturating_sub(1),
+            )
+            .into_string(),
+        ))
     }
 }
 
@@ -631,9 +904,13 @@ impl StoreClock {
 mod tests {
     use super::*;
     use signal_mind::{
-        ByThoughtKind, GoalBody, GoalScope, RelationKind, SubmitRelation, SubmitThought, TextBody,
-        ThoughtBody, ThoughtFilter, ThoughtKind, WorkspaceGoal,
+        ByTechnicalNodeStableKey, ByTechnicalRelationSource, ByThoughtKind, ComponentNode,
+        GoalBody, GoalScope, RelationKind, SubmitRelation, SubmitThought, TechnicalNodeBody,
+        TechnicalNodeFilter, TechnicalNodeIdentifier, TechnicalNodeKey, TechnicalNodeKind,
+        TechnicalRelationEndpoint, TechnicalRelationFilter, TechnicalRelationIdentifier,
+        TechnicalRelationKind, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, WorkspaceGoal,
     };
+    use signal_persona::ComponentName;
 
     #[test]
     fn thought_subscription_is_durable_table_data() {
@@ -756,6 +1033,156 @@ mod tests {
     }
 
     #[test]
+    fn technical_node_family_persists_compact_identifier_and_stable_key() {
+        let store = StoreLocation::new(unique_store_path("technical-node-family"));
+        let tables =
+            MindTables::open(&store, GraphSubscriptionPublisher::disabled()).expect("tables open");
+        let node = technical_node("aaa", "component:mind");
+        tables
+            .assert_technical_node(node.clone())
+            .expect("technical node asserts");
+        drop(tables);
+
+        let reopened = MindTables::open(&store, GraphSubscriptionPublisher::disabled())
+            .expect("tables reopen");
+        let records = reopened
+            .technical_node_records()
+            .expect("technical nodes read");
+        let stored = reopened
+            .engine
+            .match_records(QueryPlan::key(
+                reopened.technical_nodes,
+                RecordKey::new(node.identifier.as_str()),
+            ))
+            .expect("technical node lookup")
+            .records()
+            .first()
+            .cloned()
+            .expect("technical node stored")
+            .into_record();
+
+        assert_eq!(records, vec![node.clone()]);
+        assert_eq!(stored.identifier.as_str(), "aaa");
+        assert_eq!(stored.stable_key.as_str(), "component:mind");
+    }
+
+    #[test]
+    fn technical_relation_family_persists_endpoint_stable_keys() {
+        let store = StoreLocation::new(unique_store_path("technical-relation-family"));
+        let tables =
+            MindTables::open(&store, GraphSubscriptionPublisher::disabled()).expect("tables open");
+        let relation = technical_relation("aaa", "component:mind", "component:router");
+        tables
+            .assert_technical_relation(relation.clone())
+            .expect("technical relation asserts");
+        drop(tables);
+
+        let reopened = MindTables::open(&store, GraphSubscriptionPublisher::disabled())
+            .expect("tables reopen");
+        let records = reopened
+            .technical_relation_records()
+            .expect("technical relations read");
+        let stored = reopened
+            .engine
+            .match_records(QueryPlan::key(
+                reopened.technical_relations,
+                RecordKey::new(relation.identifier.as_str()),
+            ))
+            .expect("technical relation lookup")
+            .records()
+            .first()
+            .cloned()
+            .expect("technical relation stored")
+            .into_record();
+
+        assert_eq!(records, vec![relation.clone()]);
+        assert_eq!(stored.identifier.as_str(), "aaa");
+        assert_eq!(stored.source.stable_key.as_str(), "component:mind");
+        assert_eq!(stored.target.stable_key.as_str(), "component:router");
+    }
+
+    #[test]
+    fn technical_subscription_families_persist_filters_without_delivery_logic() {
+        let store = StoreLocation::new(unique_store_path("technical-subscription-family"));
+        let tables =
+            MindTables::open(&store, GraphSubscriptionPublisher::disabled()).expect("tables open");
+        let node_subscription = tables
+            .append_technical_node_subscription(SubscribeTechnicalNodes {
+                filter: TechnicalNodeFilter::ByStableKey(ByTechnicalNodeStableKey {
+                    stable_key: TechnicalNodeKey::new("component:mind"),
+                }),
+            })
+            .expect("technical node subscription asserts");
+        let relation_subscription = tables
+            .append_technical_relation_subscription(SubscribeTechnicalRelations {
+                filter: TechnicalRelationFilter::BySource(ByTechnicalRelationSource {
+                    source: TechnicalNodeKey::new("component:mind"),
+                }),
+            })
+            .expect("technical relation subscription asserts");
+        drop(tables);
+
+        let reopened = MindTables::open(&store, GraphSubscriptionPublisher::disabled())
+            .expect("tables reopen");
+        let persisted_node_subscription = reopened
+            .engine
+            .match_records(QueryPlan::key(
+                reopened.technical_node_subscriptions,
+                RecordKey::new(node_subscription.subscription.as_str()),
+            ))
+            .expect("technical node subscription lookup")
+            .records()
+            .first()
+            .cloned()
+            .expect("technical node subscription stored");
+        let persisted_relation_subscription = reopened
+            .engine
+            .match_records(QueryPlan::key(
+                reopened.technical_relation_subscriptions,
+                RecordKey::new(relation_subscription.subscription.as_str()),
+            ))
+            .expect("technical relation subscription lookup")
+            .records()
+            .first()
+            .cloned()
+            .expect("technical relation subscription stored");
+
+        assert_eq!(persisted_node_subscription, node_subscription);
+        assert_eq!(persisted_relation_subscription, relation_subscription);
+        assert_eq!(persisted_node_subscription.subscription.as_str(), "aaa");
+        assert_eq!(persisted_relation_subscription.subscription.as_str(), "aab");
+    }
+
+    #[test]
+    fn v8_store_opens_as_v9_and_preserves_existing_graph_rows() {
+        let store = StoreLocation::new(unique_store_path("v8-to-v9-open"));
+        let original = seed_v8_thought_store(&store);
+
+        let tables =
+            MindTables::open(&store, GraphSubscriptionPublisher::disabled()).expect("tables open");
+        let preserved = tables.thought_records().expect("thoughts read");
+        let technical = tables
+            .assert_technical_node(technical_node("aab", "component:mind"))
+            .expect("technical node asserts after migration");
+        drop(tables);
+
+        let reopened = MindTables::open(&store, GraphSubscriptionPublisher::disabled())
+            .expect("tables reopen");
+
+        assert_eq!(preserved, vec![original.clone()]);
+        assert_eq!(
+            reopened.thought_records().expect("thoughts reread"),
+            vec![original]
+        );
+        assert_eq!(
+            reopened
+                .technical_node_records()
+                .expect("technical nodes reread"),
+            vec![technical]
+        );
+    }
+
+    #[test]
     fn graph_id_policy_mints_compact_typed_sequence_ids_without_prefixes() {
         let store = StoreLocation::new(unique_store_path("graph-id-policy"));
         let tables =
@@ -820,6 +1247,100 @@ mod tests {
             log[0].operations().head().key(),
             log[1].operations().head().key()
         );
+    }
+
+    fn seed_v8_thought_store(store: &StoreLocation) -> Thought {
+        let mut engine = Engine::open(MindTables::engine_open_with_version(
+            store,
+            MIND_SCHEMA_VERSION_V8,
+        ))
+        .expect("v8 engine opens");
+        let thoughts = engine
+            .register_table(MindTables::family_descriptor::<StoredThought>(
+                THOUGHTS,
+                "thought",
+                MIND_SCHEMA_VERSION_V8,
+            ))
+            .expect("v8 thoughts table registers");
+        engine
+            .register_table(MindTables::family_descriptor::<MemoryGraph>(
+                MEMORY_GRAPH,
+                "memory-graph",
+                MIND_SCHEMA_VERSION_V8,
+            ))
+            .expect("v8 memory graph registers");
+        engine
+            .register_table(MindTables::family_descriptor::<StoredRelation>(
+                RELATIONS,
+                "relation",
+                MIND_SCHEMA_VERSION_V8,
+            ))
+            .expect("v8 relations register");
+        engine
+            .register_table(MindTables::family_descriptor::<StoredThoughtSubscription>(
+                THOUGHT_SUBSCRIPTIONS,
+                "thought-subscription",
+                MIND_SCHEMA_VERSION_V8,
+            ))
+            .expect("v8 thought subscriptions register");
+        engine
+            .register_table(MindTables::family_descriptor::<StoredRelationSubscription>(
+                RELATION_SUBSCRIPTIONS,
+                "relation-subscription",
+                MIND_SCHEMA_VERSION_V8,
+            ))
+            .expect("v8 relation subscriptions register");
+
+        let thought = Thought {
+            id: RecordIdentifier::new("aaa"),
+            kind: ThoughtKind::Goal,
+            body: goal_submission("v8 graph row").body,
+            author: ActorName::new("operator"),
+            occurred_at: TimestampNanos::new(1),
+        };
+        engine
+            .assert(Assertion::new(
+                thoughts,
+                StoredThought::new(thought.clone()),
+            ))
+            .expect("v8 thought asserts");
+        thought
+    }
+
+    fn technical_node(identifier: &str, stable_key: &str) -> TechnicalNode {
+        TechnicalNode {
+            identifier: TechnicalNodeIdentifier::new(identifier),
+            stable_key: TechnicalNodeKey::new(stable_key),
+            kind: TechnicalNodeKind::Component,
+            body: TechnicalNodeBody::Component(ComponentNode {
+                component: ComponentName::new(stable_key.replace(':', "-")),
+                summary: Some(TextBody::new("technical component node")),
+            }),
+            author: ActorName::new("operator"),
+            occurred_at: TimestampNanos::new(1),
+        }
+    }
+
+    fn technical_relation(
+        identifier: &str,
+        source_key: &str,
+        target_key: &str,
+    ) -> TechnicalRelation {
+        TechnicalRelation {
+            identifier: TechnicalRelationIdentifier::new(identifier),
+            kind: TechnicalRelationKind::DependsOn,
+            source: TechnicalRelationEndpoint {
+                identifier: TechnicalNodeIdentifier::new("aaa"),
+                stable_key: TechnicalNodeKey::new(source_key),
+            },
+            target: TechnicalRelationEndpoint {
+                identifier: TechnicalNodeIdentifier::new("aab"),
+                stable_key: TechnicalNodeKey::new(target_key),
+            },
+            author: ActorName::new("operator"),
+            occurred_at: TimestampNanos::new(2),
+            note: Some(TextBody::new("technical relation storage fixture")),
+        }
     }
 
     fn goal_submission(description: &str) -> SubmitThought {

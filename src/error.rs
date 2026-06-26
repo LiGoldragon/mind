@@ -59,6 +59,21 @@ pub enum Error {
     #[error("sema engine: {0}")]
     SemaEngine(#[from] sema_engine::Error),
 
+    #[error("mind schema migration database: {0}")]
+    MindSchemaMigrationDatabase(#[from] redb::DatabaseError),
+
+    #[error("mind schema migration storage: {0}")]
+    MindSchemaMigrationStorage(#[from] redb::StorageError),
+
+    #[error("mind schema migration transaction: {0}")]
+    MindSchemaMigrationTransaction(#[from] redb::TransactionError),
+
+    #[error("mind schema migration table: {0}")]
+    MindSchemaMigrationTable(#[from] redb::TableError),
+
+    #[error("mind schema migration commit: {0}")]
+    MindSchemaMigrationCommit(#[from] redb::CommitError),
+
     #[error("unexpected signal frame: {0}")]
     UnexpectedFrame(&'static str),
 

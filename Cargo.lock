@@ -325,12 +325,13 @@ dependencies = [
 
 [[package]]
 name = "mind"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "kameo",
  "meta-signal-mind",
  "meta-signal-orchestrate",
  "nota",
+ "redb",
  "rkyv",
  "schema-rust-next",
  "sema-engine",
