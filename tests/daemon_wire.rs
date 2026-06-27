@@ -83,7 +83,7 @@ async fn daemon_round_trip_uses_signal_frames_over_socket() {
     let endpoint = daemon.endpoint().clone();
     let server = tokio::spawn(async move { daemon.serve_one().await });
 
-    let client = MindClient::new(endpoint, ActorName::new("operator"));
+    let client = MindClient::new(endpoint, ActorName::new("designer"));
     let client_reply = client
         .submit(fixture.request())
         .await
@@ -97,7 +97,7 @@ async fn daemon_round_trip_uses_signal_frames_over_socket() {
     let MindReply::OpeningReceipt(receipt) = client_reply else {
         panic!("expected opening receipt");
     };
-    assert_eq!(receipt.event.header.actor, ActorName::new("operator"));
+    assert_eq!(receipt.event.header.actor, ActorName::new("designer"));
 }
 
 #[test]
@@ -106,19 +106,14 @@ fn mind_frame_codec_decodes_contract_local_operation_payload() {
         filter: ThoughtFilter::ByKind(ByThoughtKind { kinds: Vec::new() }),
         limit: QueryLimit::new(1),
     });
-    let frame = Frame::new(FrameBody::Request {
-        exchange: ExchangeIdentifier::new(
-            SessionEpoch::new(0),
-            ExchangeLane::Connector,
-            LaneSequence::first(),
-        ),
-        request: request.clone().into_request(),
-    });
     let decoded = MindFrameCodec::default()
-        .request_from_frame(frame)
+        .envelope_from_frame(
+            MindFrameCodec::default().request_frame(&ActorName::new("designer"), request.clone()),
+        )
         .expect("request payload decodes");
 
-    assert_eq!(decoded, request);
+    assert_eq!(decoded.actor(), &ActorName::new("designer"));
+    assert_eq!(decoded.request(), &request);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -251,7 +246,7 @@ async fn mind_daemon_answers_component_supervision_relation() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn daemon_stamps_local_operator_actor_at_ingress() {
+async fn daemon_uses_signal_caller_identity_for_actor_identity() {
     let fixture = SocketFixture::new("ingress-identity");
     let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
         .bind()
@@ -273,11 +268,11 @@ async fn daemon_stamps_local_operator_actor_at_ingress() {
     let MindReply::OpeningReceipt(receipt) = client_reply else {
         panic!("expected opening receipt");
     };
-    assert_eq!(receipt.event.header.actor, ActorName::new("operator"));
+    assert_eq!(receipt.event.header.actor, ActorName::new("designer"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn daemon_accepts_sender_free_request_frames() {
+async fn daemon_rejects_request_frames_without_caller_identity() {
     let fixture = SocketFixture::new("sender-free");
     let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
         .bind()
@@ -303,10 +298,11 @@ async fn daemon_accepts_sender_free_request_frames() {
         .await
         .expect("client writes frame");
 
-    server
+    let error = server
         .await
         .expect("daemon task joins")
-        .expect("daemon accepts sender-free signal frame");
+        .expect_err("daemon rejects sender-free signal frame");
+    assert!(matches!(error, mind::Error::MissingCallerIdentity));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

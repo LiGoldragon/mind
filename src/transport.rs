@@ -3,8 +3,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use signal_frame::{
-    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply, RequestPayload, SessionEpoch,
-    SubReply,
+    Caller, CallerIdentity, ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply,
+    RequestPayload, SessionEpoch, SubReply,
 };
 use signal_mind::{ActorName, MindFrame, MindFrameBody, MindReply, MindRequest};
 use tokio::io::AsyncWriteExt;
@@ -111,10 +111,11 @@ impl MindFrameCodec {
     }
 
     pub fn request_frame(&self, actor: &ActorName, request: MindRequest) -> MindFrame {
-        let _ingress_scaffold = actor;
+        let caller =
+            Caller::current_process().with_identity(Some(CallerIdentity::new(actor.as_str())));
         MindFrame::new(MindFrameBody::Request {
             exchange: self.synthetic_exchange(),
-            request: request.into_request(),
+            request: request.into_request().with_caller(Some(caller)),
         })
     }
 
@@ -125,16 +126,23 @@ impl MindFrameCodec {
         })
     }
 
-    pub fn request_from_frame(&self, frame: MindFrame) -> Result<MindRequest> {
+    pub fn envelope_from_frame(&self, frame: MindFrame) -> Result<MindEnvelope> {
         match frame.into_body() {
-            MindFrameBody::Request { request, .. } => Ok(request.payloads.into_head()),
+            MindFrameBody::Request { request, .. } => {
+                let actor = request
+                    .caller()
+                    .and_then(Caller::identity)
+                    .map(|identity| ActorName::new(identity.as_str()))
+                    .ok_or(Error::MissingCallerIdentity)?;
+                Ok(MindEnvelope::new(actor, request.payloads.into_head()))
+            }
             _ => Err(Error::UnexpectedFrame("expected mind request operation")),
         }
     }
 
     /// Serve one working `MindFrame` request over an accepted stream: decode the
-    /// request, stamp the local operator origin at ingress, drive it through the
-    /// mind root actor, and write the reply frame back. The emitted daemon
+    /// request, require caller identity from the Signal frame, drive it through
+    /// the mind root actor, and write the reply frame back. The emitted daemon
     /// shell's working hook and the in-process test server share this body.
     pub async fn serve_request(
         &self,
@@ -142,9 +150,7 @@ impl MindFrameCodec {
         root: &crate::ActorRef<MindRoot>,
     ) -> Result<MindReply> {
         let frame = self.read_frame(stream).await?;
-        let actor = ActorName::new("operator");
-        let request = self.request_from_frame(frame)?;
-        let envelope = MindEnvelope::new(actor, request);
+        let envelope = self.envelope_from_frame(frame)?;
         let root_reply = root
             .ask(SubmitEnvelope { envelope })
             .await

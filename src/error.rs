@@ -77,6 +77,9 @@ pub enum Error {
     #[error("unexpected signal frame: {0}")]
     UnexpectedFrame(&'static str),
 
+    #[error("mind request frame is missing caller identity")]
+    MissingCallerIdentity,
+
     #[error("frame is larger than configured limit: {found} > {limit}")]
     FrameTooLarge { found: usize, limit: usize },
 

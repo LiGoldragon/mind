@@ -77,11 +77,11 @@ The crate exposes:
 | `actors::ActorTrace` | Per-request path witness for architectural-truth tests. |
 | `MindDaemonEndpoint` | Unix-socket endpoint value for the local daemon transport. |
 | `MindFrameCodec` | Length-prefixed Signal frame codec used by client and daemon. |
-| `MindClient` | Thin local client that attaches Signal auth, submits one request frame, and reads one reply frame. |
+| `MindClient` | Thin local client that attaches Signal caller identity, submits one request frame, and reads one reply frame. |
 | `MetaMindEndpoint` | Owner-only meta policy socket endpoint value. |
 | `MetaMindFrameCodec` | Length-prefixed `meta-signal-mind` frame codec. |
 | `MetaMindClient` | Thin local owner client for `meta-signal-mind` operations. |
-| `MindDaemon` | Bound one-shot daemon harness around `MindRoot`; reads actor identity from Signal auth before entering the root actor. |
+| `MindDaemon` | Bound one-shot daemon harness around `MindRoot`; reads actor identity from required Signal caller context before entering the root actor. |
 | `MindCommand` | Process-boundary command parser for daemon mode and one NOTA request submission. |
 | `MetaMindCommand` | Process-boundary parser for one owner meta-policy NOTA request. |
 | `MindTextRequest` / `MindTextReply` | Current NOTA projection for work-graph request/reply records plus full contract requests. |
@@ -129,7 +129,7 @@ Process-boundary types should be small and data-bearing:
 | `MetaMindCommand` | exactly one owner meta-policy NOTA argument, `MIND_META_SOCKET` environment default, exit rendering. |
 | `MindTextRequest` | exactly-one-record rule for implemented request records. |
 | `MindTextReply` | NOTA rendering for implemented reply records. |
-| `MindClient` | caller identity as Signal auth plus request/reply exchange. |
+| `MindClient` | caller identity in Signal caller context plus request/reply exchange. |
 | `MetaMindClient` | owner meta-policy request/reply exchange. |
 | `MindDaemonEndpoint` | local daemon endpoint default and explicit override. |
 
@@ -557,12 +557,14 @@ This repo does not own:
   records and full `signal-mind::MindRequest` NOTA records.
 - `MindClient` sends one length-prefixed Signal request frame to the daemon and
   expects one length-prefixed Signal reply frame back.
-- `MindClient` supplies caller identity through Signal auth, not through the
-  request payload.
+- `MindClient` supplies caller identity through Signal caller context, not
+  through the request payload.
 - `MindDaemon` routes request frames through `MindRoot`; it does not construct
   success replies without the actor path.
-- `MindDaemon` rejects request frames that do not carry a recognized Signal
-  auth proof.
+- `MindDaemon` rejects request frames that do not carry Signal caller identity.
+- Current Signal caller identity is a required claimed frame identity, not a
+  cryptographic or socket-credential auth proof; real auth proof remains a
+  follow-up to the frame/auth layer.
 - `MindDaemon` routes `meta-signal-mind` owner policy frames on the owner
   socket to typed meta replies instead of closing the stream silently.
 - A missing daemon cannot produce a client reply.
@@ -674,8 +676,8 @@ constraints:
 | `query_ready_uses_reader_without_writer` | read path cannot mutate state. |
 | `daemon_round_trip_uses_signal_frames_over_socket` | one socket request/reply crosses the Signal-frame transport and reaches `MindRoot`. |
 | `constraint_mind_daemon_applies_spawn_envelope_socket_mode` | daemon bind applies the manager-provided socket mode before the manager can count the component as socket-ready. |
-| `daemon_uses_signal_auth_for_actor_identity` | caller identity is derived from Signal auth before building `MindEnvelope`. |
-| `daemon_rejects_request_frames_without_auth` | daemon cannot accept unauthenticated request frames. |
+| `daemon_uses_signal_caller_identity_for_actor_identity` | caller identity is derived from Signal caller context before building `MindEnvelope`. |
+| `daemon_rejects_request_frames_without_caller_identity` | daemon cannot accept sender-free request frames. |
 | `client_cannot_reply_without_daemon_signal_frame` | clients cannot fabricate successful daemon replies. |
 | `mind_store_survives_process_restart` | work items committed by one daemon process are visible after a daemon restart on the same `mind.sema`. |
 | `mind_memory_graph_survives_process_restart` | work items opened by one daemon process are visible after a daemon restart on the same `mind.sema`. |
