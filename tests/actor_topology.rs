@@ -8,13 +8,18 @@ use mind::{
     SubmitEnvelope,
 };
 use signal_mind::{
-    ActiveClaim, ActorName, ByRelationKind, ByThoughtKind, ClaimActivity, ClaimBody, ClaimScope,
-    FileReference, GoalBody, GoalScope, ItemKind, Magnitude, MindDelta, MindReply, MindRequest,
-    Opening, PathClaimScope, Query, QueryKind, QueryLimit, QueryRelations, QueryThoughts,
-    ReferenceBody, ReferenceTarget, RelationFilter, RelationKind, RoleName, SubmitRelation,
-    SubmitThought, SubscribeRelations, SubscribeThoughts, TextBody, ThoughtBody, ThoughtFilter,
+    ActiveClaim, ActorName, ByRelationKind, ByTechnicalNodeStableKey, ByTechnicalRelationSource,
+    ByThoughtKind, ClaimActivity, ClaimBody, ClaimScope, FileReference, GoalBody, GoalScope,
+    ItemKind, Magnitude, MindDelta, MindReply, MindRequest, Opening, PathClaimScope, Query,
+    QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes, QueryTechnicalRelations,
+    QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter, RelationKind, RoleName,
+    SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation, SubmitThought,
+    SubscribeRelations, SubscribeThoughts, TechnicalNodeBody, TechnicalNodeFilter,
+    TechnicalNodeKey, TechnicalNodeKind, TechnicalNodeRejectionReason, TechnicalRelationFilter,
+    TechnicalRelationKind, TechnicalRelationRejectionReason, TextBody, ThoughtBody, ThoughtFilter,
     ThoughtKind, TimestampNanos, Title, WirePath, WorkspaceGoal,
 };
+use signal_persona::ComponentName;
 
 static ACTOR_FIXTURE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -355,6 +360,231 @@ async fn typed_thought_query_uses_reader_without_writer() {
         TraceNode::REPLY_SHAPER,
     ]));
     assert!(!response.trace().contains(TraceNode::SEMA_WRITER));
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn technical_node_and_relation_append_query_through_actor_lane() {
+    let fixture = ActorFixture::new().await;
+    let component_key = TechnicalNodeKey::new("component:mind");
+    let repository_key = TechnicalNodeKey::new("repository:mind");
+
+    let component = fixture
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: component_key.clone(),
+            kind: TechnicalNodeKind::Component,
+            body: TechnicalNodeBody::Component(signal_mind::ComponentNode {
+                component: ComponentName::new("mind"),
+                summary: Some(TextBody::new("mind daemon")),
+            }),
+        }))
+        .await;
+    let repository = fixture
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: repository_key.clone(),
+            kind: TechnicalNodeKind::Repository,
+            body: TechnicalNodeBody::Repository(signal_mind::RepositoryNode {
+                path: WirePath::from_absolute_path("/git/github.com/LiGoldragon/mind")
+                    .expect("absolute path"),
+                remote: None,
+            }),
+        }))
+        .await;
+    let relation = fixture
+        .submit(MindRequest::SubmitTechnicalRelation(
+            SubmitTechnicalRelation {
+                kind: TechnicalRelationKind::OwnsRepository,
+                source: component_key.clone(),
+                target: repository_key.clone(),
+                note: Some(TextBody::new(
+                    "component owns its implementation repository",
+                )),
+            },
+        ))
+        .await;
+    let nodes = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            filter: TechnicalNodeFilter::ByStableKey(ByTechnicalNodeStableKey {
+                stable_key: component_key.clone(),
+            }),
+            limit: QueryLimit::new(10),
+        }))
+        .await;
+    let relations = fixture
+        .submit(MindRequest::QueryTechnicalRelations(
+            QueryTechnicalRelations {
+                filter: TechnicalRelationFilter::BySource(ByTechnicalRelationSource {
+                    source: component_key.clone(),
+                }),
+                limit: QueryLimit::new(10),
+            },
+        ))
+        .await;
+
+    let MindReply::TechnicalNodeCommitted(component) =
+        component.reply().expect("component reply exists")
+    else {
+        panic!("expected technical component commit");
+    };
+    let MindReply::TechnicalNodeCommitted(repository) =
+        repository.reply().expect("repository reply exists")
+    else {
+        panic!("expected technical repository commit");
+    };
+    let MindReply::TechnicalRelationCommitted(relation) =
+        relation.reply().expect("relation reply exists")
+    else {
+        panic!("expected technical relation commit");
+    };
+    let MindReply::TechnicalNodeList(nodes) = nodes.reply().expect("node query reply exists")
+    else {
+        panic!("expected technical node list");
+    };
+    let MindReply::TechnicalRelationList(relations) =
+        relations.reply().expect("relation query reply exists")
+    else {
+        panic!("expected technical relation list");
+    };
+
+    assert_eq!(component.node.identifier.as_str(), "aaa");
+    assert_eq!(repository.node.identifier.as_str(), "aab");
+    assert_eq!(relation.relation.identifier.as_str(), "aac");
+    assert_eq!(
+        relation.relation.source.identifier,
+        component.node.identifier
+    );
+    assert_eq!(
+        relation.relation.target.identifier,
+        repository.node.identifier
+    );
+    assert_eq!(nodes.nodes.len(), 1);
+    assert_eq!(nodes.nodes[0].stable_key, component_key);
+    assert!(!nodes.has_more);
+    assert_eq!(relations.relations.len(), 1);
+    assert_eq!(
+        relations.relations[0].source.stable_key,
+        nodes.nodes[0].stable_key
+    );
+    assert!(!relations.has_more);
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn technical_append_rejects_invalid_records() {
+    let fixture = ActorFixture::new().await;
+    let component_key = TechnicalNodeKey::new("component:mind");
+    let repository_key = TechnicalNodeKey::new("repository:mind");
+
+    let _component = fixture
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: component_key.clone(),
+            kind: TechnicalNodeKind::Component,
+            body: TechnicalNodeBody::Component(signal_mind::ComponentNode {
+                component: ComponentName::new("mind"),
+                summary: None,
+            }),
+        }))
+        .await;
+    let _repository = fixture
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: repository_key.clone(),
+            kind: TechnicalNodeKind::Repository,
+            body: TechnicalNodeBody::Repository(signal_mind::RepositoryNode {
+                path: WirePath::from_absolute_path("/git/github.com/LiGoldragon/mind")
+                    .expect("absolute path"),
+                remote: None,
+            }),
+        }))
+        .await;
+
+    let duplicate_node = fixture
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: component_key.clone(),
+            kind: TechnicalNodeKind::Component,
+            body: TechnicalNodeBody::Component(signal_mind::ComponentNode {
+                component: ComponentName::new("mind-duplicate"),
+                summary: None,
+            }),
+        }))
+        .await;
+    let missing_endpoint = fixture
+        .submit(MindRequest::SubmitTechnicalRelation(
+            SubmitTechnicalRelation {
+                kind: TechnicalRelationKind::OwnsRepository,
+                source: TechnicalNodeKey::new("component:missing"),
+                target: repository_key.clone(),
+                note: None,
+            },
+        ))
+        .await;
+    let first_relation = fixture
+        .submit(MindRequest::SubmitTechnicalRelation(
+            SubmitTechnicalRelation {
+                kind: TechnicalRelationKind::OwnsRepository,
+                source: component_key.clone(),
+                target: repository_key.clone(),
+                note: None,
+            },
+        ))
+        .await;
+    let duplicate_relation = fixture
+        .submit(MindRequest::SubmitTechnicalRelation(
+            SubmitTechnicalRelation {
+                kind: TechnicalRelationKind::OwnsRepository,
+                source: component_key.clone(),
+                target: repository_key.clone(),
+                note: Some(TextBody::new("duplicate note still rejects")),
+            },
+        ))
+        .await;
+    let wrong_domain = fixture
+        .submit(MindRequest::SubmitTechnicalRelation(
+            SubmitTechnicalRelation {
+                kind: TechnicalRelationKind::OwnsRepository,
+                source: repository_key.clone(),
+                target: component_key.clone(),
+                note: None,
+            },
+        ))
+        .await;
+
+    assert!(matches!(
+        duplicate_node.reply().expect("duplicate node reply exists"),
+        MindReply::TechnicalNodeRejected(rejection)
+            if rejection.reason
+                == TechnicalNodeRejectionReason::DuplicateStableNodeKey(component_key.clone())
+    ));
+    assert!(matches!(
+        missing_endpoint
+            .reply()
+            .expect("missing endpoint reply exists"),
+        MindReply::TechnicalRelationRejected(rejection)
+            if rejection.reason
+                == TechnicalRelationRejectionReason::MissingEndpoint(
+                    TechnicalNodeKey::new("component:missing")
+                )
+    ));
+    assert!(matches!(
+        first_relation.reply().expect("first relation reply exists"),
+        MindReply::TechnicalRelationCommitted(_)
+    ));
+    assert!(matches!(
+        duplicate_relation
+            .reply()
+            .expect("duplicate relation reply exists"),
+        MindReply::TechnicalRelationRejected(rejection)
+            if rejection.reason == TechnicalRelationRejectionReason::DuplicateRelation
+    ));
+    assert!(matches!(
+        wrong_domain.reply().expect("wrong domain reply exists"),
+        MindReply::TechnicalRelationRejected(rejection)
+            if matches!(
+                rejection.reason,
+                TechnicalRelationRejectionReason::DomainRangeViolation(_)
+            )
+    ));
 
     fixture.stop().await;
 }

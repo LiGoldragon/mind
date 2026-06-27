@@ -10,9 +10,12 @@ use sema_engine::{
     TableReference, VersionedStoreName, VersioningPolicy,
 };
 use signal_mind::{
-    ActorName, RecordIdentifier, Relation, RelationIdentifier, SubmitRelation, SubmitThought,
-    SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations, SubscribeThoughts,
-    SubscriptionIdentifier, TechnicalNode, TechnicalRelation, Thought, TimestampNanos,
+    ActorName, RecordIdentifier, Relation, RelationIdentifier, SubmitRelation, SubmitTechnicalNode,
+    SubmitTechnicalRelation, SubmitThought, SubscribeRelations, SubscribeTechnicalNodes,
+    SubscribeTechnicalRelations, SubscribeThoughts, SubscriptionIdentifier, TechnicalNode,
+    TechnicalNodeIdentifier, TechnicalNodeKey, TechnicalNodeRejectionReason, TechnicalRelation,
+    TechnicalRelationEndpoint, TechnicalRelationIdentifier, TechnicalRelationRejectionReason,
+    Thought, TimestampNanos,
 };
 
 use crate::actors::subscription::{
@@ -42,15 +45,11 @@ pub struct MindTables {
     memory: TableReference<MemoryGraph>,
     thoughts: TableReference<StoredThought>,
     relations: TableReference<StoredRelation>,
-    #[allow(dead_code)]
     technical_nodes: TableReference<StoredTechnicalNode>,
-    #[allow(dead_code)]
     technical_relations: TableReference<StoredTechnicalRelation>,
     thought_subscriptions: TableReference<StoredThoughtSubscription>,
     relation_subscriptions: TableReference<StoredRelationSubscription>,
-    #[allow(dead_code)]
     technical_node_subscriptions: TableReference<StoredTechnicalNodeSubscription>,
-    #[allow(dead_code)]
     technical_relation_subscriptions: TableReference<StoredTechnicalRelationSubscription>,
     subscription_publisher: GraphSubscriptionPublisher,
 }
@@ -136,7 +135,6 @@ impl StoredRelation {
     }
 }
 
-#[allow(dead_code)]
 impl StoredTechnicalNode {
     fn new(record: TechnicalNode) -> Self {
         Self { record }
@@ -147,7 +145,6 @@ impl StoredTechnicalNode {
     }
 }
 
-#[allow(dead_code)]
 impl StoredTechnicalRelation {
     fn new(record: TechnicalRelation) -> Self {
         Self { record }
@@ -496,7 +493,91 @@ impl MindTables {
             .collect())
     }
 
-    #[allow(dead_code)]
+    pub(crate) fn append_technical_node(
+        &self,
+        actor: ActorName,
+        submission: SubmitTechnicalNode,
+    ) -> Result<std::result::Result<TechnicalNode, TechnicalNodeRejectionReason>> {
+        if let Err(mismatch) = submission.kind.validate_body(&submission.body) {
+            return Ok(Err(TechnicalNodeRejectionReason::KindBodyMismatch(
+                mismatch,
+            )));
+        }
+
+        if self
+            .technical_node_records()?
+            .iter()
+            .any(|node| node.stable_key == submission.stable_key)
+        {
+            return Ok(Err(TechnicalNodeRejectionReason::DuplicateStableNodeKey(
+                submission.stable_key,
+            )));
+        }
+
+        let node = TechnicalNode {
+            identifier: GraphIdMint::new(&self.engine).next_technical_node_identifier()?,
+            stable_key: submission.stable_key,
+            kind: submission.kind,
+            body: submission.body,
+            author: actor,
+            occurred_at: StoreClock::system().timestamp()?,
+        };
+        self.assert_technical_node(node.clone())?;
+        Ok(Ok(node))
+    }
+
+    pub(crate) fn append_technical_relation(
+        &self,
+        actor: ActorName,
+        submission: SubmitTechnicalRelation,
+    ) -> Result<std::result::Result<TechnicalRelation, TechnicalRelationRejectionReason>> {
+        let Some(source) = self.read_technical_node_by_stable_key(&submission.source)? else {
+            return Ok(Err(TechnicalRelationRejectionReason::MissingEndpoint(
+                submission.source,
+            )));
+        };
+        let Some(target) = self.read_technical_node_by_stable_key(&submission.target)? else {
+            return Ok(Err(TechnicalRelationRejectionReason::MissingEndpoint(
+                submission.target,
+            )));
+        };
+
+        if let Err(mismatch) = submission
+            .kind
+            .validate_endpoint_kinds(source.kind, target.kind)
+        {
+            return Ok(Err(TechnicalRelationRejectionReason::DomainRangeViolation(
+                mismatch,
+            )));
+        }
+
+        if self.technical_relation_records()?.iter().any(|relation| {
+            relation.kind == submission.kind
+                && relation.source.stable_key == submission.source
+                && relation.target.stable_key == submission.target
+        }) {
+            return Ok(Err(TechnicalRelationRejectionReason::DuplicateRelation));
+        }
+
+        let relation = TechnicalRelation {
+            identifier: GraphIdMint::new(&self.engine).next_technical_relation_identifier()?,
+            kind: submission.kind,
+            source: TechnicalRelationEndpoint {
+                identifier: source.identifier,
+                stable_key: source.stable_key,
+            },
+            target: TechnicalRelationEndpoint {
+                identifier: target.identifier,
+                stable_key: target.stable_key,
+            },
+            author: actor,
+            occurred_at: StoreClock::system().timestamp()?,
+            note: submission.note,
+        };
+        self.assert_technical_relation(relation.clone())?;
+        Ok(Ok(relation))
+    }
+
     pub(crate) fn assert_technical_node(&self, node: TechnicalNode) -> Result<TechnicalNode> {
         self.engine.assert(Assertion::new(
             self.technical_nodes,
@@ -505,7 +586,6 @@ impl MindTables {
         Ok(node)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn assert_technical_relation(
         &self,
         relation: TechnicalRelation,
@@ -517,7 +597,6 @@ impl MindTables {
         Ok(relation)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn technical_node_records(&self) -> Result<Vec<TechnicalNode>> {
         Ok(self
             .engine
@@ -529,7 +608,6 @@ impl MindTables {
             .collect())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn technical_relation_records(&self) -> Result<Vec<TechnicalRelation>> {
         Ok(self
             .engine
@@ -648,6 +726,16 @@ impl MindTables {
             })
     }
 
+    fn read_technical_node_by_stable_key(
+        &self,
+        stable_key: &TechnicalNodeKey,
+    ) -> Result<Option<TechnicalNode>> {
+        Ok(self
+            .technical_node_records()?
+            .into_iter()
+            .find(|node| node.stable_key == *stable_key))
+    }
+
     fn subscription_identifier_from_engine(
         engine_identifier: sema_engine::SubscriptionIdentifier,
     ) -> SubscriptionIdentifier {
@@ -741,6 +829,14 @@ impl<'engine> GraphIdMint<'engine> {
 
     fn next_relation_id(&self) -> Result<RelationIdentifier> {
         Ok(RelationIdentifier::new(self.next_token()?))
+    }
+
+    fn next_technical_node_identifier(&self) -> Result<TechnicalNodeIdentifier> {
+        Ok(TechnicalNodeIdentifier::new(self.next_token()?))
+    }
+
+    fn next_technical_relation_identifier(&self) -> Result<TechnicalRelationIdentifier> {
+        Ok(TechnicalRelationIdentifier::new(self.next_token()?))
     }
 
     fn next_token(&self) -> Result<String> {
@@ -905,10 +1001,11 @@ mod tests {
     use super::*;
     use signal_mind::{
         ByTechnicalNodeStableKey, ByTechnicalRelationSource, ByThoughtKind, ComponentNode,
-        GoalBody, GoalScope, RelationKind, SubmitRelation, SubmitThought, TechnicalNodeBody,
-        TechnicalNodeFilter, TechnicalNodeIdentifier, TechnicalNodeKey, TechnicalNodeKind,
-        TechnicalRelationEndpoint, TechnicalRelationFilter, TechnicalRelationIdentifier,
-        TechnicalRelationKind, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, WorkspaceGoal,
+        GoalBody, GoalScope, RelationKind, SubmitRelation, SubmitTechnicalNode,
+        SubmitTechnicalRelation, SubmitThought, TechnicalNodeBody, TechnicalNodeFilter,
+        TechnicalNodeIdentifier, TechnicalNodeKind, TechnicalRelationEndpoint,
+        TechnicalRelationFilter, TechnicalRelationIdentifier, TechnicalRelationKind, TextBody,
+        ThoughtBody, ThoughtFilter, ThoughtKind, WirePath, WorkspaceGoal,
     };
     use signal_persona::ComponentName;
 
@@ -1099,6 +1196,212 @@ mod tests {
         assert_eq!(stored.identifier.as_str(), "aaa");
         assert_eq!(stored.source.stable_key.as_str(), "component:mind");
         assert_eq!(stored.target.stable_key.as_str(), "component:router");
+    }
+
+    #[test]
+    fn technical_node_append_mints_compact_identifier_and_rejects_kind_body_mismatch() {
+        let store = StoreLocation::new(unique_store_path("technical-node-append"));
+        let tables =
+            MindTables::open(&store, GraphSubscriptionPublisher::disabled()).expect("tables open");
+        let accepted = tables
+            .append_technical_node(
+                ActorName::new("operator"),
+                SubmitTechnicalNode {
+                    stable_key: TechnicalNodeKey::new("component:mind"),
+                    kind: TechnicalNodeKind::Component,
+                    body: TechnicalNodeBody::Component(ComponentNode {
+                        component: ComponentName::new("mind"),
+                        summary: None,
+                    }),
+                },
+            )
+            .expect("node append evaluates")
+            .expect("node accepted");
+        let rejected = tables
+            .append_technical_node(
+                ActorName::new("operator"),
+                SubmitTechnicalNode {
+                    stable_key: TechnicalNodeKey::new("repository:wrong-body"),
+                    kind: TechnicalNodeKind::Repository,
+                    body: TechnicalNodeBody::Component(ComponentNode {
+                        component: ComponentName::new("wrong-body"),
+                        summary: None,
+                    }),
+                },
+            )
+            .expect("mismatch evaluates")
+            .expect_err("kind/body mismatch rejects");
+        let records = tables
+            .technical_node_records()
+            .expect("technical nodes read");
+
+        assert_eq!(accepted.identifier.as_str(), "aaa");
+        assert_eq!(accepted.author, ActorName::new("operator"));
+        assert_eq!(records, vec![accepted]);
+        assert!(matches!(
+            rejected,
+            TechnicalNodeRejectionReason::KindBodyMismatch(mismatch)
+                if mismatch.expected_kind == TechnicalNodeKind::Repository
+                    && mismatch.got_body_kind == TechnicalNodeKind::Component
+        ));
+    }
+
+    #[test]
+    fn technical_node_append_rejects_duplicate_stable_key() {
+        let store = StoreLocation::new(unique_store_path("technical-node-duplicate"));
+        let tables =
+            MindTables::open(&store, GraphSubscriptionPublisher::disabled()).expect("tables open");
+        let stable_key = TechnicalNodeKey::new("component:mind");
+        tables
+            .append_technical_node(
+                ActorName::new("operator"),
+                SubmitTechnicalNode {
+                    stable_key: stable_key.clone(),
+                    kind: TechnicalNodeKind::Component,
+                    body: TechnicalNodeBody::Component(ComponentNode {
+                        component: ComponentName::new("mind"),
+                        summary: None,
+                    }),
+                },
+            )
+            .expect("first append evaluates")
+            .expect("first node accepted");
+        let rejected = tables
+            .append_technical_node(
+                ActorName::new("operator"),
+                SubmitTechnicalNode {
+                    stable_key: stable_key.clone(),
+                    kind: TechnicalNodeKind::Component,
+                    body: TechnicalNodeBody::Component(ComponentNode {
+                        component: ComponentName::new("mind-duplicate"),
+                        summary: None,
+                    }),
+                },
+            )
+            .expect("duplicate evaluates")
+            .expect_err("duplicate stable key rejects");
+
+        assert_eq!(
+            rejected,
+            TechnicalNodeRejectionReason::DuplicateStableNodeKey(stable_key)
+        );
+        assert_eq!(
+            tables
+                .technical_node_records()
+                .expect("technical nodes read")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn technical_relation_append_resolves_endpoints_and_rejects_invalid_triples() {
+        let store = StoreLocation::new(unique_store_path("technical-relation-append"));
+        let tables =
+            MindTables::open(&store, GraphSubscriptionPublisher::disabled()).expect("tables open");
+        let component_key = TechnicalNodeKey::new("component:mind");
+        let repository_key = TechnicalNodeKey::new("repository:mind");
+        let missing_key = TechnicalNodeKey::new("component:missing");
+        let component = tables
+            .append_technical_node(
+                ActorName::new("operator"),
+                SubmitTechnicalNode {
+                    stable_key: component_key.clone(),
+                    kind: TechnicalNodeKind::Component,
+                    body: TechnicalNodeBody::Component(ComponentNode {
+                        component: ComponentName::new("mind"),
+                        summary: None,
+                    }),
+                },
+            )
+            .expect("component evaluates")
+            .expect("component accepted");
+        let repository = tables
+            .append_technical_node(
+                ActorName::new("operator"),
+                SubmitTechnicalNode {
+                    stable_key: repository_key.clone(),
+                    kind: TechnicalNodeKind::Repository,
+                    body: TechnicalNodeBody::Repository(signal_mind::RepositoryNode {
+                        path: WirePath::from_absolute_path("/git/github.com/LiGoldragon/mind")
+                            .expect("absolute path"),
+                        remote: None,
+                    }),
+                },
+            )
+            .expect("repository evaluates")
+            .expect("repository accepted");
+
+        let missing = tables
+            .append_technical_relation(
+                ActorName::new("operator"),
+                SubmitTechnicalRelation {
+                    kind: TechnicalRelationKind::OwnsRepository,
+                    source: missing_key.clone(),
+                    target: repository_key.clone(),
+                    note: None,
+                },
+            )
+            .expect("missing endpoint evaluates")
+            .expect_err("missing endpoint rejects");
+        let accepted = tables
+            .append_technical_relation(
+                ActorName::new("operator"),
+                SubmitTechnicalRelation {
+                    kind: TechnicalRelationKind::OwnsRepository,
+                    source: component_key.clone(),
+                    target: repository_key.clone(),
+                    note: None,
+                },
+            )
+            .expect("relation evaluates")
+            .expect("relation accepted");
+        let duplicate = tables
+            .append_technical_relation(
+                ActorName::new("operator"),
+                SubmitTechnicalRelation {
+                    kind: TechnicalRelationKind::OwnsRepository,
+                    source: component_key.clone(),
+                    target: repository_key.clone(),
+                    note: Some(TextBody::new("same triple")),
+                },
+            )
+            .expect("duplicate relation evaluates")
+            .expect_err("duplicate relation rejects");
+        let wrong_domain = tables
+            .append_technical_relation(
+                ActorName::new("operator"),
+                SubmitTechnicalRelation {
+                    kind: TechnicalRelationKind::OwnsRepository,
+                    source: repository_key.clone(),
+                    target: component_key.clone(),
+                    note: None,
+                },
+            )
+            .expect("domain range evaluates")
+            .expect_err("domain range rejects");
+
+        assert_eq!(
+            missing,
+            TechnicalRelationRejectionReason::MissingEndpoint(missing_key)
+        );
+        assert_eq!(accepted.identifier.as_str(), "aac");
+        assert_eq!(accepted.source.identifier, component.identifier);
+        assert_eq!(accepted.target.identifier, repository.identifier);
+        assert_eq!(
+            duplicate,
+            TechnicalRelationRejectionReason::DuplicateRelation
+        );
+        assert!(matches!(
+            wrong_domain,
+            TechnicalRelationRejectionReason::DomainRangeViolation(_)
+        ));
+        assert_eq!(
+            tables
+                .technical_relation_records()
+                .expect("technical relations read"),
+            vec![accepted]
+        );
     }
 
     #[test]

@@ -49,12 +49,32 @@ pub struct SubmitRelation {
     pub trace: ActorTrace,
 }
 
+pub struct SubmitTechnicalNode {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
+pub struct SubmitTechnicalRelation {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
 pub struct QueryThoughts {
     pub envelope: MindEnvelope,
     pub trace: ActorTrace,
 }
 
 pub struct QueryRelations {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
+pub struct QueryTechnicalNodes {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
+pub struct QueryTechnicalRelations {
     pub envelope: MindEnvelope,
     pub trace: ActorTrace,
 }
@@ -139,6 +159,30 @@ impl StoreSupervisor {
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
 
+    async fn submit_technical_node(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> crate::Result<PipelineReply> {
+        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
+        self.graph
+            .ask(graph::SubmitTechnicalNode { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn submit_technical_relation(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> crate::Result<PipelineReply> {
+        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
+        self.graph
+            .ask(graph::SubmitTechnicalRelation { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
     async fn query_thoughts(
         &self,
         envelope: MindEnvelope,
@@ -147,6 +191,30 @@ impl StoreSupervisor {
         trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
         self.graph
             .ask(graph::QueryThoughts { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn query_technical_nodes(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> crate::Result<PipelineReply> {
+        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
+        self.graph
+            .ask(graph::QueryTechnicalNodes { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn query_technical_relations(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> crate::Result<PipelineReply> {
+        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
+        self.graph
+            .ask(graph::QueryTechnicalRelations { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
@@ -350,6 +418,34 @@ impl Message<SubmitRelation> for StoreSupervisor {
     }
 }
 
+impl Message<SubmitTechnicalNode> for StoreSupervisor {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: SubmitTechnicalNode,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.submit_technical_node(message.envelope, message.trace)
+            .await
+            .unwrap_or_else(PersistenceRejection::pipeline)
+    }
+}
+
+impl Message<SubmitTechnicalRelation> for StoreSupervisor {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: SubmitTechnicalRelation,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.submit_technical_relation(message.envelope, message.trace)
+            .await
+            .unwrap_or_else(PersistenceRejection::pipeline)
+    }
+}
+
 impl Message<QueryThoughts> for StoreSupervisor {
     type Reply = PipelineReply;
 
@@ -373,6 +469,34 @@ impl Message<QueryRelations> for StoreSupervisor {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.query_relations(message.envelope, message.trace)
+            .await
+            .unwrap_or_else(PersistenceRejection::pipeline)
+    }
+}
+
+impl Message<QueryTechnicalNodes> for StoreSupervisor {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: QueryTechnicalNodes,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.query_technical_nodes(message.envelope, message.trace)
+            .await
+            .unwrap_or_else(PersistenceRejection::pipeline)
+    }
+}
+
+impl Message<QueryTechnicalRelations> for StoreSupervisor {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: QueryTechnicalRelations,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.query_technical_relations(message.envelope, message.trace)
             .await
             .unwrap_or_else(PersistenceRejection::pipeline)
     }

@@ -33,11 +33,27 @@ pub(super) struct WriteRelation {
     envelope: MindEnvelope,
 }
 
+pub(super) struct WriteTechnicalNode {
+    envelope: MindEnvelope,
+}
+
+pub(super) struct WriteTechnicalRelation {
+    envelope: MindEnvelope,
+}
+
 pub(super) struct ReadThoughts {
     envelope: MindEnvelope,
 }
 
 pub(super) struct ReadRelations {
+    envelope: MindEnvelope,
+}
+
+pub(super) struct ReadTechnicalNodes {
+    envelope: MindEnvelope,
+}
+
+pub(super) struct ReadTechnicalRelations {
     envelope: MindEnvelope,
 }
 
@@ -107,6 +123,18 @@ impl WriteRelation {
     }
 }
 
+impl WriteTechnicalNode {
+    pub(super) fn new(envelope: MindEnvelope) -> Self {
+        Self { envelope }
+    }
+}
+
+impl WriteTechnicalRelation {
+    pub(super) fn new(envelope: MindEnvelope) -> Self {
+        Self { envelope }
+    }
+}
+
 impl ReadThoughts {
     pub(super) fn new(envelope: MindEnvelope) -> Self {
         Self { envelope }
@@ -114,6 +142,18 @@ impl ReadThoughts {
 }
 
 impl ReadRelations {
+    pub(super) fn new(envelope: MindEnvelope) -> Self {
+        Self { envelope }
+    }
+}
+
+impl ReadTechnicalNodes {
+    pub(super) fn new(envelope: MindEnvelope) -> Self {
+        Self { envelope }
+    }
+}
+
+impl ReadTechnicalRelations {
     pub(super) fn new(envelope: MindEnvelope) -> Self {
         Self { envelope }
     }
@@ -184,10 +224,50 @@ impl StoreKernel {
         KernelReply::new(reply)
     }
 
+    fn write_technical_node(&self, envelope: MindEnvelope) -> KernelReply {
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).submit_technical_node(envelope))
+            .map(Some)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+
+        KernelReply::new(reply)
+    }
+
+    fn write_technical_relation(&self, envelope: MindEnvelope) -> KernelReply {
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).submit_technical_relation(envelope))
+            .map(Some)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+
+        KernelReply::new(reply)
+    }
+
     fn read_thoughts(&self, envelope: MindEnvelope) -> KernelReply {
         let reply = self
             .tables()
             .and_then(|tables| MindGraphLedger::new(tables).query_thoughts(envelope))
+            .map(Some)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+
+        KernelReply::new(reply)
+    }
+
+    fn read_technical_nodes(&self, envelope: MindEnvelope) -> KernelReply {
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).query_technical_nodes(envelope))
+            .map(Some)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+
+        KernelReply::new(reply)
+    }
+
+    fn read_technical_relations(&self, envelope: MindEnvelope) -> KernelReply {
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).query_technical_relations(envelope))
             .map(Some)
             .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
 
@@ -294,6 +374,30 @@ impl Message<WriteRelation> for StoreKernel {
     }
 }
 
+impl Message<WriteTechnicalNode> for StoreKernel {
+    type Reply = KernelReply;
+
+    async fn handle(
+        &mut self,
+        message: WriteTechnicalNode,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.write_technical_node(message.envelope)
+    }
+}
+
+impl Message<WriteTechnicalRelation> for StoreKernel {
+    type Reply = KernelReply;
+
+    async fn handle(
+        &mut self,
+        message: WriteTechnicalRelation,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.write_technical_relation(message.envelope)
+    }
+}
+
 impl Message<ReadThoughts> for StoreKernel {
     type Reply = KernelReply;
 
@@ -315,6 +419,30 @@ impl Message<ReadRelations> for StoreKernel {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.read_relations(message.envelope)
+    }
+}
+
+impl Message<ReadTechnicalNodes> for StoreKernel {
+    type Reply = KernelReply;
+
+    async fn handle(
+        &mut self,
+        message: ReadTechnicalNodes,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.read_technical_nodes(message.envelope)
+    }
+}
+
+impl Message<ReadTechnicalRelations> for StoreKernel {
+    type Reply = KernelReply;
+
+    async fn handle(
+        &mut self,
+        message: ReadTechnicalRelations,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.read_technical_relations(message.envelope)
     }
 }
 

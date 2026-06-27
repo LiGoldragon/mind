@@ -59,6 +59,14 @@ impl DispatchPhase {
                 trace.record(TraceNode::GRAPH_FLOW, TraceAction::MessageReceived);
                 self.submit_relation(envelope, trace).await?
             }
+            MindRequest::SubmitTechnicalNode(_) => {
+                trace.record(TraceNode::GRAPH_FLOW, TraceAction::MessageReceived);
+                self.submit_technical_node(envelope, trace).await?
+            }
+            MindRequest::SubmitTechnicalRelation(_) => {
+                trace.record(TraceNode::GRAPH_FLOW, TraceAction::MessageReceived);
+                self.submit_technical_relation(envelope, trace).await?
+            }
             MindRequest::QueryThoughts(_) => {
                 trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
                 self.query_thoughts(envelope, trace).await?
@@ -66,6 +74,14 @@ impl DispatchPhase {
             MindRequest::QueryRelations(_) => {
                 trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
                 self.query_relations(envelope, trace).await?
+            }
+            MindRequest::QueryTechnicalNodes(_) => {
+                trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
+                self.query_technical_nodes(envelope, trace).await?
+            }
+            MindRequest::QueryTechnicalRelations(_) => {
+                trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
+                self.query_technical_relations(envelope, trace).await?
             }
             MindRequest::SubscribeThoughts(_) => {
                 trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
@@ -89,10 +105,6 @@ impl DispatchPhase {
             }
             MindRequest::AdjudicationRequest(_)
             | MindRequest::ChannelList(_)
-            | MindRequest::SubmitTechnicalNode(_)
-            | MindRequest::SubmitTechnicalRelation(_)
-            | MindRequest::QueryTechnicalNodes(_)
-            | MindRequest::QueryTechnicalRelations(_)
             | MindRequest::SubscribeTechnicalNodes(_)
             | MindRequest::SubscribeTechnicalRelations(_)
             | MindRequest::SubscriptionRetraction(_) => self.unimplemented(trace),
@@ -134,6 +146,28 @@ impl DispatchPhase {
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
 
+    async fn submit_technical_node(
+        &self,
+        envelope: MindEnvelope,
+        trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        self.domain
+            .ask(domain::SubmitTechnicalNode { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn submit_technical_relation(
+        &self,
+        envelope: MindEnvelope,
+        trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        self.domain
+            .ask(domain::SubmitTechnicalRelation { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
     async fn query_thoughts(
         &self,
         envelope: MindEnvelope,
@@ -141,6 +175,28 @@ impl DispatchPhase {
     ) -> CrateResult<PipelineReply> {
         self.view
             .ask(view::QueryThoughts { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn query_technical_nodes(
+        &self,
+        envelope: MindEnvelope,
+        trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        self.view
+            .ask(view::QueryTechnicalNodes { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn query_technical_relations(
+        &self,
+        envelope: MindEnvelope,
+        trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        self.view
+            .ask(view::QueryTechnicalRelations { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }

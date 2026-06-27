@@ -33,6 +33,16 @@ pub struct SubmitRelation {
     pub trace: ActorTrace,
 }
 
+pub struct SubmitTechnicalNode {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
+pub struct SubmitTechnicalRelation {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
 impl DomainPhase {
     fn new(store: ActorRef<store::StoreSupervisor>) -> Self {
         Self { store }
@@ -91,6 +101,42 @@ impl DomainPhase {
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
+
+    async fn submit_technical_node(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        trace.record(TraceNode::DOMAIN_PHASE, TraceAction::MessageReceived);
+        trace.record(
+            TraceNode::MIND_GRAPH_SUPERVISOR,
+            TraceAction::MessageReceived,
+        );
+        trace.record(TraceNode::THOUGHT_COMMIT, TraceAction::MessageReceived);
+
+        self.store
+            .ask(store::SubmitTechnicalNode { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn submit_technical_relation(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        trace.record(TraceNode::DOMAIN_PHASE, TraceAction::MessageReceived);
+        trace.record(
+            TraceNode::MIND_GRAPH_SUPERVISOR,
+            TraceAction::MessageReceived,
+        );
+        trace.record(TraceNode::RELATION_COMMIT, TraceAction::MessageReceived);
+
+        self.store
+            .ask(store::SubmitTechnicalRelation { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
 }
 
 impl Actor for DomainPhase {
@@ -144,6 +190,42 @@ impl Message<SubmitRelation> for DomainPhase {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         match self.submit_relation(message.envelope, message.trace).await {
+            Ok(reply) => reply,
+            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
+        }
+    }
+}
+
+impl Message<SubmitTechnicalNode> for DomainPhase {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: SubmitTechnicalNode,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        match self
+            .submit_technical_node(message.envelope, message.trace)
+            .await
+        {
+            Ok(reply) => reply,
+            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
+        }
+    }
+}
+
+impl Message<SubmitTechnicalRelation> for DomainPhase {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: SubmitTechnicalRelation,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        match self
+            .submit_technical_relation(message.envelope, message.trace)
+            .await
+        {
             Ok(reply) => reply,
             Err(_error) => PipelineReply::new(None, ActorTrace::new()),
         }

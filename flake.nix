@@ -263,6 +263,41 @@
               cargoTestExtraArgs = "technical_subscription_families_persist_filters_without_delivery_logic";
             }
           );
+          mind-technical-node-and-relation-append-query-through-actor-lane = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology technical_node_and_relation_append_query_through_actor_lane -- --exact";
+            }
+          );
+          mind-technical-append-rejects-invalid-records = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology technical_append_rejects_invalid_records -- --exact";
+            }
+          );
+          mind-technical-node-append-mints-compact-identifier-and-rejects-kind-body-mismatch = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "technical_node_append_mints_compact_identifier_and_rejects_kind_body_mismatch";
+            }
+          );
+          mind-technical-node-append-rejects-duplicate-stable-key = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "technical_node_append_rejects_duplicate_stable_key";
+            }
+          );
+          mind-technical-relation-append-resolves-endpoints-and-rejects-invalid-triples = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "technical_relation_append_resolves_endpoints_and_rejects_invalid_triples";
+            }
+          );
           mind-v8-store-opens-as-v9-and-preserves-existing-graph-rows = craneLib.cargoTest (
             commonArgs
             // {

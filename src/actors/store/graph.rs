@@ -4,8 +4,9 @@ use kameo::message::{Context, Message};
 use crate::MindEnvelope;
 
 use super::kernel::{
-    KernelReply, ReadGraphRecords as ReadKernelGraphRecords, ReadRelations, ReadThoughts,
-    StoreKernel, SubscribeRelations, SubscribeThoughts, WriteRelation, WriteThought,
+    KernelReply, ReadGraphRecords as ReadKernelGraphRecords, ReadRelations, ReadTechnicalNodes,
+    ReadTechnicalRelations, ReadThoughts, StoreKernel, SubscribeRelations, SubscribeThoughts,
+    WriteRelation, WriteTechnicalNode, WriteTechnicalRelation, WriteThought,
 };
 use super::persistence::PersistenceRejection;
 use super::{ActorTrace, GraphRecords, PipelineReply, TraceAction, TraceNode};
@@ -25,12 +26,32 @@ pub(super) struct SubmitRelation {
     pub(super) trace: ActorTrace,
 }
 
+pub(super) struct SubmitTechnicalNode {
+    pub(super) envelope: MindEnvelope,
+    pub(super) trace: ActorTrace,
+}
+
+pub(super) struct SubmitTechnicalRelation {
+    pub(super) envelope: MindEnvelope,
+    pub(super) trace: ActorTrace,
+}
+
 pub(super) struct QueryThoughts {
     pub(super) envelope: MindEnvelope,
     pub(super) trace: ActorTrace,
 }
 
 pub(super) struct QueryRelations {
+    pub(super) envelope: MindEnvelope,
+    pub(super) trace: ActorTrace,
+}
+
+pub(super) struct QueryTechnicalNodes {
+    pub(super) envelope: MindEnvelope,
+    pub(super) trace: ActorTrace,
+}
+
+pub(super) struct QueryTechnicalRelations {
     pub(super) envelope: MindEnvelope,
     pub(super) trace: ActorTrace,
 }
@@ -96,6 +117,48 @@ impl GraphStore {
         PipelineReply::new(reply, trace)
     }
 
+    async fn submit_technical_node(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> PipelineReply {
+        trace.record(TraceNode::GRAPH_STORE, TraceAction::MessageReceived);
+        trace.record(TraceNode::ID_MINT, TraceAction::MessageReceived);
+        trace.record(TraceNode::CLOCK, TraceAction::MessageReceived);
+        trace.record(TraceNode::SEMA_WRITER, TraceAction::WriteIntentSent);
+        let reply = self
+            .kernel
+            .ask(WriteTechnicalNode::new(envelope))
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+            .map(KernelReply::into_reply)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+        trace.record(TraceNode::EVENT_APPENDER, TraceAction::MessageReceived);
+        trace.record(TraceNode::COMMIT, TraceAction::CommitCompleted);
+        PipelineReply::new(reply, trace)
+    }
+
+    async fn submit_technical_relation(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> PipelineReply {
+        trace.record(TraceNode::GRAPH_STORE, TraceAction::MessageReceived);
+        trace.record(TraceNode::ID_MINT, TraceAction::MessageReceived);
+        trace.record(TraceNode::CLOCK, TraceAction::MessageReceived);
+        trace.record(TraceNode::SEMA_WRITER, TraceAction::WriteIntentSent);
+        let reply = self
+            .kernel
+            .ask(WriteTechnicalRelation::new(envelope))
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+            .map(KernelReply::into_reply)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+        trace.record(TraceNode::EVENT_APPENDER, TraceAction::MessageReceived);
+        trace.record(TraceNode::COMMIT, TraceAction::CommitCompleted);
+        PipelineReply::new(reply, trace)
+    }
+
     async fn query_thoughts(&self, envelope: MindEnvelope, mut trace: ActorTrace) -> PipelineReply {
         trace.record(TraceNode::GRAPH_STORE, TraceAction::MessageReceived);
         trace.record(TraceNode::SEMA_READER, TraceAction::MessageReceived);
@@ -119,6 +182,40 @@ impl GraphStore {
         let reply = self
             .kernel
             .ask(ReadRelations::new(envelope))
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+            .map(KernelReply::into_reply)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+        PipelineReply::new(reply, trace)
+    }
+
+    async fn query_technical_nodes(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> PipelineReply {
+        trace.record(TraceNode::GRAPH_STORE, TraceAction::MessageReceived);
+        trace.record(TraceNode::SEMA_READER, TraceAction::MessageReceived);
+        let reply = self
+            .kernel
+            .ask(ReadTechnicalNodes::new(envelope))
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+            .map(KernelReply::into_reply)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+        PipelineReply::new(reply, trace)
+    }
+
+    async fn query_technical_relations(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> PipelineReply {
+        trace.record(TraceNode::GRAPH_STORE, TraceAction::MessageReceived);
+        trace.record(TraceNode::SEMA_READER, TraceAction::MessageReceived);
+        let reply = self
+            .kernel
+            .ask(ReadTechnicalRelations::new(envelope))
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
             .map(KernelReply::into_reply)
@@ -218,6 +315,32 @@ impl Message<SubmitRelation> for GraphStore {
     }
 }
 
+impl Message<SubmitTechnicalNode> for GraphStore {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: SubmitTechnicalNode,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.submit_technical_node(message.envelope, message.trace)
+            .await
+    }
+}
+
+impl Message<SubmitTechnicalRelation> for GraphStore {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: SubmitTechnicalRelation,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.submit_technical_relation(message.envelope, message.trace)
+            .await
+    }
+}
+
 impl Message<QueryThoughts> for GraphStore {
     type Reply = PipelineReply;
 
@@ -239,6 +362,32 @@ impl Message<QueryRelations> for GraphStore {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.query_relations(message.envelope, message.trace).await
+    }
+}
+
+impl Message<QueryTechnicalNodes> for GraphStore {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: QueryTechnicalNodes,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.query_technical_nodes(message.envelope, message.trace)
+            .await
+    }
+}
+
+impl Message<QueryTechnicalRelations> for GraphStore {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: QueryTechnicalRelations,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.query_technical_relations(message.envelope, message.trace)
+            .await
     }
 }
 

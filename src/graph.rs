@@ -1,10 +1,18 @@
 use signal_mind::{
-    ByRelationKind, ByRelationSource, ByRelationTarget, ByThoughtAuthor, ByThoughtKind,
-    ByThoughtTimeRange, CompositeRelationFilter, CompositeThoughtFilter, DisplayIdentifier,
-    MindReply, MindRequestUnimplemented, MindUnimplementedReason, QueryLimit, QueryRelations,
-    QueryThoughts, Relation, RelationCommitted, RelationFilter, RelationKind, RelationList,
-    SubmitRelation, SubmitThought, SubscriptionAccepted, Thought, ThoughtCommitted, ThoughtFilter,
-    ThoughtList,
+    ByRelationKind, ByRelationSource, ByRelationTarget, ByTechnicalNodeKind,
+    ByTechnicalNodeStableKey, ByTechnicalRelationEndpoints, ByTechnicalRelationKind,
+    ByTechnicalRelationSource, ByTechnicalRelationTarget, ByTechnicalSourceLocator,
+    ByThoughtAuthor, ByThoughtKind, ByThoughtTimeRange, CompositeRelationFilter,
+    CompositeTechnicalNodeFilter, CompositeTechnicalRelationFilter, CompositeThoughtFilter,
+    DisplayIdentifier, MindReply, MindRequestUnimplemented, MindUnimplementedReason, QueryLimit,
+    QueryRelations, QueryTechnicalNodes, QueryTechnicalRelations, QueryThoughts, Relation,
+    RelationCommitted, RelationFilter, RelationKind, RelationList, SubmitRelation,
+    SubmitTechnicalNode, SubmitTechnicalRelation, SubmitThought, SubscriptionAccepted,
+    TechnicalNode, TechnicalNodeCommitted, TechnicalNodeFilter, TechnicalNodeList,
+    TechnicalNodeRejected, TechnicalNodeRejectionReason, TechnicalRelation,
+    TechnicalRelationCommitted, TechnicalRelationFilter, TechnicalRelationList,
+    TechnicalRelationRejected, TechnicalRelationRejectionReason, TechnicalSourceLocator, Thought,
+    ThoughtCommitted, ThoughtFilter, ThoughtList,
 };
 
 use crate::{MindEnvelope, MindTables, Result};
@@ -40,6 +48,28 @@ impl<'tables> MindGraphLedger<'tables> {
         }
     }
 
+    pub(crate) fn submit_technical_node(&self, envelope: MindEnvelope) -> Result<MindReply> {
+        let actor = envelope.actor().clone();
+        let MindEnvelope { request, .. } = envelope;
+        match request {
+            signal_mind::MindRequest::SubmitTechnicalNode(submission) => {
+                Ok(self.commit_technical_node(actor, submission))
+            }
+            _ => Ok(Self::unimplemented()),
+        }
+    }
+
+    pub(crate) fn submit_technical_relation(&self, envelope: MindEnvelope) -> Result<MindReply> {
+        let actor = envelope.actor().clone();
+        let MindEnvelope { request, .. } = envelope;
+        match request {
+            signal_mind::MindRequest::SubmitTechnicalRelation(submission) => {
+                Ok(self.commit_technical_relation(actor, submission))
+            }
+            _ => Ok(Self::unimplemented()),
+        }
+    }
+
     pub(crate) fn query_thoughts(&self, envelope: MindEnvelope) -> Result<MindReply> {
         let MindEnvelope { request, .. } = envelope;
         match request {
@@ -52,6 +82,26 @@ impl<'tables> MindGraphLedger<'tables> {
         let MindEnvelope { request, .. } = envelope;
         match request {
             signal_mind::MindRequest::QueryRelations(query) => self.read_relations(query),
+            _ => Ok(Self::unimplemented()),
+        }
+    }
+
+    pub(crate) fn query_technical_nodes(&self, envelope: MindEnvelope) -> Result<MindReply> {
+        let MindEnvelope { request, .. } = envelope;
+        match request {
+            signal_mind::MindRequest::QueryTechnicalNodes(query) => {
+                self.read_technical_nodes(query)
+            }
+            _ => Ok(Self::unimplemented()),
+        }
+    }
+
+    pub(crate) fn query_technical_relations(&self, envelope: MindEnvelope) -> Result<MindReply> {
+        let MindEnvelope { request, .. } = envelope;
+        match request {
+            signal_mind::MindRequest::QueryTechnicalRelations(query) => {
+                self.read_technical_relations(query)
+            }
             _ => Ok(Self::unimplemented()),
         }
     }
@@ -101,6 +151,38 @@ impl<'tables> MindGraphLedger<'tables> {
         }))
     }
 
+    fn commit_technical_node(
+        &self,
+        actor: signal_mind::ActorName,
+        submission: SubmitTechnicalNode,
+    ) -> MindReply {
+        match self.tables.append_technical_node(actor, submission) {
+            Ok(Ok(node)) => MindReply::TechnicalNodeCommitted(TechnicalNodeCommitted { node }),
+            Ok(Err(reason)) => MindReply::TechnicalNodeRejected(TechnicalNodeRejected { reason }),
+            Err(_error) => MindReply::TechnicalNodeRejected(TechnicalNodeRejected {
+                reason: TechnicalNodeRejectionReason::PersistenceRejected,
+            }),
+        }
+    }
+
+    fn commit_technical_relation(
+        &self,
+        actor: signal_mind::ActorName,
+        submission: SubmitTechnicalRelation,
+    ) -> MindReply {
+        match self.tables.append_technical_relation(actor, submission) {
+            Ok(Ok(relation)) => {
+                MindReply::TechnicalRelationCommitted(TechnicalRelationCommitted { relation })
+            }
+            Ok(Err(reason)) => {
+                MindReply::TechnicalRelationRejected(TechnicalRelationRejected { reason })
+            }
+            Err(_error) => MindReply::TechnicalRelationRejected(TechnicalRelationRejected {
+                reason: TechnicalRelationRejectionReason::PersistenceRejected,
+            }),
+        }
+    }
+
     fn read_thoughts(&self, query: QueryThoughts) -> Result<MindReply> {
         let relations = self.tables.relation_records()?;
         let selector = ThoughtSelector::new(query.filter, relations);
@@ -129,6 +211,38 @@ impl<'tables> MindGraphLedger<'tables> {
         matches.sort_by_key(|relation| relation.occurred_at.value());
         let limited = GraphLimit::new(query.limit).apply(matches);
         Ok(MindReply::RelationList(RelationList {
+            relations: limited.records,
+            has_more: limited.has_more,
+        }))
+    }
+
+    fn read_technical_nodes(&self, query: QueryTechnicalNodes) -> Result<MindReply> {
+        let selector = TechnicalNodeSelector::new(query.filter);
+        let mut matches = self
+            .tables
+            .technical_node_records()?
+            .into_iter()
+            .filter(|node| selector.accepts(node))
+            .collect::<Vec<_>>();
+        matches.sort_by_key(|node| node.occurred_at.value());
+        let limited = GraphLimit::new(query.limit).apply(matches);
+        Ok(MindReply::TechnicalNodeList(TechnicalNodeList {
+            nodes: limited.records,
+            has_more: limited.has_more,
+        }))
+    }
+
+    fn read_technical_relations(&self, query: QueryTechnicalRelations) -> Result<MindReply> {
+        let selector = TechnicalRelationSelector::new(query.filter);
+        let mut matches = self
+            .tables
+            .technical_relation_records()?
+            .into_iter()
+            .filter(|relation| selector.accepts(relation))
+            .collect::<Vec<_>>();
+        matches.sort_by_key(|relation| relation.occurred_at.value());
+        let limited = GraphLimit::new(query.limit).apply(matches);
+        Ok(MindReply::TechnicalRelationList(TechnicalRelationList {
             relations: limited.records,
             has_more: limited.has_more,
         }))
@@ -267,6 +381,177 @@ impl ThoughtSelector {
 
 pub(crate) struct RelationSelector {
     filter: RelationFilter,
+}
+
+pub(crate) struct TechnicalNodeSelector {
+    filter: TechnicalNodeFilter,
+}
+
+impl TechnicalNodeSelector {
+    pub(crate) fn new(filter: TechnicalNodeFilter) -> Self {
+        Self { filter }
+    }
+
+    pub(crate) fn accepts(&self, node: &TechnicalNode) -> bool {
+        self.accepts_filter(node, &self.filter)
+    }
+
+    fn accepts_filter(&self, node: &TechnicalNode, filter: &TechnicalNodeFilter) -> bool {
+        match filter {
+            TechnicalNodeFilter::ByKind(kind) => self.accepts_kind(node, kind),
+            TechnicalNodeFilter::ByStableKey(stable_key) => {
+                self.accepts_stable_key(node, stable_key)
+            }
+            TechnicalNodeFilter::BySourceLocator(locator) => {
+                self.accepts_source_locator(node, locator)
+            }
+            TechnicalNodeFilter::Composite(composite) => self.accepts_composite(node, composite),
+        }
+    }
+
+    fn accepts_kind(&self, node: &TechnicalNode, kind: &ByTechnicalNodeKind) -> bool {
+        kind.kinds.is_empty() || kind.kinds.contains(&node.kind)
+    }
+
+    fn accepts_stable_key(
+        &self,
+        node: &TechnicalNode,
+        stable_key: &ByTechnicalNodeStableKey,
+    ) -> bool {
+        node.stable_key == stable_key.stable_key
+    }
+
+    fn accepts_source_locator(
+        &self,
+        node: &TechnicalNode,
+        locator: &ByTechnicalSourceLocator,
+    ) -> bool {
+        TechnicalNodeSourceLocator::new(node).matches(&locator.locator)
+    }
+
+    fn accepts_composite(
+        &self,
+        node: &TechnicalNode,
+        composite: &CompositeTechnicalNodeFilter,
+    ) -> bool {
+        let kind_ok = composite.kinds.is_empty() || composite.kinds.contains(&node.kind);
+        let stable_key_ok = composite
+            .stable_key
+            .as_ref()
+            .map(|stable_key| node.stable_key == *stable_key)
+            .unwrap_or(true);
+        let source_locator_ok = composite
+            .source_locator
+            .as_ref()
+            .map(|locator| TechnicalNodeSourceLocator::new(node).matches(locator))
+            .unwrap_or(true);
+        kind_ok && stable_key_ok && source_locator_ok
+    }
+}
+
+struct TechnicalNodeSourceLocator<'node> {
+    node: &'node TechnicalNode,
+}
+
+impl<'node> TechnicalNodeSourceLocator<'node> {
+    fn new(node: &'node TechnicalNode) -> Self {
+        Self { node }
+    }
+
+    fn matches(&self, locator: &TechnicalSourceLocator) -> bool {
+        match &self.node.body {
+            signal_mind::TechnicalNodeBody::SourceArtifact(artifact) => {
+                artifact.locator == *locator
+            }
+            signal_mind::TechnicalNodeBody::Witness(witness) => {
+                witness.locator.as_ref() == Some(locator)
+            }
+            signal_mind::TechnicalNodeBody::Report(report) => {
+                *locator == TechnicalSourceLocator::Report(report.path.clone())
+            }
+            _ => false,
+        }
+    }
+}
+
+pub(crate) struct TechnicalRelationSelector {
+    filter: TechnicalRelationFilter,
+}
+
+impl TechnicalRelationSelector {
+    pub(crate) fn new(filter: TechnicalRelationFilter) -> Self {
+        Self { filter }
+    }
+
+    pub(crate) fn accepts(&self, relation: &TechnicalRelation) -> bool {
+        self.accepts_filter(relation, &self.filter)
+    }
+
+    fn accepts_filter(
+        &self,
+        relation: &TechnicalRelation,
+        filter: &TechnicalRelationFilter,
+    ) -> bool {
+        match filter {
+            TechnicalRelationFilter::ByKind(kind) => self.accepts_kind(relation, kind),
+            TechnicalRelationFilter::BySource(source) => self.accepts_source(relation, source),
+            TechnicalRelationFilter::ByTarget(target) => self.accepts_target(relation, target),
+            TechnicalRelationFilter::BetweenEndpoints(endpoints) => {
+                self.accepts_endpoints(relation, endpoints)
+            }
+            TechnicalRelationFilter::Composite(composite) => {
+                self.accepts_composite(relation, composite)
+            }
+        }
+    }
+
+    fn accepts_kind(&self, relation: &TechnicalRelation, kind: &ByTechnicalRelationKind) -> bool {
+        kind.kinds.is_empty() || kind.kinds.contains(&relation.kind)
+    }
+
+    fn accepts_source(
+        &self,
+        relation: &TechnicalRelation,
+        source: &ByTechnicalRelationSource,
+    ) -> bool {
+        relation.source.stable_key == source.source
+    }
+
+    fn accepts_target(
+        &self,
+        relation: &TechnicalRelation,
+        target: &ByTechnicalRelationTarget,
+    ) -> bool {
+        relation.target.stable_key == target.target
+    }
+
+    fn accepts_endpoints(
+        &self,
+        relation: &TechnicalRelation,
+        endpoints: &ByTechnicalRelationEndpoints,
+    ) -> bool {
+        relation.source.stable_key == endpoints.source
+            && relation.target.stable_key == endpoints.target
+    }
+
+    fn accepts_composite(
+        &self,
+        relation: &TechnicalRelation,
+        composite: &CompositeTechnicalRelationFilter,
+    ) -> bool {
+        let kind_ok = composite.kinds.is_empty() || composite.kinds.contains(&relation.kind);
+        let source_ok = composite
+            .source
+            .as_ref()
+            .map(|source| relation.source.stable_key == *source)
+            .unwrap_or(true);
+        let target_ok = composite
+            .target
+            .as_ref()
+            .map(|target| relation.target.stable_key == *target)
+            .unwrap_or(true);
+        kind_ok && source_ok && target_ok
+    }
 }
 
 impl RelationSelector {

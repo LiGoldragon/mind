@@ -33,6 +33,16 @@ pub struct QueryRelations {
     pub trace: ActorTrace,
 }
 
+pub struct QueryTechnicalNodes {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
+pub struct QueryTechnicalRelations {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
 pub struct SubscribeThoughts {
     pub envelope: MindEnvelope,
     pub trace: ActorTrace,
@@ -104,6 +114,48 @@ impl ViewPhase {
         let mut reply = self
             .store
             .ask(store::QueryRelations { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))?;
+        reply
+            .trace
+            .record(TraceNode::QUERY_RESULT_SHAPER, TraceAction::MessageReceived);
+        Ok(reply)
+    }
+
+    async fn query_technical_nodes(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        trace.record(TraceNode::VIEW_PHASE, TraceAction::MessageReceived);
+        trace.record(TraceNode::QUERY_SUPERVISOR, TraceAction::MessageReceived);
+        trace.record(TraceNode::QUERY_PLANNER, TraceAction::MessageReceived);
+        trace.record(TraceNode::THOUGHT_QUERY, TraceAction::MessageReceived);
+
+        let mut reply = self
+            .store
+            .ask(store::QueryTechnicalNodes { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))?;
+        reply
+            .trace
+            .record(TraceNode::QUERY_RESULT_SHAPER, TraceAction::MessageReceived);
+        Ok(reply)
+    }
+
+    async fn query_technical_relations(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        trace.record(TraceNode::VIEW_PHASE, TraceAction::MessageReceived);
+        trace.record(TraceNode::QUERY_SUPERVISOR, TraceAction::MessageReceived);
+        trace.record(TraceNode::QUERY_PLANNER, TraceAction::MessageReceived);
+        trace.record(TraceNode::RELATION_QUERY, TraceAction::MessageReceived);
+
+        let mut reply = self
+            .store
+            .ask(store::QueryTechnicalRelations { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))?;
         reply
@@ -196,6 +248,42 @@ impl Message<QueryRelations> for ViewPhase {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         match self.query_relations(message.envelope, message.trace).await {
+            Ok(reply) => reply,
+            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
+        }
+    }
+}
+
+impl Message<QueryTechnicalNodes> for ViewPhase {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: QueryTechnicalNodes,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        match self
+            .query_technical_nodes(message.envelope, message.trace)
+            .await
+        {
+            Ok(reply) => reply,
+            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
+        }
+    }
+}
+
+impl Message<QueryTechnicalRelations> for ViewPhase {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: QueryTechnicalRelations,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        match self
+            .query_technical_relations(message.envelope, message.trace)
+            .await
+        {
             Ok(reply) => reply,
             Err(_error) => PipelineReply::new(None, ActorTrace::new()),
         }
