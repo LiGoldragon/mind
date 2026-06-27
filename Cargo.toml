@@ -1,6 +1,6 @@
 [package]
 name         = "mind"
-version      = "0.6.0"
+version      = "0.7.0"
 edition      = "2024"
 rust-version = "1.89"
 license      = "MIT OR Apache-2.0"
@@ -46,7 +46,7 @@ redb                = "4.1"
 sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-persona      = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
-signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", rev = "a874f36a62f6c6fa223ad1c29f31496a92ed66f0" }
+signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", rev = "fcc074131b437cfa3a28f2509da37c32a6a15c70" }
 triad-runtime       = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
 thiserror           = "2"
 tokio               = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util"] }

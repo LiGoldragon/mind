@@ -325,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "mind"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "kameo",
  "meta-signal-mind",
@@ -715,8 +715,8 @@ dependencies = [
 
 [[package]]
 name = "signal-mind"
-version = "0.4.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?rev=a874f36a62f6c6fa223ad1c29f31496a92ed66f0#a874f36a62f6c6fa223ad1c29f31496a92ed66f0"
+version = "0.5.0"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?rev=fcc074131b437cfa3a28f2509da37c32a6a15c70#fcc074131b437cfa3a28f2509da37c32a6a15c70"
 dependencies = [
  "nota",
  "rkyv",
@@ -886,7 +886,7 @@ dependencies = [
 [[package]]
 name = "triad-runtime"
 version = "0.6.1"
-source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#f46f66ee4f16d5774c6c3889e1d3c162ddac3811"
+source = "git+https://github.com/LiGoldragon/triad-runtime.git?branch=main#60e0ed7c753d35561458586ff7d870dcadf47ea5"
 dependencies = [
  "kameo",
  "rkyv",

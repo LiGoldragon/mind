@@ -358,6 +358,15 @@
               cargoTestExtraArgs = "--test actor_topology technical_storage_schema_and_table_facts_round_trip_through_actor_lane -- --exact";
             }
           );
+          mind-technical-graph-neighborhood-closure-and-provenance-queries-use-scan-reader =
+            craneLib.cargoTest
+              (
+                commonArgs
+                // {
+                  inherit cargoArtifacts;
+                  cargoTestExtraArgs = "--test actor_topology technical_graph_neighborhood_closure_and_provenance_queries_use_scan_reader -- --exact";
+                }
+              );
           mind-technical-split-dependency-kinds-and-defines-contract-validate-domain-range =
             craneLib.cargoTest
               (

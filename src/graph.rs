@@ -1,6 +1,8 @@
+use std::collections::{HashSet, VecDeque};
+
 use signal_mind::{
-    AcceptedSubscriptionStream, ByRelationKind, ByRelationSource, ByRelationTarget,
-    ByTechnicalNodeKind, ByTechnicalNodeStableKey, ByTechnicalRelationEndpoints,
+    AboutTechnicalNode, AcceptedSubscriptionStream, ByRelationKind, ByRelationSource,
+    ByRelationTarget, ByTechnicalNodeKind, ByTechnicalNodeStableKey, ByTechnicalRelationEndpoints,
     ByTechnicalRelationKind, ByTechnicalRelationSource, ByTechnicalRelationTarget,
     ByTechnicalSourceLocator, ByThoughtAuthor, ByThoughtKind, ByThoughtTimeRange,
     CompositeRelationFilter, CompositeTechnicalNodeFilter, CompositeTechnicalRelationFilter,
@@ -9,12 +11,15 @@ use signal_mind::{
     QueryTechnicalRelations, QueryThoughts, Relation, RelationCommitted, RelationFilter,
     RelationKind, RelationList, RelationStreamAccepted, SubmitRelation, SubmitTechnicalNode,
     SubmitTechnicalRelation, SubmitThought, SubscriptionAccepted, SubscriptionCursor,
-    TechnicalNode, TechnicalNodeCommitted, TechnicalNodeFilter, TechnicalNodeList,
-    TechnicalNodeRejected, TechnicalNodeRejectionReason, TechnicalNodeStreamAccepted,
-    TechnicalRelation, TechnicalRelationCommitted, TechnicalRelationFilter, TechnicalRelationList,
-    TechnicalRelationRejected, TechnicalRelationRejectionReason, TechnicalRelationStreamAccepted,
-    TechnicalSourceLocator, Thought, ThoughtCommitted, ThoughtFilter, ThoughtList,
-    ThoughtStreamAccepted,
+    TechnicalDependencyClosure, TechnicalDependencyClosureQuery, TechnicalNode,
+    TechnicalNodeCommitted, TechnicalNodeFilter, TechnicalNodeList, TechnicalNodeNeighborhood,
+    TechnicalNodeQuery, TechnicalNodeRejected, TechnicalNodeRejectionReason,
+    TechnicalNodeStreamAccepted, TechnicalProvenanceChain, TechnicalProvenanceChainQuery,
+    TechnicalRelation, TechnicalRelationCommitted, TechnicalRelationFilter, TechnicalRelationKind,
+    TechnicalRelationList, TechnicalRelationNeighborhoodDirection,
+    TechnicalRelationNeighborhoodQuery, TechnicalRelationRejected,
+    TechnicalRelationRejectionReason, TechnicalRelationStreamAccepted, TechnicalSourceLocator,
+    Thought, ThoughtCommitted, ThoughtFilter, ThoughtList, ThoughtStreamAccepted,
 };
 
 use crate::{MindEnvelope, MindTables, Result};
@@ -242,19 +247,12 @@ impl<'tables> MindGraphLedger<'tables> {
     }
 
     fn read_technical_nodes(&self, query: QueryTechnicalNodes) -> Result<MindReply> {
-        let selector = TechnicalNodeSelector::new(query.filter);
-        let mut matches = self
-            .tables
-            .technical_node_records()?
-            .into_iter()
-            .filter(|node| selector.accepts(node))
-            .collect::<Vec<_>>();
-        matches.sort_by_key(|node| node.occurred_at.value());
-        let limited = GraphLimit::new(query.limit).apply(matches);
-        Ok(MindReply::TechnicalNodeList(TechnicalNodeList {
-            nodes: limited.records,
-            has_more: limited.has_more,
-        }))
+        Ok(TechnicalNodeQueryEngine::new(
+            self.tables.technical_node_records()?,
+            self.tables.technical_relation_records()?,
+            query.limit,
+        )
+        .reply(query.query))
     }
 
     fn read_technical_relations(&self, query: QueryTechnicalRelations) -> Result<MindReply> {
@@ -510,6 +508,306 @@ impl ThoughtSelector {
 
 pub(crate) struct RelationSelector {
     filter: RelationFilter,
+}
+
+struct TechnicalNodeQueryEngine {
+    nodes: Vec<TechnicalNode>,
+    relations: Vec<TechnicalRelation>,
+    limit: GraphLimit,
+}
+
+impl TechnicalNodeQueryEngine {
+    fn new(
+        mut nodes: Vec<TechnicalNode>,
+        mut relations: Vec<TechnicalRelation>,
+        limit: QueryLimit,
+    ) -> Self {
+        nodes.sort_by_key(|node| node.occurred_at.value());
+        relations.sort_by_key(|relation| relation.occurred_at.value());
+        Self {
+            nodes,
+            relations,
+            limit: GraphLimit::new(limit),
+        }
+    }
+
+    fn reply(&self, query: TechnicalNodeQuery) -> MindReply {
+        match query {
+            TechnicalNodeQuery::Filter(filter) => self.filtered(filter),
+            TechnicalNodeQuery::About(query) => self.about(query),
+            TechnicalNodeQuery::RelationNeighborhood(query) => self.neighborhood(query),
+            TechnicalNodeQuery::DependencyClosure(query) => self.dependency_closure(query),
+            TechnicalNodeQuery::ProvenanceChain(query) => self.provenance_chain(query),
+        }
+    }
+
+    fn filtered(&self, filter: TechnicalNodeFilter) -> MindReply {
+        let selector = TechnicalNodeSelector::new(filter);
+        let matches = self
+            .nodes
+            .iter()
+            .filter(|node| selector.accepts(node))
+            .cloned()
+            .collect::<Vec<_>>();
+        let limited = self.limit.apply(matches);
+        MindReply::TechnicalNodeList(TechnicalNodeList {
+            nodes: limited.records,
+            has_more: limited.has_more,
+        })
+    }
+
+    fn about(&self, query: AboutTechnicalNode) -> MindReply {
+        self.neighborhood(TechnicalRelationNeighborhoodQuery {
+            stable_key: query.stable_key,
+            direction: TechnicalRelationNeighborhoodDirection::Both,
+            kinds: Vec::new(),
+        })
+    }
+
+    fn neighborhood(&self, query: TechnicalRelationNeighborhoodQuery) -> MindReply {
+        let records = TechnicalNeighborhoodRecords::new(
+            self.node_by_key(&query.stable_key),
+            self.relations
+                .iter()
+                .filter(|relation| {
+                    TechnicalRelationKindSet::new(&query.kinds).contains(relation.kind)
+                        && self.neighborhood_direction_accepts(&query, relation)
+                })
+                .cloned()
+                .collect(),
+        )
+        .limited(&self.limit);
+        MindReply::TechnicalNodeNeighborhood(TechnicalNodeNeighborhood {
+            center: records.center,
+            incoming: records.incoming,
+            outgoing: records.outgoing,
+            has_more: records.has_more,
+        })
+    }
+
+    fn dependency_closure(&self, query: TechnicalDependencyClosureQuery) -> MindReply {
+        let records = self.traverse(
+            query.stable_key,
+            TechnicalRelationKindSet::dependency(query.kinds),
+        );
+        MindReply::TechnicalDependencyClosure(TechnicalDependencyClosure {
+            root: records.root,
+            nodes: records.nodes,
+            relations: records.relations,
+            has_more: records.has_more,
+        })
+    }
+
+    fn provenance_chain(&self, query: TechnicalProvenanceChainQuery) -> MindReply {
+        let records = self.traverse(
+            query.stable_key,
+            TechnicalRelationKindSet::provenance(query.kinds),
+        );
+        MindReply::TechnicalProvenanceChain(TechnicalProvenanceChain {
+            root: records.root,
+            nodes: records.nodes,
+            relations: records.relations,
+            has_more: records.has_more,
+        })
+    }
+
+    fn traverse(
+        &self,
+        stable_key: signal_mind::TechnicalNodeKey,
+        kinds: TechnicalRelationKindSet,
+    ) -> TechnicalTraversalRecords {
+        let Some(root) = self.node_by_key(&stable_key) else {
+            return TechnicalTraversalRecords::empty();
+        };
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        let mut nodes = Vec::new();
+        let mut relations = Vec::new();
+        let mut has_more = false;
+        visited.insert(stable_key.clone());
+        queue.push_back(stable_key);
+
+        while let Some(current) = queue.pop_front() {
+            for relation in self
+                .relations
+                .iter()
+                .filter(|relation| relation.source.stable_key == current)
+                .filter(|relation| kinds.contains(relation.kind))
+            {
+                if relations.len() >= self.limit.value {
+                    has_more = true;
+                    return TechnicalTraversalRecords {
+                        root: Some(root),
+                        nodes,
+                        relations,
+                        has_more,
+                    };
+                }
+                relations.push(relation.clone());
+
+                if visited.insert(relation.target.stable_key.clone()) {
+                    if nodes.len() >= self.limit.value {
+                        has_more = true;
+                        return TechnicalTraversalRecords {
+                            root: Some(root),
+                            nodes,
+                            relations,
+                            has_more,
+                        };
+                    }
+                    if let Some(node) = self.node_by_key(&relation.target.stable_key) {
+                        nodes.push(node);
+                        queue.push_back(relation.target.stable_key.clone());
+                    }
+                }
+            }
+        }
+
+        TechnicalTraversalRecords {
+            root: Some(root),
+            nodes,
+            relations,
+            has_more,
+        }
+    }
+
+    fn neighborhood_direction_accepts(
+        &self,
+        query: &TechnicalRelationNeighborhoodQuery,
+        relation: &TechnicalRelation,
+    ) -> bool {
+        match query.direction {
+            TechnicalRelationNeighborhoodDirection::Incoming => {
+                relation.target.stable_key == query.stable_key
+            }
+            TechnicalRelationNeighborhoodDirection::Outgoing => {
+                relation.source.stable_key == query.stable_key
+            }
+            TechnicalRelationNeighborhoodDirection::Both => {
+                relation.source.stable_key == query.stable_key
+                    || relation.target.stable_key == query.stable_key
+            }
+        }
+    }
+
+    fn node_by_key(&self, stable_key: &signal_mind::TechnicalNodeKey) -> Option<TechnicalNode> {
+        self.nodes
+            .iter()
+            .find(|node| node.stable_key == *stable_key)
+            .cloned()
+    }
+}
+
+struct TechnicalRelationKindSet {
+    kinds: Vec<TechnicalRelationKind>,
+}
+
+impl TechnicalRelationKindSet {
+    fn new(kinds: &[TechnicalRelationKind]) -> Self {
+        Self {
+            kinds: kinds.to_vec(),
+        }
+    }
+
+    fn dependency(kinds: Vec<TechnicalRelationKind>) -> Self {
+        if kinds.is_empty() {
+            Self {
+                kinds: vec![
+                    TechnicalRelationKind::BuildDependency,
+                    TechnicalRelationKind::RuntimeDependency,
+                    TechnicalRelationKind::WireDependency,
+                    TechnicalRelationKind::StorageDependency,
+                    TechnicalRelationKind::TaskDependency,
+                ],
+            }
+        } else {
+            Self { kinds }
+        }
+    }
+
+    fn provenance(kinds: Vec<TechnicalRelationKind>) -> Self {
+        if kinds.is_empty() {
+            Self {
+                kinds: vec![
+                    TechnicalRelationKind::ProvenanceDependency,
+                    TechnicalRelationKind::ProvenBy,
+                    TechnicalRelationKind::Supersedes,
+                ],
+            }
+        } else {
+            Self { kinds }
+        }
+    }
+
+    fn contains(&self, kind: TechnicalRelationKind) -> bool {
+        self.kinds.is_empty() || self.kinds.contains(&kind)
+    }
+}
+
+struct TechnicalNeighborhoodRecords {
+    center: Option<TechnicalNode>,
+    incoming: Vec<TechnicalRelation>,
+    outgoing: Vec<TechnicalRelation>,
+    has_more: bool,
+}
+
+impl TechnicalNeighborhoodRecords {
+    fn new(center: Option<TechnicalNode>, relations: Vec<TechnicalRelation>) -> Self {
+        let incoming = relations
+            .iter()
+            .filter(|relation| {
+                center
+                    .as_ref()
+                    .map(|node| relation.target.stable_key == node.stable_key)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+        let outgoing = relations
+            .into_iter()
+            .filter(|relation| {
+                center
+                    .as_ref()
+                    .map(|node| relation.source.stable_key == node.stable_key)
+                    .unwrap_or(false)
+            })
+            .collect();
+        Self {
+            center,
+            incoming,
+            outgoing,
+            has_more: false,
+        }
+    }
+
+    fn limited(mut self, limit: &GraphLimit) -> Self {
+        let incoming_count = self.incoming.len();
+        let outgoing_count = self.outgoing.len();
+        let mut remaining = limit.value;
+        self.incoming.truncate(remaining);
+        remaining = remaining.saturating_sub(self.incoming.len());
+        self.outgoing.truncate(remaining);
+        self.has_more = incoming_count + outgoing_count > limit.value;
+        self
+    }
+}
+
+struct TechnicalTraversalRecords {
+    root: Option<TechnicalNode>,
+    nodes: Vec<TechnicalNode>,
+    relations: Vec<TechnicalRelation>,
+    has_more: bool,
+}
+
+impl TechnicalTraversalRecords {
+    fn empty() -> Self {
+        Self {
+            root: None,
+            nodes: Vec::new(),
+            relations: Vec::new(),
+            has_more: false,
+        }
+    }
 }
 
 pub(crate) struct TechnicalNodeSelector {

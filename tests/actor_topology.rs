@@ -9,18 +9,21 @@ use mind::{
     SubmitEnvelope, TechnicalSeedDataset,
 };
 use signal_mind::{
-    AcceptedSubscriptionStream, ActiveClaim, ActorName, ByRelationKind, ByTechnicalNodeStableKey,
-    ByTechnicalRelationSource, ByThoughtKind, ClaimActivity, ClaimBody, ClaimScope, FileReference,
-    GoalBody, GoalScope, ItemKind, Magnitude, MindReply, MindRequest, Opening, PathClaimScope,
-    Query, QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes, QueryTechnicalRelations,
-    QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter, RelationKind, RoleName,
-    SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation, SubmitThought,
-    SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations, SubscribeThoughts,
-    SubscriptionCursor, SubscriptionDemand, SubscriptionDemandCredit, SubscriptionStreamEvent,
-    SubscriptionStreamKind, TechnicalNodeBody, TechnicalNodeFilter, TechnicalNodeKey,
-    TechnicalNodeKind, TechnicalNodeRejectionReason, TechnicalRelationFilter,
-    TechnicalRelationKind, TechnicalRelationRejectionReason, TextBody, ThoughtBody, ThoughtFilter,
-    ThoughtKind, TimestampNanos, Title, WirePath, WorkspaceGoal,
+    AboutTechnicalNode, AcceptedSubscriptionStream, ActiveClaim, ActorName, ByRelationKind,
+    ByTechnicalNodeStableKey, ByTechnicalRelationSource, ByThoughtKind, ClaimActivity, ClaimBody,
+    ClaimScope, FileReference, GoalBody, GoalScope, ItemKind, Magnitude, MindReply, MindRequest,
+    Opening, PathClaimScope, Query, QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes,
+    QueryTechnicalRelations, QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter,
+    RelationKind, RoleName, SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation,
+    SubmitThought, SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations,
+    SubscribeThoughts, SubscriptionCursor, SubscriptionDemand, SubscriptionDemandCredit,
+    SubscriptionStreamEvent, SubscriptionStreamKind, TaskToken, TechnicalDependencyClosureQuery,
+    TechnicalNodeBody, TechnicalNodeFilter, TechnicalNodeKey, TechnicalNodeKind,
+    TechnicalNodeQuery, TechnicalNodeRejectionReason, TechnicalProvenanceChainQuery,
+    TechnicalRelationFilter, TechnicalRelationKind, TechnicalRelationNeighborhoodDirection,
+    TechnicalRelationNeighborhoodQuery, TechnicalRelationRejectionReason, TechnicalSourceLocator,
+    TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos, Title, WirePath,
+    WorkspaceGoal,
 };
 use signal_persona::ComponentName;
 
@@ -88,6 +91,53 @@ fn technical_claim(stable_key: &str, claim: &str) -> SubmitTechnicalNode {
         kind: TechnicalNodeKind::TechnicalClaim,
         body: TechnicalNodeBody::TechnicalClaim(signal_mind::TechnicalClaimNode {
             claim: TextBody::new(claim),
+        }),
+    }
+}
+
+fn technical_work_item(stable_key: &str, task: &str, title: &str) -> SubmitTechnicalNode {
+    SubmitTechnicalNode {
+        stable_key: technical_key(stable_key),
+        kind: TechnicalNodeKind::WorkItem,
+        body: TechnicalNodeBody::WorkItem(signal_mind::WorkItemNode {
+            task: TaskToken::try_new(task.to_string()).expect("test task token is valid"),
+            title: TextBody::new(title),
+        }),
+    }
+}
+
+fn technical_source_artifact(
+    stable_key: &str,
+    locator: TechnicalSourceLocator,
+) -> SubmitTechnicalNode {
+    SubmitTechnicalNode {
+        stable_key: technical_key(stable_key),
+        kind: TechnicalNodeKind::SourceArtifact,
+        body: TechnicalNodeBody::SourceArtifact(signal_mind::SourceArtifactNode {
+            locator,
+            summary: None,
+        }),
+    }
+}
+
+fn technical_report(stable_key: &str, path: &str, summary: &str) -> SubmitTechnicalNode {
+    SubmitTechnicalNode {
+        stable_key: technical_key(stable_key),
+        kind: TechnicalNodeKind::Report,
+        body: TechnicalNodeBody::Report(signal_mind::ReportNode {
+            path: WirePath::from_absolute_path(path).expect("test report path is absolute"),
+            summary: Some(TextBody::new(summary)),
+        }),
+    }
+}
+
+fn technical_witness(stable_key: &str, summary: &str) -> SubmitTechnicalNode {
+    SubmitTechnicalNode {
+        stable_key: technical_key(stable_key),
+        kind: TechnicalNodeKind::Witness,
+        body: TechnicalNodeBody::Witness(signal_mind::WitnessNode {
+            summary: TextBody::new(summary),
+            locator: None,
         }),
     }
 }
@@ -499,9 +549,11 @@ async fn technical_node_and_relation_append_query_through_actor_lane() {
         .await;
     let nodes = fixture
         .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
-            filter: TechnicalNodeFilter::ByStableKey(ByTechnicalNodeStableKey {
-                stable_key: component_key.clone(),
-            }),
+            query: TechnicalNodeQuery::Filter(TechnicalNodeFilter::ByStableKey(
+                ByTechnicalNodeStableKey {
+                    stable_key: component_key.clone(),
+                },
+            )),
             limit: QueryLimit::new(10),
         }))
         .await;
@@ -785,13 +837,15 @@ async fn technical_storage_schema_and_table_facts_round_trip_through_actor_lane(
 
     let storage_nodes = fixture
         .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
-            filter: TechnicalNodeFilter::ByKind(signal_mind::ByTechnicalNodeKind {
-                kinds: vec![
-                    TechnicalNodeKind::StorageResource,
-                    TechnicalNodeKind::SchemaFamily,
-                    TechnicalNodeKind::Table,
-                ],
-            }),
+            query: TechnicalNodeQuery::Filter(TechnicalNodeFilter::ByKind(
+                signal_mind::ByTechnicalNodeKind {
+                    kinds: vec![
+                        TechnicalNodeKind::StorageResource,
+                        TechnicalNodeKind::SchemaFamily,
+                        TechnicalNodeKind::Table,
+                    ],
+                },
+            )),
             limit: QueryLimit::new(10),
         }))
         .await;
@@ -839,6 +893,355 @@ async fn technical_storage_schema_and_table_facts_round_trip_through_actor_lane(
             .any(|node| node.stable_key == table_key)
     );
     assert_eq!(storage_relations.relations.len(), 3);
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn technical_graph_neighborhood_closure_and_provenance_queries_use_scan_reader() {
+    let fixture = ActorFixture::new().await;
+
+    for node in [
+        technical_component("component:mind", "mind"),
+        technical_repository("repo:mind", "/git/github.com/LiGoldragon/mind"),
+        technical_crate("crate:mind", "mind", "repo:mind"),
+        technical_contract(
+            "contract:signal-mind:ordinary",
+            "signal-mind",
+            signal_mind::ContractSurface::Ordinary,
+        ),
+        SubmitTechnicalNode {
+            stable_key: technical_key("storage:mind:mind.sema"),
+            kind: TechnicalNodeKind::StorageResource,
+            body: TechnicalNodeBody::StorageResource(signal_mind::StorageResourceNode {
+                owner: technical_key("component:mind"),
+                name: TextBody::new("mind.sema"),
+                path: None,
+            }),
+        },
+        SubmitTechnicalNode {
+            stable_key: technical_key("schema:mind:technical-v2"),
+            kind: TechnicalNodeKind::SchemaFamily,
+            body: TechnicalNodeBody::SchemaFamily(signal_mind::SchemaFamilyNode {
+                owner: technical_key("component:mind"),
+                name: TextBody::new("technical-v2"),
+                version: Some(TextBody::new("2")),
+            }),
+        },
+        SubmitTechnicalNode {
+            stable_key: technical_key("table:mind:technical_nodes"),
+            kind: TechnicalNodeKind::Table,
+            body: TechnicalNodeBody::Table(signal_mind::TableNode {
+                storage: technical_key("storage:mind:mind.sema"),
+                name: TextBody::new("technical_nodes"),
+                schema_family: Some(technical_key("schema:mind:technical-v2")),
+            }),
+        },
+        technical_work_item("task:primary-pm7l.8", "primary-pm7l.8", "graph queries"),
+        technical_work_item("task:primary-pm7l.9", "primary-pm7l.9", "seed expansion"),
+        technical_source_artifact(
+            "artifact:mind-graph-query-code",
+            TechnicalSourceLocator::Path(
+                WirePath::from_absolute_path("/git/github.com/LiGoldragon/mind/src/graph.rs")
+                    .expect("test artifact path is absolute"),
+            ),
+        ),
+        technical_report(
+            "report:technical-query-design",
+            "/home/li/primary/reports/designer/technical-query-design.md",
+            "technical query design",
+        ),
+        technical_claim(
+            "claim:technical-queries-are-scan-based",
+            "technical graph queries are scan-based",
+        ),
+        technical_claim(
+            "claim:old-technical-query-shape",
+            "technical graph queries require client-side traversal",
+        ),
+        technical_witness(
+            "witness:technical-query-check",
+            "focused actor topology check",
+        ),
+    ] {
+        assert!(matches!(
+            fixture
+                .submit(MindRequest::SubmitTechnicalNode(node))
+                .await
+                .reply()
+                .expect("technical node reply exists"),
+            MindReply::TechnicalNodeCommitted(_)
+        ));
+    }
+
+    for relation in [
+        technical_relation(
+            TechnicalRelationKind::DefinesCrate,
+            "repo:mind",
+            "crate:mind",
+        ),
+        technical_relation(
+            TechnicalRelationKind::DefinesContract,
+            "crate:mind",
+            "contract:signal-mind:ordinary",
+        ),
+        technical_relation(
+            TechnicalRelationKind::BuildDependency,
+            "crate:mind",
+            "contract:signal-mind:ordinary",
+        ),
+        technical_relation(
+            TechnicalRelationKind::RuntimeDependency,
+            "component:mind",
+            "storage:mind:mind.sema",
+        ),
+        technical_relation(
+            TechnicalRelationKind::WireDependency,
+            "component:mind",
+            "contract:signal-mind:ordinary",
+        ),
+        technical_relation(
+            TechnicalRelationKind::StorageDependency,
+            "storage:mind:mind.sema",
+            "schema:mind:technical-v2",
+        ),
+        technical_relation(
+            TechnicalRelationKind::StorageDependency,
+            "schema:mind:technical-v2",
+            "table:mind:technical_nodes",
+        ),
+        technical_relation(
+            TechnicalRelationKind::TaskDependency,
+            "task:primary-pm7l.8",
+            "task:primary-pm7l.9",
+        ),
+        technical_relation(
+            TechnicalRelationKind::ProvenanceDependency,
+            "claim:technical-queries-are-scan-based",
+            "report:technical-query-design",
+        ),
+        technical_relation(
+            TechnicalRelationKind::ProvenanceDependency,
+            "task:primary-pm7l.8",
+            "artifact:mind-graph-query-code",
+        ),
+        technical_relation(
+            TechnicalRelationKind::ProvenBy,
+            "claim:technical-queries-are-scan-based",
+            "witness:technical-query-check",
+        ),
+        technical_relation(
+            TechnicalRelationKind::Supersedes,
+            "claim:technical-queries-are-scan-based",
+            "claim:old-technical-query-shape",
+        ),
+        technical_relation(
+            TechnicalRelationKind::Documents,
+            "report:technical-query-design",
+            "component:mind",
+        ),
+    ] {
+        assert!(matches!(
+            fixture
+                .submit(MindRequest::SubmitTechnicalRelation(relation))
+                .await
+                .reply()
+                .expect("technical relation reply exists"),
+            MindReply::TechnicalRelationCommitted(_)
+        ));
+    }
+
+    let about = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            query: TechnicalNodeQuery::About(AboutTechnicalNode {
+                stable_key: technical_key("component:mind"),
+            }),
+            limit: QueryLimit::new(25),
+        }))
+        .await;
+    let MindReply::TechnicalNodeNeighborhood(about) = about.reply().expect("about reply exists")
+    else {
+        panic!("expected technical node neighborhood reply");
+    };
+    assert_eq!(
+        about
+            .center
+            .as_ref()
+            .expect("about center exists")
+            .stable_key,
+        technical_key("component:mind")
+    );
+    assert!(
+        about
+            .incoming
+            .iter()
+            .any(|relation| relation.kind == TechnicalRelationKind::Documents)
+    );
+    assert!(
+        about
+            .outgoing
+            .iter()
+            .any(|relation| relation.kind == TechnicalRelationKind::RuntimeDependency)
+    );
+    assert!(
+        about
+            .outgoing
+            .iter()
+            .any(|relation| relation.kind == TechnicalRelationKind::WireDependency)
+    );
+    assert!(!about.has_more);
+
+    let outgoing = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            query: TechnicalNodeQuery::RelationNeighborhood(TechnicalRelationNeighborhoodQuery {
+                stable_key: technical_key("component:mind"),
+                direction: TechnicalRelationNeighborhoodDirection::Outgoing,
+                kinds: vec![
+                    TechnicalRelationKind::RuntimeDependency,
+                    TechnicalRelationKind::WireDependency,
+                ],
+            }),
+            limit: QueryLimit::new(25),
+        }))
+        .await;
+    let MindReply::TechnicalNodeNeighborhood(outgoing) =
+        outgoing.reply().expect("outgoing reply exists")
+    else {
+        panic!("expected technical node neighborhood reply");
+    };
+    assert!(outgoing.incoming.is_empty());
+    assert_eq!(outgoing.outgoing.len(), 2);
+
+    let incoming = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            query: TechnicalNodeQuery::RelationNeighborhood(TechnicalRelationNeighborhoodQuery {
+                stable_key: technical_key("component:mind"),
+                direction: TechnicalRelationNeighborhoodDirection::Incoming,
+                kinds: Vec::new(),
+            }),
+            limit: QueryLimit::new(25),
+        }))
+        .await;
+    let MindReply::TechnicalNodeNeighborhood(incoming) =
+        incoming.reply().expect("incoming reply exists")
+    else {
+        panic!("expected technical node neighborhood reply");
+    };
+    assert_eq!(incoming.incoming.len(), 1);
+    assert!(incoming.outgoing.is_empty());
+
+    let closure = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            query: TechnicalNodeQuery::DependencyClosure(TechnicalDependencyClosureQuery {
+                stable_key: technical_key("component:mind"),
+                kinds: Vec::new(),
+            }),
+            limit: QueryLimit::new(25),
+        }))
+        .await;
+    let MindReply::TechnicalDependencyClosure(closure) =
+        closure.reply().expect("closure reply exists")
+    else {
+        panic!("expected technical dependency closure reply");
+    };
+    let closure_keys = closure
+        .nodes
+        .iter()
+        .map(|node| node.stable_key.clone())
+        .collect::<HashSet<_>>();
+    assert!(closure_keys.contains(&technical_key("contract:signal-mind:ordinary")));
+    assert!(closure_keys.contains(&technical_key("storage:mind:mind.sema")));
+    assert!(closure_keys.contains(&technical_key("schema:mind:technical-v2")));
+    assert!(closure_keys.contains(&technical_key("table:mind:technical_nodes")));
+    assert!(closure.relations.iter().all(|relation| matches!(
+        relation.kind,
+        TechnicalRelationKind::RuntimeDependency
+            | TechnicalRelationKind::WireDependency
+            | TechnicalRelationKind::StorageDependency
+    )));
+    assert!(!closure.has_more);
+
+    let build_closure = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            query: TechnicalNodeQuery::DependencyClosure(TechnicalDependencyClosureQuery {
+                stable_key: technical_key("crate:mind"),
+                kinds: vec![TechnicalRelationKind::BuildDependency],
+            }),
+            limit: QueryLimit::new(25),
+        }))
+        .await;
+    let MindReply::TechnicalDependencyClosure(build_closure) =
+        build_closure.reply().expect("build closure reply exists")
+    else {
+        panic!("expected technical dependency closure reply");
+    };
+    assert!(
+        build_closure
+            .relations
+            .iter()
+            .any(|relation| relation.kind == TechnicalRelationKind::BuildDependency)
+    );
+
+    let task_closure = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            query: TechnicalNodeQuery::DependencyClosure(TechnicalDependencyClosureQuery {
+                stable_key: technical_key("task:primary-pm7l.8"),
+                kinds: vec![TechnicalRelationKind::TaskDependency],
+            }),
+            limit: QueryLimit::new(25),
+        }))
+        .await;
+    let MindReply::TechnicalDependencyClosure(task_closure) =
+        task_closure.reply().expect("task closure reply exists")
+    else {
+        panic!("expected technical dependency closure reply");
+    };
+    assert!(
+        task_closure
+            .nodes
+            .iter()
+            .any(|node| node.stable_key == technical_key("task:primary-pm7l.9"))
+    );
+
+    let provenance = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            query: TechnicalNodeQuery::ProvenanceChain(TechnicalProvenanceChainQuery {
+                stable_key: technical_key("claim:technical-queries-are-scan-based"),
+                kinds: Vec::new(),
+            }),
+            limit: QueryLimit::new(25),
+        }))
+        .await;
+    let MindReply::TechnicalProvenanceChain(provenance) =
+        provenance.reply().expect("provenance reply exists")
+    else {
+        panic!("expected technical provenance chain reply");
+    };
+    let provenance_keys = provenance
+        .nodes
+        .iter()
+        .map(|node| node.stable_key.clone())
+        .collect::<HashSet<_>>();
+    assert!(provenance_keys.contains(&technical_key("report:technical-query-design")));
+    assert!(provenance_keys.contains(&technical_key("witness:technical-query-check")));
+    assert!(provenance_keys.contains(&technical_key("claim:old-technical-query-shape")));
+    assert!(provenance.relations.iter().any(|relation| {
+        relation.kind == TechnicalRelationKind::ProvenanceDependency
+            && relation.target.stable_key == technical_key("report:technical-query-design")
+    }));
+    assert!(
+        provenance
+            .relations
+            .iter()
+            .any(|relation| relation.kind == TechnicalRelationKind::ProvenBy)
+    );
+    assert!(
+        provenance
+            .relations
+            .iter()
+            .any(|relation| relation.kind == TechnicalRelationKind::Supersedes)
+    );
+    assert!(!provenance.has_more);
 
     fixture.stop().await;
 }
@@ -964,9 +1367,11 @@ async fn technical_supersedes_appends_correction_without_replacing_old_fact() {
 
     let claims = fixture
         .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
-            filter: TechnicalNodeFilter::ByKind(signal_mind::ByTechnicalNodeKind {
-                kinds: vec![TechnicalNodeKind::TechnicalClaim],
-            }),
+            query: TechnicalNodeQuery::Filter(TechnicalNodeFilter::ByKind(
+                signal_mind::ByTechnicalNodeKind {
+                    kinds: vec![TechnicalNodeKind::TechnicalClaim],
+                },
+            )),
             limit: QueryLimit::new(10),
         }))
         .await;
@@ -1380,9 +1785,9 @@ async fn public_technical_seed_queries_back_exact_facts_through_actor_lane() {
 
     let nodes = fixture
         .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
-            filter: TechnicalNodeFilter::ByKind(signal_mind::ByTechnicalNodeKind {
-                kinds: Vec::new(),
-            }),
+            query: TechnicalNodeQuery::Filter(TechnicalNodeFilter::ByKind(
+                signal_mind::ByTechnicalNodeKind { kinds: Vec::new() },
+            )),
             limit: QueryLimit::new(100),
         }))
         .await;

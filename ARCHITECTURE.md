@@ -606,6 +606,11 @@ This repo does not own:
   `RuntimeDependency`, `WireDependency`, `StorageDependency`,
   `TaskDependency`, and `ProvenanceDependency` kinds; the removed catch-all
   dependency relation is not accepted.
+- Technical graph queries answer filtered node lists, about-node neighborhoods,
+  incoming/outgoing relation neighborhoods, dependency closure, and provenance
+  chain reads through the scan-based read path over typed technical facts. The
+  closure traversal is cycle-safe and uses canonical `TechnicalNodeKey` values
+  plus the split dependency/provenance relation kinds from `signal-mind`.
 - `ContractNode` carries its contract surface only; ownership is expressed as a
   separate `DefinesContract` relation from the repository or crate to the
   contract node.
@@ -710,6 +715,7 @@ constraints:
 | `relation_kind_rejects_wrong_domain` | relation domain/range rules come from `signal-mind` and reject invalid endpoints before persistence. |
 | `technical_node_key_validation_rejects_invalid_shapes` | invalid technical keys reject before they can enter a Mind request. |
 | `technical_storage_schema_and_table_facts_round_trip_through_actor_lane` | storage resources, schema families, and tables persist and query as technical graph facts. |
+| `technical_graph_neighborhood_closure_and_provenance_queries_use_scan_reader` | about-node, relation-neighborhood, dependency-closure, and provenance-chain queries use the read path over scanned technical facts. |
 | `technical_split_dependency_kinds_and_defines_contract_validate_domain_range` | split dependency kinds and `DefinesContract` use the `signal-mind` v2 domain/range validator. |
 | `technical_supersedes_appends_correction_without_replacing_old_fact` | technical correction is a new fact plus `Supersedes`, with the old fact still present. |
 | `authored_relation_rejects_non_identity_reference_source` | `Authored` uses the contract endpoint validator and rejects non-identity Reference sources before persistence. |

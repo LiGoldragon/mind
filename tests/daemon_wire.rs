@@ -628,7 +628,9 @@ async fn mind_typed_technical_seed_survives_daemon_restart_and_queries_back() {
     let client = MindClient::new(endpoint, ActorName::new("operator"));
     let nodes = client
         .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
-            filter: TechnicalNodeFilter::ByKind(ByTechnicalNodeKind { kinds: Vec::new() }),
+            query: signal_mind::TechnicalNodeQuery::Filter(TechnicalNodeFilter::ByKind(
+                ByTechnicalNodeKind { kinds: Vec::new() },
+            )),
             limit: QueryLimit::new(100),
         }))
         .await
