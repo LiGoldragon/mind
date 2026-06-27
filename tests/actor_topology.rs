@@ -9,17 +9,18 @@ use mind::{
     SubmitEnvelope, TechnicalSeedDataset,
 };
 use signal_mind::{
-    ActiveClaim, ActorName, ByRelationKind, ByTechnicalNodeStableKey, ByTechnicalRelationSource,
-    ByThoughtKind, ClaimActivity, ClaimBody, ClaimScope, FileReference, GoalBody, GoalScope,
-    ItemKind, Magnitude, MindDelta, MindReply, MindRequest, MindSnapshot, Opening, PathClaimScope,
+    AcceptedSubscriptionStream, ActiveClaim, ActorName, ByRelationKind, ByTechnicalNodeStableKey,
+    ByTechnicalRelationSource, ByThoughtKind, ClaimActivity, ClaimBody, ClaimScope, FileReference,
+    GoalBody, GoalScope, ItemKind, Magnitude, MindReply, MindRequest, Opening, PathClaimScope,
     Query, QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes, QueryTechnicalRelations,
     QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter, RelationKind, RoleName,
     SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation, SubmitThought,
     SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations, SubscribeThoughts,
-    TechnicalNodeBody, TechnicalNodeFilter, TechnicalNodeKey, TechnicalNodeKind,
-    TechnicalNodeRejectionReason, TechnicalRelationFilter, TechnicalRelationKind,
-    TechnicalRelationRejectionReason, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind,
-    TimestampNanos, Title, WirePath, WorkspaceGoal,
+    SubscriptionCursor, SubscriptionDemand, SubscriptionDemandCredit, SubscriptionStreamEvent,
+    SubscriptionStreamKind, TechnicalNodeBody, TechnicalNodeFilter, TechnicalNodeKey,
+    TechnicalNodeKind, TechnicalNodeRejectionReason, TechnicalRelationFilter,
+    TechnicalRelationKind, TechnicalRelationRejectionReason, TextBody, ThoughtBody, ThoughtFilter,
+    ThoughtKind, TimestampNanos, Title, WirePath, WorkspaceGoal,
 };
 use signal_persona::ComponentName;
 
@@ -27,6 +28,10 @@ static ACTOR_FIXTURE_LOCK: Mutex<()> = Mutex::new(());
 
 fn technical_key(value: &str) -> TechnicalNodeKey {
     TechnicalNodeKey::from_canonical(value).expect("test technical key is canonical")
+}
+
+fn initial_demand(count: u16) -> SubscriptionDemandCredit {
+    SubscriptionDemandCredit::new(count)
 }
 
 fn technical_component(stable_key: &str, component: &str) -> SubmitTechnicalNode {
@@ -112,8 +117,20 @@ impl ActorFixture {
     async fn new() -> Self {
         let guard = ACTOR_FIXTURE_LOCK
             .lock()
-            .expect("actor fixture lock is available");
+            .unwrap_or_else(|poison| poison.into_inner());
         let store = Self::store_path();
+        Self::from_store_with_guard(store, guard).await
+    }
+
+    #[allow(clippy::await_holding_lock)]
+    async fn from_store(store: PathBuf) -> Self {
+        let guard = ACTOR_FIXTURE_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        Self::from_store_with_guard(store, guard).await
+    }
+
+    async fn from_store_with_guard(store: PathBuf, guard: MutexGuard<'static, ()>) -> Self {
         Self {
             root: MindRoot::start(MindRootArguments::new(StoreLocation::new(
                 store.to_string_lossy().to_string(),
@@ -1021,6 +1038,8 @@ async fn technical_node_subscription_registers_and_returns_initial_snapshot() {
                 filter: TechnicalNodeFilter::ByStableKey(ByTechnicalNodeStableKey {
                     stable_key: component_key.clone(),
                 }),
+                resume_after: None,
+                initial_demand: initial_demand(1),
             },
         ))
         .await;
@@ -1031,10 +1050,12 @@ async fn technical_node_subscription_registers_and_returns_initial_snapshot() {
     };
 
     assert_eq!(subscription.subscription.as_str().len(), 3);
-    assert_eq!(subscription.initial_snapshot.len(), 1);
-    let MindSnapshot::TechnicalNode(node) = &subscription.initial_snapshot[0] else {
-        panic!("expected technical node snapshot");
+    let AcceptedSubscriptionStream::TechnicalNodes(stream) = &subscription.stream else {
+        panic!("expected technical node stream");
     };
+    assert_eq!(stream.snapshot.len(), 1);
+    assert_eq!(stream.cursor, SubscriptionCursor::new(1));
+    let node = &stream.snapshot[0];
     assert_eq!(node.stable_key, component_key);
     assert!(response.trace().contains_ordered(&[
         TraceNode::MIND_ROOT,
@@ -1065,6 +1086,8 @@ async fn technical_node_subscription_delivers_live_delta_through_subscription_ac
                 filter: TechnicalNodeFilter::ByStableKey(ByTechnicalNodeStableKey {
                     stable_key: component_key.clone(),
                 }),
+                resume_after: None,
+                initial_demand: initial_demand(1),
             },
         ))
         .await;
@@ -1093,9 +1116,11 @@ async fn technical_node_subscription_delivers_live_delta_through_subscription_ac
     };
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].subscription, subscription.subscription);
-    let MindDelta::TechnicalNodeCommitted(node) = &events[0].delta else {
+    let SubscriptionStreamEvent::TechnicalNodeCommitted(event) = &events[0].event else {
         panic!("expected technical node delta");
     };
+    let node = &event.node;
+    assert_eq!(event.cursor, SubscriptionCursor::new(1));
     assert_eq!(node.identifier, receipt.node.identifier);
     assert_eq!(node.stable_key, component_key);
 
@@ -1146,6 +1171,8 @@ async fn technical_relation_subscription_registers_and_returns_initial_snapshot(
                 filter: TechnicalRelationFilter::BySource(ByTechnicalRelationSource {
                     source: component_key.clone(),
                 }),
+                resume_after: None,
+                initial_demand: initial_demand(1),
             },
         ))
         .await;
@@ -1156,10 +1183,12 @@ async fn technical_relation_subscription_registers_and_returns_initial_snapshot(
     };
 
     assert_eq!(subscription.subscription.as_str().len(), 3);
-    assert_eq!(subscription.initial_snapshot.len(), 1);
-    let MindSnapshot::TechnicalRelation(relation) = &subscription.initial_snapshot[0] else {
-        panic!("expected technical relation snapshot");
+    let AcceptedSubscriptionStream::TechnicalRelations(stream) = &subscription.stream else {
+        panic!("expected technical relation stream");
     };
+    assert_eq!(stream.snapshot.len(), 1);
+    assert_eq!(stream.cursor, SubscriptionCursor::new(1));
+    let relation = &stream.snapshot[0];
     assert_eq!(relation.source.stable_key, component_key);
     assert_eq!(relation.target.stable_key, repository_key);
 
@@ -1199,6 +1228,8 @@ async fn technical_relation_subscription_delivers_live_delta_through_subscriptio
                 filter: TechnicalRelationFilter::BySource(ByTechnicalRelationSource {
                     source: component_key.clone(),
                 }),
+                resume_after: None,
+                initial_demand: initial_demand(1),
             },
         ))
         .await;
@@ -1228,9 +1259,11 @@ async fn technical_relation_subscription_delivers_live_delta_through_subscriptio
     };
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].subscription, subscription.subscription);
-    let MindDelta::TechnicalRelationCommitted(relation) = &events[0].delta else {
+    let SubscriptionStreamEvent::TechnicalRelationCommitted(event) = &events[0].event else {
         panic!("expected technical relation delta");
     };
+    let relation = &event.relation;
+    assert_eq!(event.cursor, SubscriptionCursor::new(1));
     assert_eq!(relation.identifier, receipt.relation.identifier);
     assert_eq!(relation.source.stable_key, component_key);
     assert_eq!(relation.target.stable_key, repository_key);
@@ -1248,6 +1281,8 @@ async fn public_technical_seed_delivers_subscription_deltas() {
                 filter: TechnicalNodeFilter::ByKind(signal_mind::ByTechnicalNodeKind {
                     kinds: Vec::new(),
                 }),
+                resume_after: None,
+                initial_demand: initial_demand(100),
             },
         ))
         .await;
@@ -1257,6 +1292,8 @@ async fn public_technical_seed_delivers_subscription_deltas() {
                 filter: TechnicalRelationFilter::ByKind(signal_mind::ByTechnicalRelationKind {
                     kinds: Vec::new(),
                 }),
+                resume_after: None,
+                initial_demand: initial_demand(100),
             },
         ))
         .await;
@@ -1296,14 +1333,20 @@ async fn public_technical_seed_delivers_subscription_deltas() {
         .iter()
         .filter(|event| {
             event.subscription == node_subscription.subscription
-                && matches!(event.delta, MindDelta::TechnicalNodeCommitted(_))
+                && matches!(
+                    event.event,
+                    SubscriptionStreamEvent::TechnicalNodeCommitted(_)
+                )
         })
         .count();
     let relation_delta_count = events
         .iter()
         .filter(|event| {
             event.subscription == relation_subscription.subscription
-                && matches!(event.delta, MindDelta::TechnicalRelationCommitted(_))
+                && matches!(
+                    event.event,
+                    SubscriptionStreamEvent::TechnicalRelationCommitted(_)
+                )
         })
         .count();
 
@@ -1404,6 +1447,8 @@ async fn typed_thought_subscription_registers_and_returns_initial_snapshot() {
             filter: ThoughtFilter::ByKind(ByThoughtKind {
                 kinds: vec![ThoughtKind::Goal],
             }),
+            resume_after: None,
+            initial_demand: initial_demand(1),
         }))
         .await;
 
@@ -1413,7 +1458,11 @@ async fn typed_thought_subscription_registers_and_returns_initial_snapshot() {
     };
 
     assert_eq!(subscription.subscription.as_str().len(), 3);
-    assert_eq!(subscription.initial_snapshot.len(), 1);
+    let AcceptedSubscriptionStream::Thoughts(stream) = &subscription.stream else {
+        panic!("expected thought stream");
+    };
+    assert_eq!(stream.snapshot.len(), 1);
+    assert_eq!(stream.cursor, SubscriptionCursor::new(1));
     assert!(response.trace().contains_ordered(&[
         TraceNode::MIND_ROOT,
         TraceNode::INGRESS_PHASE,
@@ -1441,6 +1490,8 @@ async fn typed_thought_subscription_delivers_live_delta_through_subscription_act
             filter: ThoughtFilter::ByKind(ByThoughtKind {
                 kinds: vec![ThoughtKind::Goal],
             }),
+            resume_after: None,
+            initial_demand: initial_demand(1),
         }))
         .await;
 
@@ -1469,9 +1520,11 @@ async fn typed_thought_subscription_delivers_live_delta_through_subscription_act
     };
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].subscription, subscription.subscription);
-    let MindDelta::ThoughtCommitted(thought) = &events[0].delta else {
+    let SubscriptionStreamEvent::ThoughtCommitted(event) = &events[0].event else {
         panic!("expected thought delta");
     };
+    let thought = &event.thought;
+    assert_eq!(event.cursor, SubscriptionCursor::new(1));
     assert_eq!(thought.id, receipt.record);
     assert_eq!(thought.kind, ThoughtKind::Goal);
 
@@ -1486,6 +1539,8 @@ async fn typed_thought_subscription_filters_live_nonmatching_delta() {
             filter: ThoughtFilter::ByKind(ByThoughtKind {
                 kinds: vec![ThoughtKind::Decision],
             }),
+            resume_after: None,
+            initial_demand: initial_demand(1),
         }))
         .await;
 
@@ -1505,6 +1560,230 @@ async fn typed_thought_subscription_filters_live_nonmatching_delta() {
     assert!(events.is_empty());
 
     fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn subscription_resume_after_replays_ordered_available_history() {
+    let fixture = ActorFixture::new().await;
+    let _first = fixture
+        .submit(MindRequest::SubmitThought(SubmitThought {
+            kind: ThoughtKind::Goal,
+            body: ThoughtBody::Goal(GoalBody {
+                description: TextBody::new("first resumable goal"),
+                scope: GoalScope::Workspace(WorkspaceGoal {
+                    workspace: TextBody::new("primary"),
+                }),
+            }),
+        }))
+        .await;
+    let second = fixture
+        .submit(MindRequest::SubmitThought(SubmitThought {
+            kind: ThoughtKind::Goal,
+            body: ThoughtBody::Goal(GoalBody {
+                description: TextBody::new("second resumable goal"),
+                scope: GoalScope::Workspace(WorkspaceGoal {
+                    workspace: TextBody::new("primary"),
+                }),
+            }),
+        }))
+        .await;
+    let MindReply::ThoughtCommitted(second) = second.reply().expect("second reply exists") else {
+        panic!("expected second thought commit");
+    };
+
+    let response = fixture
+        .submit(MindRequest::SubscribeThoughts(SubscribeThoughts {
+            filter: ThoughtFilter::ByKind(ByThoughtKind {
+                kinds: vec![ThoughtKind::Goal],
+            }),
+            resume_after: Some(SubscriptionCursor::new(1)),
+            initial_demand: initial_demand(1),
+        }))
+        .await;
+
+    let MindReply::SubscriptionAccepted(subscription) = response.reply().expect("reply exists")
+    else {
+        panic!("expected subscription accepted");
+    };
+    let AcceptedSubscriptionStream::Thoughts(stream) = &subscription.stream else {
+        panic!("expected thought stream");
+    };
+    assert_eq!(stream.cursor, SubscriptionCursor::new(2));
+    assert_eq!(stream.snapshot.len(), 1);
+    assert_eq!(stream.snapshot[0].id, second.record);
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn subscription_demand_releases_buffered_delta_without_overrun() {
+    let fixture = ActorFixture::new().await;
+    let subscription_response = fixture
+        .submit(MindRequest::SubscribeThoughts(SubscribeThoughts {
+            filter: ThoughtFilter::ByKind(ByThoughtKind {
+                kinds: vec![ThoughtKind::Goal],
+            }),
+            resume_after: None,
+            initial_demand: initial_demand(0),
+        }))
+        .await;
+    let MindReply::SubscriptionAccepted(subscription) =
+        subscription_response.reply().expect("reply exists")
+    else {
+        panic!("expected subscription accepted");
+    };
+
+    let commit_response = fixture
+        .submit(MindRequest::SubmitThought(SubmitThought {
+            kind: ThoughtKind::Goal,
+            body: ThoughtBody::Goal(GoalBody {
+                description: TextBody::new("buffered demand goal"),
+                scope: GoalScope::Workspace(WorkspaceGoal {
+                    workspace: TextBody::new("primary"),
+                }),
+            }),
+        }))
+        .await;
+    assert!(fixture.subscription_events().await.is_empty());
+
+    let demand_response = fixture
+        .submit(MindRequest::SubscriptionDemand(SubscriptionDemand {
+            subscription: subscription.subscription.clone(),
+            credit: initial_demand(1),
+        }))
+        .await;
+    assert!(matches!(
+        demand_response.reply().expect("demand reply exists"),
+        MindReply::SubscriptionDemandAccepted(accepted)
+            if accepted.subscription == subscription.subscription
+                && accepted.accepted == initial_demand(1)
+    ));
+
+    let MindReply::ThoughtCommitted(receipt) = commit_response.reply().expect("reply exists")
+    else {
+        panic!("expected thought commit");
+    };
+    let events = fixture.subscription_events().await;
+    assert_eq!(events.len(), 1);
+    let SubscriptionStreamEvent::ThoughtCommitted(event) = &events[0].event else {
+        panic!("expected thought event");
+    };
+    assert_eq!(event.cursor, SubscriptionCursor::new(1));
+    assert_eq!(event.thought.id, receipt.record);
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn subscription_retraction_cleans_runtime_stream() {
+    let fixture = ActorFixture::new().await;
+    let subscription_response = fixture
+        .submit(MindRequest::SubscribeThoughts(SubscribeThoughts {
+            filter: ThoughtFilter::ByKind(ByThoughtKind {
+                kinds: vec![ThoughtKind::Goal],
+            }),
+            resume_after: None,
+            initial_demand: initial_demand(1),
+        }))
+        .await;
+    let MindReply::SubscriptionAccepted(subscription) =
+        subscription_response.reply().expect("reply exists")
+    else {
+        panic!("expected subscription accepted");
+    };
+
+    let retracted = fixture
+        .submit(MindRequest::SubscriptionRetraction(
+            subscription.subscription.clone(),
+        ))
+        .await;
+    assert!(matches!(
+        retracted.reply().expect("retracted reply exists"),
+        MindReply::SubscriptionRetracted(ack)
+            if ack.subscription == subscription.subscription
+                && ack.stream == SubscriptionStreamKind::Thoughts
+                && ack.last_cursor == SubscriptionCursor::initial()
+    ));
+
+    let _commit = fixture
+        .submit(MindRequest::SubmitThought(SubmitThought {
+            kind: ThoughtKind::Goal,
+            body: ThoughtBody::Goal(GoalBody {
+                description: TextBody::new("retracted stream should not receive this"),
+                scope: GoalScope::Workspace(WorkspaceGoal {
+                    workspace: TextBody::new("primary"),
+                }),
+            }),
+        }))
+        .await;
+    assert!(fixture.subscription_events().await.is_empty());
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn persisted_subscription_rehydrates_after_restart() {
+    let fixture = ActorFixture::new().await;
+    let store = fixture.store.clone();
+    let component_key = technical_key("component:restart-rehydration");
+    let subscription_response = fixture
+        .submit(MindRequest::SubscribeTechnicalNodes(
+            SubscribeTechnicalNodes {
+                filter: TechnicalNodeFilter::ByStableKey(ByTechnicalNodeStableKey {
+                    stable_key: component_key.clone(),
+                }),
+                resume_after: None,
+                initial_demand: initial_demand(0),
+            },
+        ))
+        .await;
+    let MindReply::SubscriptionAccepted(subscription) = subscription_response
+        .reply()
+        .expect("subscription reply exists")
+    else {
+        panic!("expected subscription accepted");
+    };
+    let subscription_identifier = subscription.subscription.clone();
+    fixture.stop_without_removing_store().await;
+
+    let restarted = ActorFixture::from_store(store).await;
+    tokio::task::yield_now().await;
+    let demand_response = restarted
+        .submit(MindRequest::SubscriptionDemand(SubscriptionDemand {
+            subscription: subscription_identifier.clone(),
+            credit: initial_demand(1),
+        }))
+        .await;
+    match demand_response.reply().expect("demand reply exists") {
+        MindReply::SubscriptionDemandAccepted(accepted) => {
+            assert_eq!(accepted.subscription, subscription_identifier);
+        }
+        other => panic!("expected demand accepted after rehydrate, got {other:?}"),
+    }
+    let commit_response = restarted
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: component_key.clone(),
+            kind: TechnicalNodeKind::Component,
+            body: TechnicalNodeBody::Component(signal_mind::ComponentNode {
+                component: ComponentName::new("restart-rehydration"),
+                summary: None,
+            }),
+        }))
+        .await;
+    assert!(matches!(
+        commit_response.reply().expect("commit reply exists"),
+        MindReply::TechnicalNodeCommitted(_)
+    ));
+
+    let events = restarted.subscription_events().await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].subscription, subscription_identifier);
+    assert!(matches!(
+        &events[0].event,
+        SubscriptionStreamEvent::TechnicalNodeCommitted(_)
+    ));
+
+    restarted.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1560,6 +1839,8 @@ async fn typed_relation_subscription_registers_and_returns_initial_snapshot() {
             filter: RelationFilter::ByKind(ByRelationKind {
                 kinds: vec![RelationKind::Implements],
             }),
+            resume_after: None,
+            initial_demand: initial_demand(1),
         }))
         .await;
 
@@ -1569,7 +1850,11 @@ async fn typed_relation_subscription_registers_and_returns_initial_snapshot() {
     };
 
     assert_eq!(subscription.subscription.as_str().len(), 3);
-    assert_eq!(subscription.initial_snapshot.len(), 1);
+    let AcceptedSubscriptionStream::Relations(stream) = &subscription.stream else {
+        panic!("expected relation stream");
+    };
+    assert_eq!(stream.snapshot.len(), 1);
+    assert_eq!(stream.cursor, SubscriptionCursor::new(1));
     assert!(response.trace().contains_ordered(&[
         TraceNode::MIND_ROOT,
         TraceNode::INGRESS_PHASE,
@@ -1634,6 +1919,8 @@ async fn typed_relation_subscription_delivers_live_delta_through_subscription_ac
             filter: RelationFilter::ByKind(ByRelationKind {
                 kinds: vec![RelationKind::Implements],
             }),
+            resume_after: None,
+            initial_demand: initial_demand(1),
         }))
         .await;
     let MindReply::SubscriptionAccepted(subscription) =
@@ -1658,9 +1945,11 @@ async fn typed_relation_subscription_delivers_live_delta_through_subscription_ac
     };
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].subscription, subscription.subscription);
-    let MindDelta::RelationCommitted(relation) = &events[0].delta else {
+    let SubscriptionStreamEvent::RelationCommitted(event) = &events[0].event else {
         panic!("expected relation delta");
     };
+    let relation = &event.relation;
+    assert_eq!(event.cursor, SubscriptionCursor::new(1));
     assert_eq!(relation.id, receipt.relation);
     assert_eq!(relation.kind, RelationKind::Implements);
 

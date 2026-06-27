@@ -8,6 +8,7 @@ use crate::{MindEnvelope, Result as CrateResult};
 use super::domain;
 use super::pipeline::PipelineReply;
 use super::reply;
+use super::subscription;
 use super::trace::{ActorTrace, TraceAction, TraceNode};
 use super::view;
 
@@ -15,6 +16,7 @@ pub(super) struct DispatchPhase {
     domain: ActorRef<domain::DomainPhase>,
     view: ActorRef<view::ViewPhase>,
     reply: ActorRef<reply::ReplyShaper>,
+    subscription: ActorRef<subscription::SubscriptionSupervisor>,
 }
 
 #[derive(Clone)]
@@ -22,6 +24,7 @@ pub(super) struct Arguments {
     pub(super) domain: ActorRef<domain::DomainPhase>,
     pub(super) view: ActorRef<view::ViewPhase>,
     pub(super) reply: ActorRef<reply::ReplyShaper>,
+    pub(super) subscription: ActorRef<subscription::SubscriptionSupervisor>,
 }
 
 pub struct RouteEnvelope {
@@ -34,11 +37,13 @@ impl DispatchPhase {
         domain: ActorRef<domain::DomainPhase>,
         view: ActorRef<view::ViewPhase>,
         reply: ActorRef<reply::ReplyShaper>,
+        subscription: ActorRef<subscription::SubscriptionSupervisor>,
     ) -> Self {
         Self {
             domain,
             view,
             reply,
+            subscription,
         }
     }
 
@@ -111,9 +116,25 @@ impl DispatchPhase {
                 trace.record(TraceNode::QUERY_FLOW, TraceAction::MessageReceived);
                 self.read_memory(envelope, trace).await?
             }
-            MindRequest::AdjudicationRequest(_)
-            | MindRequest::ChannelList(_)
-            | MindRequest::SubscriptionRetraction(_) => self.unimplemented(trace),
+            MindRequest::SubscriptionDemand(demand) => {
+                trace.record(
+                    TraceNode::SUBSCRIPTION_SUPERVISOR,
+                    TraceAction::MessageReceived,
+                );
+                self.accept_subscription_demand(demand.clone(), trace)
+                    .await?
+            }
+            MindRequest::SubscriptionRetraction(subscription) => {
+                trace.record(
+                    TraceNode::SUBSCRIPTION_SUPERVISOR,
+                    TraceAction::MessageReceived,
+                );
+                self.retract_subscription(subscription.clone(), trace)
+                    .await?
+            }
+            MindRequest::AdjudicationRequest(_) | MindRequest::ChannelList(_) => {
+                self.unimplemented(trace)
+            }
         };
 
         self.shape_reply(pipeline).await
@@ -262,6 +283,36 @@ impl DispatchPhase {
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
 
+    async fn accept_subscription_demand(
+        &self,
+        demand: signal_mind::SubscriptionDemand,
+        trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        let reply = self
+            .subscription
+            .ask(subscription::AcceptSubscriptionDemand::new(demand))
+            .await
+            .map(subscription::SubscriptionLifecycleReply::into_reply)
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))?;
+        Ok(PipelineReply::new(Some(reply), trace))
+    }
+
+    async fn retract_subscription(
+        &self,
+        subscription_identifier: signal_mind::SubscriptionIdentifier,
+        trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        let reply = self
+            .subscription
+            .ask(subscription::RetractSubscription::new(
+                subscription_identifier,
+            ))
+            .await
+            .map(subscription::SubscriptionLifecycleReply::into_reply)
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))?;
+        Ok(PipelineReply::new(Some(reply), trace))
+    }
+
     async fn read_memory(
         &self,
         envelope: MindEnvelope,
@@ -304,7 +355,12 @@ impl Actor for DispatchPhase {
         arguments: Self::Args,
         _actor_reference: ActorRef<Self>,
     ) -> std::result::Result<Self, Self::Error> {
-        Ok(Self::new(arguments.domain, arguments.view, arguments.reply))
+        Ok(Self::new(
+            arguments.domain,
+            arguments.view,
+            arguments.reply,
+            arguments.subscription,
+        ))
     }
 }
 

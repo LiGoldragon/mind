@@ -1,18 +1,20 @@
 use signal_mind::{
-    ByRelationKind, ByRelationSource, ByRelationTarget, ByTechnicalNodeKind,
-    ByTechnicalNodeStableKey, ByTechnicalRelationEndpoints, ByTechnicalRelationKind,
-    ByTechnicalRelationSource, ByTechnicalRelationTarget, ByTechnicalSourceLocator,
-    ByThoughtAuthor, ByThoughtKind, ByThoughtTimeRange, CompositeRelationFilter,
-    CompositeTechnicalNodeFilter, CompositeTechnicalRelationFilter, CompositeThoughtFilter,
-    DisplayIdentifier, MindReply, MindRequestUnimplemented, MindUnimplementedReason, QueryLimit,
-    QueryRelations, QueryTechnicalNodes, QueryTechnicalRelations, QueryThoughts, Relation,
-    RelationCommitted, RelationFilter, RelationKind, RelationList, SubmitRelation,
-    SubmitTechnicalNode, SubmitTechnicalRelation, SubmitThought, SubscriptionAccepted,
+    AcceptedSubscriptionStream, ByRelationKind, ByRelationSource, ByRelationTarget,
+    ByTechnicalNodeKind, ByTechnicalNodeStableKey, ByTechnicalRelationEndpoints,
+    ByTechnicalRelationKind, ByTechnicalRelationSource, ByTechnicalRelationTarget,
+    ByTechnicalSourceLocator, ByThoughtAuthor, ByThoughtKind, ByThoughtTimeRange,
+    CompositeRelationFilter, CompositeTechnicalNodeFilter, CompositeTechnicalRelationFilter,
+    CompositeThoughtFilter, DisplayIdentifier, MindReply, MindRequestUnimplemented,
+    MindUnimplementedReason, QueryLimit, QueryRelations, QueryTechnicalNodes,
+    QueryTechnicalRelations, QueryThoughts, Relation, RelationCommitted, RelationFilter,
+    RelationKind, RelationList, RelationStreamAccepted, SubmitRelation, SubmitTechnicalNode,
+    SubmitTechnicalRelation, SubmitThought, SubscriptionAccepted, SubscriptionCursor,
     TechnicalNode, TechnicalNodeCommitted, TechnicalNodeFilter, TechnicalNodeList,
-    TechnicalNodeRejected, TechnicalNodeRejectionReason, TechnicalRelation,
-    TechnicalRelationCommitted, TechnicalRelationFilter, TechnicalRelationList,
-    TechnicalRelationRejected, TechnicalRelationRejectionReason, TechnicalSourceLocator, Thought,
-    ThoughtCommitted, ThoughtFilter, ThoughtList,
+    TechnicalNodeRejected, TechnicalNodeRejectionReason, TechnicalNodeStreamAccepted,
+    TechnicalRelation, TechnicalRelationCommitted, TechnicalRelationFilter, TechnicalRelationList,
+    TechnicalRelationRejected, TechnicalRelationRejectionReason, TechnicalRelationStreamAccepted,
+    TechnicalSourceLocator, Thought, ThoughtCommitted, ThoughtFilter, ThoughtList,
+    ThoughtStreamAccepted,
 };
 
 use crate::{MindEnvelope, MindTables, Result};
@@ -278,16 +280,27 @@ impl<'tables> MindGraphLedger<'tables> {
         let opened = self.tables.append_thought_subscription(subscription)?;
         let relations = self.tables.relation_records()?;
         let selector = ThoughtSelector::new(opened.record().filter.clone(), relations);
-        let initial_snapshot = opened
-            .initial()
-            .iter()
-            .filter(|thought| selector.accepts(thought))
-            .cloned()
-            .map(signal_mind::MindSnapshot::Thought)
-            .collect();
+        let resumed = ResumedSnapshot::new(
+            opened
+                .initial()
+                .iter()
+                .filter(|thought| selector.accepts(thought))
+                .cloned()
+                .collect(),
+            opened.resume_after(),
+        );
+        self.tables.register_thought_runtime(
+            opened.record(),
+            resumed.cursor,
+            opened.initial_demand(),
+        );
         Ok(MindReply::SubscriptionAccepted(SubscriptionAccepted {
             subscription: opened.record().subscription.clone(),
-            initial_snapshot,
+            stream: AcceptedSubscriptionStream::Thoughts(ThoughtStreamAccepted {
+                cursor: resumed.cursor,
+                buffer_bound: crate::actors::subscription::SubscriptionSupervisor::BUFFER_BOUND,
+                snapshot: resumed.records,
+            }),
         }))
     }
 
@@ -297,16 +310,27 @@ impl<'tables> MindGraphLedger<'tables> {
     ) -> Result<MindReply> {
         let opened = self.tables.append_relation_subscription(subscription)?;
         let selector = RelationSelector::new(opened.record().filter.clone());
-        let initial_snapshot = opened
-            .initial()
-            .iter()
-            .filter(|relation| selector.accepts(relation))
-            .cloned()
-            .map(signal_mind::MindSnapshot::Relation)
-            .collect();
+        let resumed = ResumedSnapshot::new(
+            opened
+                .initial()
+                .iter()
+                .filter(|relation| selector.accepts(relation))
+                .cloned()
+                .collect(),
+            opened.resume_after(),
+        );
+        self.tables.register_relation_runtime(
+            opened.record(),
+            resumed.cursor,
+            opened.initial_demand(),
+        );
         Ok(MindReply::SubscriptionAccepted(SubscriptionAccepted {
             subscription: opened.record().subscription.clone(),
-            initial_snapshot,
+            stream: AcceptedSubscriptionStream::Relations(RelationStreamAccepted {
+                cursor: resumed.cursor,
+                buffer_bound: crate::actors::subscription::SubscriptionSupervisor::BUFFER_BOUND,
+                snapshot: resumed.records,
+            }),
         }))
     }
 
@@ -318,16 +342,27 @@ impl<'tables> MindGraphLedger<'tables> {
             .tables
             .append_technical_node_subscription(subscription)?;
         let selector = TechnicalNodeSelector::new(opened.record().filter.clone());
-        let initial_snapshot = opened
-            .initial()
-            .iter()
-            .filter(|node| selector.accepts(node))
-            .cloned()
-            .map(signal_mind::MindSnapshot::TechnicalNode)
-            .collect();
+        let resumed = ResumedSnapshot::new(
+            opened
+                .initial()
+                .iter()
+                .filter(|node| selector.accepts(node))
+                .cloned()
+                .collect(),
+            opened.resume_after(),
+        );
+        self.tables.register_technical_node_runtime(
+            opened.record(),
+            resumed.cursor,
+            opened.initial_demand(),
+        );
         Ok(MindReply::SubscriptionAccepted(SubscriptionAccepted {
             subscription: opened.record().subscription.clone(),
-            initial_snapshot,
+            stream: AcceptedSubscriptionStream::TechnicalNodes(TechnicalNodeStreamAccepted {
+                cursor: resumed.cursor,
+                buffer_bound: crate::actors::subscription::SubscriptionSupervisor::BUFFER_BOUND,
+                snapshot: resumed.records,
+            }),
         }))
     }
 
@@ -339,16 +374,29 @@ impl<'tables> MindGraphLedger<'tables> {
             .tables
             .append_technical_relation_subscription(subscription)?;
         let selector = TechnicalRelationSelector::new(opened.record().filter.clone());
-        let initial_snapshot = opened
-            .initial()
-            .iter()
-            .filter(|relation| selector.accepts(relation))
-            .cloned()
-            .map(signal_mind::MindSnapshot::TechnicalRelation)
-            .collect();
+        let resumed = ResumedSnapshot::new(
+            opened
+                .initial()
+                .iter()
+                .filter(|relation| selector.accepts(relation))
+                .cloned()
+                .collect(),
+            opened.resume_after(),
+        );
+        self.tables.register_technical_relation_runtime(
+            opened.record(),
+            resumed.cursor,
+            opened.initial_demand(),
+        );
         Ok(MindReply::SubscriptionAccepted(SubscriptionAccepted {
             subscription: opened.record().subscription.clone(),
-            initial_snapshot,
+            stream: AcceptedSubscriptionStream::TechnicalRelations(
+                TechnicalRelationStreamAccepted {
+                    cursor: resumed.cursor,
+                    buffer_bound: crate::actors::subscription::SubscriptionSupervisor::BUFFER_BOUND,
+                    snapshot: resumed.records,
+                },
+            ),
         }))
     }
 
@@ -356,6 +404,22 @@ impl<'tables> MindGraphLedger<'tables> {
         MindReply::MindRequestUnimplemented(MindRequestUnimplemented {
             reason: MindUnimplementedReason::NotInPrototypeScope,
         })
+    }
+}
+
+struct ResumedSnapshot<Record> {
+    records: Vec<Record>,
+    cursor: SubscriptionCursor,
+}
+
+impl<Record> ResumedSnapshot<Record> {
+    fn new(records: Vec<Record>, resume_after: SubscriptionCursor) -> Self {
+        let records = records
+            .into_iter()
+            .skip(resume_after.into_u64() as usize)
+            .collect::<Vec<_>>();
+        let cursor = SubscriptionCursor::new(resume_after.into_u64() + records.len() as u64);
+        Self { records, cursor }
     }
 }
 

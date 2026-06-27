@@ -1307,6 +1307,7 @@ impl MindTextReply {
             | contract::MindReply::TechnicalRelationRejected(_)
             | contract::MindReply::SubscriptionAccepted(_)
             | contract::MindReply::SubscriptionRetracted(_)
+            | contract::MindReply::SubscriptionDemandAccepted(_)
             | contract::MindReply::AdjudicationReceipt(_)
             | contract::MindReply::ChannelListView(_)
             | contract::MindReply::MindRequestUnimplemented(_) => Err(

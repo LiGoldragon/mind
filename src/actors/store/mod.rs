@@ -8,6 +8,7 @@ use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
 use kameo::error::ActorStopReason;
 use kameo::message::{Context, Message};
 
+use crate::tables::RuntimeSubscriptionRegistration;
 use crate::{MindEnvelope, StoreLocation};
 
 use super::pipeline::PipelineReply;
@@ -101,11 +102,32 @@ pub struct SubscribeTechnicalRelations {
 
 pub(super) struct ReadGraphRecords;
 
+pub(super) struct ReadSubscriptionRegistrations;
+
+pub(crate) struct RetractSubscription {
+    pub(crate) subscription: signal_mind::SubscriptionIdentifier,
+}
+
 pub(super) struct ShutdownStore;
 
 #[derive(kameo::Reply)]
 pub(super) struct GraphRecords {
     pub(super) relations: Vec<signal_mind::Relation>,
+}
+
+#[derive(kameo::Reply)]
+pub(super) struct SubscriptionRegistrations {
+    registrations: Vec<RuntimeSubscriptionRegistration>,
+}
+
+impl SubscriptionRegistrations {
+    pub(super) fn new(registrations: Vec<RuntimeSubscriptionRegistration>) -> Self {
+        Self { registrations }
+    }
+
+    pub(super) fn into_registrations(self) -> Vec<RuntimeSubscriptionRegistration> {
+        self.registrations
+    }
 }
 
 impl StoreSupervisor {
@@ -296,6 +318,23 @@ impl StoreSupervisor {
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
 
+    async fn read_subscription_registrations(&self) -> crate::Result<SubscriptionRegistrations> {
+        self.kernel
+            .ask(kernel::ReadSubscriptionRegistrations)
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn retract_subscription(
+        &self,
+        subscription: signal_mind::SubscriptionIdentifier,
+    ) -> crate::Result<bool> {
+        self.graph
+            .ask(graph::RetractSubscription { subscription })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
     async fn request_stop_child<Child>(child: &ActorRef<Child>)
     where
         Child: Actor,
@@ -383,6 +422,20 @@ impl Message<ReadGraphRecords> for StoreSupervisor {
     }
 }
 
+impl Message<ReadSubscriptionRegistrations> for StoreSupervisor {
+    type Reply = SubscriptionRegistrations;
+
+    async fn handle(
+        &mut self,
+        _message: ReadSubscriptionRegistrations,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.read_subscription_registrations()
+            .await
+            .unwrap_or_else(|_| SubscriptionRegistrations::new(Vec::new()))
+    }
+}
+
 impl Message<ShutdownStore> for StoreSupervisor {
     type Reply = bool;
 
@@ -393,6 +446,20 @@ impl Message<ShutdownStore> for StoreSupervisor {
     ) -> Self::Reply {
         self.stop_children().await;
         true
+    }
+}
+
+impl Message<RetractSubscription> for StoreSupervisor {
+    type Reply = bool;
+
+    async fn handle(
+        &mut self,
+        message: RetractSubscription,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.retract_subscription(message.subscription)
+            .await
+            .unwrap_or(false)
     }
 }
 

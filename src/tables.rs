@@ -5,22 +5,24 @@ use kameo::actor::ActorRef;
 use redb::{Database, TableDefinition};
 use sema_engine::{
     Assertion, Engine, EngineOpen, EngineRecord, FamilyName, Mutation, QueryPlan, RecordKey,
-    SchemaHash, SchemaVersion, SinkError, SubscriptionDeliveryMode,
+    Retraction, SchemaHash, SchemaVersion, SinkError, SubscriptionDeliveryMode,
     SubscriptionEvent as EngineSubscriptionEvent, SubscriptionSink, TableDescriptor, TableName,
     TableReference, VersionedStoreName, VersioningPolicy,
 };
 use signal_mind::{
     ActorName, RecordIdentifier, Relation, RelationIdentifier, SubmitRelation, SubmitTechnicalNode,
     SubmitTechnicalRelation, SubmitThought, SubscribeRelations, SubscribeTechnicalNodes,
-    SubscribeTechnicalRelations, SubscribeThoughts, SubscriptionIdentifier, TechnicalNode,
-    TechnicalNodeIdentifier, TechnicalNodeKey, TechnicalNodeKindMismatch,
-    TechnicalNodeRejectionReason, TechnicalRelation, TechnicalRelationEndpoint,
-    TechnicalRelationIdentifier, TechnicalRelationRejectionReason, Thought, TimestampNanos,
+    SubscribeTechnicalRelations, SubscribeThoughts, SubscriptionCursor, SubscriptionDemandCredit,
+    SubscriptionIdentifier, TechnicalNode, TechnicalNodeIdentifier, TechnicalNodeKey,
+    TechnicalNodeKindMismatch, TechnicalNodeRejectionReason, TechnicalRelation,
+    TechnicalRelationEndpoint, TechnicalRelationIdentifier, TechnicalRelationRejectionReason,
+    Thought, TimestampNanos,
 };
 
 use crate::actors::subscription::{
     PublishRelationDelta, PublishTechnicalNodeDelta, PublishTechnicalRelationDelta,
-    PublishThoughtDelta, SubscriptionSupervisor,
+    PublishThoughtDelta, RegisterRelationSubscription, RegisterTechnicalNodeSubscription,
+    RegisterTechnicalRelationSubscription, RegisterThoughtSubscription, SubscriptionSupervisor,
 };
 use crate::{MemoryGraph, Result, StoreLocation};
 
@@ -103,21 +105,29 @@ pub(crate) struct StoredTechnicalRelation {
 pub(crate) struct OpenedThoughtSubscription {
     record: StoredThoughtSubscription,
     initial: Vec<Thought>,
+    resume_after: SubscriptionCursor,
+    initial_demand: SubscriptionDemandCredit,
 }
 
 pub(crate) struct OpenedRelationSubscription {
     record: StoredRelationSubscription,
     initial: Vec<Relation>,
+    resume_after: SubscriptionCursor,
+    initial_demand: SubscriptionDemandCredit,
 }
 
 pub(crate) struct OpenedTechnicalNodeSubscription {
     record: StoredTechnicalNodeSubscription,
     initial: Vec<TechnicalNode>,
+    resume_after: SubscriptionCursor,
+    initial_demand: SubscriptionDemandCredit,
 }
 
 pub(crate) struct OpenedTechnicalRelationSubscription {
     record: StoredTechnicalRelationSubscription,
     initial: Vec<TechnicalRelation>,
+    resume_after: SubscriptionCursor,
+    initial_demand: SubscriptionDemandCredit,
 }
 
 #[derive(Clone)]
@@ -125,6 +135,86 @@ pub(crate) enum GraphSubscriptionPublisher {
     Actor(ActorRef<SubscriptionSupervisor>),
     #[cfg(test)]
     Disabled,
+}
+
+pub(crate) enum RuntimeSubscriptionRegistration {
+    Thoughts {
+        subscription: SubscriptionIdentifier,
+        filter: signal_mind::ThoughtFilter,
+    },
+    Relations {
+        subscription: SubscriptionIdentifier,
+        filter: signal_mind::RelationFilter,
+    },
+    TechnicalNodes {
+        subscription: SubscriptionIdentifier,
+        filter: signal_mind::TechnicalNodeFilter,
+    },
+    TechnicalRelations {
+        subscription: SubscriptionIdentifier,
+        filter: signal_mind::TechnicalRelationFilter,
+    },
+}
+
+impl RuntimeSubscriptionRegistration {
+    pub(crate) async fn register(self, actor: &ActorRef<SubscriptionSupervisor>) {
+        let cursor = SubscriptionCursor::initial();
+        let initial_demand = SubscriptionDemandCredit::new(0);
+        match self {
+            Self::Thoughts {
+                subscription,
+                filter,
+            } => {
+                let _registered = actor
+                    .ask(RegisterThoughtSubscription::new(
+                        subscription,
+                        filter,
+                        cursor,
+                        initial_demand,
+                    ))
+                    .await;
+            }
+            Self::Relations {
+                subscription,
+                filter,
+            } => {
+                let _registered = actor
+                    .ask(RegisterRelationSubscription::new(
+                        subscription,
+                        filter,
+                        cursor,
+                        initial_demand,
+                    ))
+                    .await;
+            }
+            Self::TechnicalNodes {
+                subscription,
+                filter,
+            } => {
+                let _registered = actor
+                    .ask(RegisterTechnicalNodeSubscription::new(
+                        subscription,
+                        filter,
+                        cursor,
+                        initial_demand,
+                    ))
+                    .await;
+            }
+            Self::TechnicalRelations {
+                subscription,
+                filter,
+            } => {
+                let _registered = actor
+                    .ask(RegisterTechnicalRelationSubscription::new(
+                        subscription,
+                        filter,
+                        cursor,
+                        initial_demand,
+                    ))
+                    .await;
+            }
+        }
+    }
 }
 
 impl StoredThought {
@@ -168,8 +258,18 @@ impl StoredTechnicalRelation {
 }
 
 impl OpenedThoughtSubscription {
-    fn new(record: StoredThoughtSubscription, initial: Vec<Thought>) -> Self {
-        Self { record, initial }
+    fn new(
+        record: StoredThoughtSubscription,
+        initial: Vec<Thought>,
+        resume_after: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) -> Self {
+        Self {
+            record,
+            initial,
+            resume_after,
+            initial_demand,
+        }
     }
 
     pub(crate) fn record(&self) -> &StoredThoughtSubscription {
@@ -179,11 +279,29 @@ impl OpenedThoughtSubscription {
     pub(crate) fn initial(&self) -> &[Thought] {
         &self.initial
     }
+
+    pub(crate) fn resume_after(&self) -> SubscriptionCursor {
+        self.resume_after
+    }
+
+    pub(crate) fn initial_demand(&self) -> SubscriptionDemandCredit {
+        self.initial_demand
+    }
 }
 
 impl OpenedRelationSubscription {
-    fn new(record: StoredRelationSubscription, initial: Vec<Relation>) -> Self {
-        Self { record, initial }
+    fn new(
+        record: StoredRelationSubscription,
+        initial: Vec<Relation>,
+        resume_after: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) -> Self {
+        Self {
+            record,
+            initial,
+            resume_after,
+            initial_demand,
+        }
     }
 
     pub(crate) fn record(&self) -> &StoredRelationSubscription {
@@ -193,11 +311,29 @@ impl OpenedRelationSubscription {
     pub(crate) fn initial(&self) -> &[Relation] {
         &self.initial
     }
+
+    pub(crate) fn resume_after(&self) -> SubscriptionCursor {
+        self.resume_after
+    }
+
+    pub(crate) fn initial_demand(&self) -> SubscriptionDemandCredit {
+        self.initial_demand
+    }
 }
 
 impl OpenedTechnicalNodeSubscription {
-    fn new(record: StoredTechnicalNodeSubscription, initial: Vec<TechnicalNode>) -> Self {
-        Self { record, initial }
+    fn new(
+        record: StoredTechnicalNodeSubscription,
+        initial: Vec<TechnicalNode>,
+        resume_after: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) -> Self {
+        Self {
+            record,
+            initial,
+            resume_after,
+            initial_demand,
+        }
     }
 
     pub(crate) fn record(&self) -> &StoredTechnicalNodeSubscription {
@@ -207,11 +343,29 @@ impl OpenedTechnicalNodeSubscription {
     pub(crate) fn initial(&self) -> &[TechnicalNode] {
         &self.initial
     }
+
+    pub(crate) fn resume_after(&self) -> SubscriptionCursor {
+        self.resume_after
+    }
+
+    pub(crate) fn initial_demand(&self) -> SubscriptionDemandCredit {
+        self.initial_demand
+    }
 }
 
 impl OpenedTechnicalRelationSubscription {
-    fn new(record: StoredTechnicalRelationSubscription, initial: Vec<TechnicalRelation>) -> Self {
-        Self { record, initial }
+    fn new(
+        record: StoredTechnicalRelationSubscription,
+        initial: Vec<TechnicalRelation>,
+        resume_after: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) -> Self {
+        Self {
+            record,
+            initial,
+            resume_after,
+            initial_demand,
+        }
     }
 
     pub(crate) fn record(&self) -> &StoredTechnicalRelationSubscription {
@@ -220,6 +374,14 @@ impl OpenedTechnicalRelationSubscription {
 
     pub(crate) fn initial(&self) -> &[TechnicalRelation] {
         &self.initial
+    }
+
+    pub(crate) fn resume_after(&self) -> SubscriptionCursor {
+        self.resume_after
+    }
+
+    pub(crate) fn initial_demand(&self) -> SubscriptionDemandCredit {
+        self.initial_demand
     }
 }
 
@@ -335,7 +497,7 @@ impl MindTables {
             "technical-relation-subscription",
             MIND_SCHEMA_VERSION,
         ))?;
-        Ok(Self {
+        let tables = Self {
             engine,
             memory,
             thoughts,
@@ -347,7 +509,9 @@ impl MindTables {
             technical_node_subscriptions,
             technical_relation_subscriptions,
             subscription_publisher,
-        })
+        };
+        tables.rehydrate_engine_subscriptions()?;
+        Ok(tables)
     }
 
     fn engine_open(store: &StoreLocation) -> EngineOpen {
@@ -711,14 +875,14 @@ impl MindTables {
         &self,
         subscription: SubscribeThoughts,
     ) -> Result<OpenedThoughtSubscription> {
+        let resume_after = subscription
+            .resume_after
+            .unwrap_or_else(SubscriptionCursor::initial);
+        let initial_demand = subscription.initial_demand;
         let filter = subscription.filter;
         let receipt = self.engine.subscribe(
             QueryPlan::all(self.thoughts),
-            ThoughtSubscriptionSink::new(
-                THOUGHTS,
-                filter.clone(),
-                self.subscription_publisher.clone(),
-            ),
+            ThoughtSubscriptionSink::new(THOUGHTS, self.subscription_publisher.clone()),
         )?;
         let initial = receipt
             .initial()
@@ -734,21 +898,26 @@ impl MindTables {
         };
         self.engine
             .assert(Assertion::new(self.thought_subscriptions, record.clone()))?;
-        Ok(OpenedThoughtSubscription::new(record, initial))
+        Ok(OpenedThoughtSubscription::new(
+            record,
+            initial,
+            resume_after,
+            initial_demand,
+        ))
     }
 
     pub(crate) fn append_relation_subscription(
         &self,
         subscription: SubscribeRelations,
     ) -> Result<OpenedRelationSubscription> {
+        let resume_after = subscription
+            .resume_after
+            .unwrap_or_else(SubscriptionCursor::initial);
+        let initial_demand = subscription.initial_demand;
         let filter = subscription.filter;
         let receipt = self.engine.subscribe(
             QueryPlan::all(self.relations),
-            RelationSubscriptionSink::new(
-                RELATIONS,
-                filter.clone(),
-                self.subscription_publisher.clone(),
-            ),
+            RelationSubscriptionSink::new(RELATIONS, self.subscription_publisher.clone()),
         )?;
         let initial = receipt
             .initial()
@@ -764,19 +933,27 @@ impl MindTables {
         };
         self.engine
             .assert(Assertion::new(self.relation_subscriptions, record.clone()))?;
-        Ok(OpenedRelationSubscription::new(record, initial))
+        Ok(OpenedRelationSubscription::new(
+            record,
+            initial,
+            resume_after,
+            initial_demand,
+        ))
     }
 
     pub(crate) fn append_technical_node_subscription(
         &self,
         subscription: SubscribeTechnicalNodes,
     ) -> Result<OpenedTechnicalNodeSubscription> {
+        let resume_after = subscription
+            .resume_after
+            .unwrap_or_else(SubscriptionCursor::initial);
+        let initial_demand = subscription.initial_demand;
         let filter = subscription.filter;
         let receipt = self.engine.subscribe(
             QueryPlan::all(self.technical_nodes),
             TechnicalNodeSubscriptionSink::new(
                 TECHNICAL_NODES,
-                filter.clone(),
                 self.subscription_publisher.clone(),
             ),
         )?;
@@ -796,19 +973,27 @@ impl MindTables {
             self.technical_node_subscriptions,
             record.clone(),
         ))?;
-        Ok(OpenedTechnicalNodeSubscription::new(record, initial))
+        Ok(OpenedTechnicalNodeSubscription::new(
+            record,
+            initial,
+            resume_after,
+            initial_demand,
+        ))
     }
 
     pub(crate) fn append_technical_relation_subscription(
         &self,
         subscription: SubscribeTechnicalRelations,
     ) -> Result<OpenedTechnicalRelationSubscription> {
+        let resume_after = subscription
+            .resume_after
+            .unwrap_or_else(SubscriptionCursor::initial);
+        let initial_demand = subscription.initial_demand;
         let filter = subscription.filter;
         let receipt = self.engine.subscribe(
             QueryPlan::all(self.technical_relations),
             TechnicalRelationSubscriptionSink::new(
                 TECHNICAL_RELATIONS,
-                filter.clone(),
                 self.subscription_publisher.clone(),
             ),
         )?;
@@ -828,7 +1013,261 @@ impl MindTables {
             self.technical_relation_subscriptions,
             record.clone(),
         ))?;
-        Ok(OpenedTechnicalRelationSubscription::new(record, initial))
+        Ok(OpenedTechnicalRelationSubscription::new(
+            record,
+            initial,
+            resume_after,
+            initial_demand,
+        ))
+    }
+
+    pub(crate) fn register_thought_runtime(
+        &self,
+        record: &StoredThoughtSubscription,
+        cursor: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) {
+        self.subscription_publisher.register_thought(
+            record.subscription.clone(),
+            record.filter.clone(),
+            cursor,
+            initial_demand,
+        );
+    }
+
+    pub(crate) fn register_relation_runtime(
+        &self,
+        record: &StoredRelationSubscription,
+        cursor: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) {
+        self.subscription_publisher.register_relation(
+            record.subscription.clone(),
+            record.filter.clone(),
+            cursor,
+            initial_demand,
+        );
+    }
+
+    pub(crate) fn register_technical_node_runtime(
+        &self,
+        record: &StoredTechnicalNodeSubscription,
+        cursor: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) {
+        self.subscription_publisher.register_technical_node(
+            record.subscription.clone(),
+            record.filter.clone(),
+            cursor,
+            initial_demand,
+        );
+    }
+
+    pub(crate) fn register_technical_relation_runtime(
+        &self,
+        record: &StoredTechnicalRelationSubscription,
+        cursor: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) {
+        self.subscription_publisher.register_technical_relation(
+            record.subscription.clone(),
+            record.filter.clone(),
+            cursor,
+            initial_demand,
+        );
+    }
+
+    pub(crate) fn retract_subscription(&self, subscription: &SubscriptionIdentifier) -> Result<()> {
+        let key = RecordKey::new(subscription.as_str());
+        if self
+            .engine
+            .match_records(QueryPlan::key(self.thought_subscriptions, key.clone()))?
+            .records()
+            .first()
+            .is_some()
+        {
+            self.engine
+                .retract(Retraction::<StoredThoughtSubscription>::new(
+                    self.thought_subscriptions,
+                    key,
+                ))?;
+            return Ok(());
+        }
+
+        let key = RecordKey::new(subscription.as_str());
+        if self
+            .engine
+            .match_records(QueryPlan::key(self.relation_subscriptions, key.clone()))?
+            .records()
+            .first()
+            .is_some()
+        {
+            self.engine
+                .retract(Retraction::<StoredRelationSubscription>::new(
+                    self.relation_subscriptions,
+                    key,
+                ))?;
+            return Ok(());
+        }
+
+        let key = RecordKey::new(subscription.as_str());
+        if self
+            .engine
+            .match_records(QueryPlan::key(
+                self.technical_node_subscriptions,
+                key.clone(),
+            ))?
+            .records()
+            .first()
+            .is_some()
+        {
+            self.engine
+                .retract(Retraction::<StoredTechnicalNodeSubscription>::new(
+                    self.technical_node_subscriptions,
+                    key,
+                ))?;
+            return Ok(());
+        }
+
+        let key = RecordKey::new(subscription.as_str());
+        if self
+            .engine
+            .match_records(QueryPlan::key(
+                self.technical_relation_subscriptions,
+                key.clone(),
+            ))?
+            .records()
+            .first()
+            .is_some()
+        {
+            self.engine
+                .retract(Retraction::<StoredTechnicalRelationSubscription>::new(
+                    self.technical_relation_subscriptions,
+                    key,
+                ))?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn runtime_subscription_registrations(
+        &self,
+    ) -> Result<Vec<RuntimeSubscriptionRegistration>> {
+        let mut registrations = Vec::new();
+        registrations.extend(
+            self.engine
+                .match_records(QueryPlan::all(self.thought_subscriptions))?
+                .records()
+                .iter()
+                .cloned()
+                .map(|record| RuntimeSubscriptionRegistration::Thoughts {
+                    subscription: record.subscription,
+                    filter: record.filter,
+                }),
+        );
+        registrations.extend(
+            self.engine
+                .match_records(QueryPlan::all(self.relation_subscriptions))?
+                .records()
+                .iter()
+                .cloned()
+                .map(|record| RuntimeSubscriptionRegistration::Relations {
+                    subscription: record.subscription,
+                    filter: record.filter,
+                }),
+        );
+        registrations.extend(
+            self.engine
+                .match_records(QueryPlan::all(self.technical_node_subscriptions))?
+                .records()
+                .iter()
+                .cloned()
+                .map(|record| RuntimeSubscriptionRegistration::TechnicalNodes {
+                    subscription: record.subscription,
+                    filter: record.filter,
+                }),
+        );
+        registrations.extend(
+            self.engine
+                .match_records(QueryPlan::all(self.technical_relation_subscriptions))?
+                .records()
+                .iter()
+                .cloned()
+                .map(
+                    |record| RuntimeSubscriptionRegistration::TechnicalRelations {
+                        subscription: record.subscription,
+                        filter: record.filter,
+                    },
+                ),
+        );
+        Ok(registrations)
+    }
+
+    fn rehydrate_engine_subscriptions(&self) -> Result<()> {
+        for record in self
+            .engine
+            .match_records(QueryPlan::all(self.thought_subscriptions))?
+            .records()
+            .iter()
+            .cloned()
+        {
+            self.engine.subscribe(
+                QueryPlan::all(self.thoughts),
+                ThoughtSubscriptionSink::new_for_subscription(
+                    THOUGHTS,
+                    record.subscription,
+                    self.subscription_publisher.clone(),
+                ),
+            )?;
+        }
+        for record in self
+            .engine
+            .match_records(QueryPlan::all(self.relation_subscriptions))?
+            .records()
+            .iter()
+            .cloned()
+        {
+            self.engine.subscribe(
+                QueryPlan::all(self.relations),
+                RelationSubscriptionSink::new_for_subscription(
+                    RELATIONS,
+                    record.subscription,
+                    self.subscription_publisher.clone(),
+                ),
+            )?;
+        }
+        for record in self
+            .engine
+            .match_records(QueryPlan::all(self.technical_node_subscriptions))?
+            .records()
+            .iter()
+            .cloned()
+        {
+            self.engine.subscribe(
+                QueryPlan::all(self.technical_nodes),
+                TechnicalNodeSubscriptionSink::new_for_subscription(
+                    TECHNICAL_NODES,
+                    record.subscription,
+                    self.subscription_publisher.clone(),
+                ),
+            )?;
+        }
+        for record in self
+            .engine
+            .match_records(QueryPlan::all(self.technical_relation_subscriptions))?
+            .records()
+            .iter()
+            .cloned()
+        {
+            self.engine.subscribe(
+                QueryPlan::all(self.technical_relations),
+                TechnicalRelationSubscriptionSink::new_for_subscription(
+                    TECHNICAL_RELATIONS,
+                    record.subscription,
+                    self.subscription_publisher.clone(),
+                ),
+            )?;
+        }
+        Ok(())
     }
 
     fn read_thought(&self, record: &RecordIdentifier) -> Result<Thought> {
@@ -882,15 +1321,106 @@ impl GraphSubscriptionPublisher {
         Self::Disabled
     }
 
-    fn publish_thought(
+    fn register_thought(
         &self,
         subscription: SubscriptionIdentifier,
         filter: signal_mind::ThoughtFilter,
+        cursor: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) {
+        match self {
+            Self::Actor(actor) => {
+                let _sent = actor
+                    .tell(RegisterThoughtSubscription::new(
+                        subscription,
+                        filter,
+                        cursor,
+                        initial_demand,
+                    ))
+                    .try_send();
+            }
+            #[cfg(test)]
+            Self::Disabled => {}
+        }
+    }
+
+    fn register_relation(
+        &self,
+        subscription: SubscriptionIdentifier,
+        filter: signal_mind::RelationFilter,
+        cursor: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) {
+        match self {
+            Self::Actor(actor) => {
+                let _sent = actor
+                    .tell(RegisterRelationSubscription::new(
+                        subscription,
+                        filter,
+                        cursor,
+                        initial_demand,
+                    ))
+                    .try_send();
+            }
+            #[cfg(test)]
+            Self::Disabled => {}
+        }
+    }
+
+    fn register_technical_node(
+        &self,
+        subscription: SubscriptionIdentifier,
+        filter: signal_mind::TechnicalNodeFilter,
+        cursor: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) {
+        match self {
+            Self::Actor(actor) => {
+                let _sent = actor
+                    .tell(RegisterTechnicalNodeSubscription::new(
+                        subscription,
+                        filter,
+                        cursor,
+                        initial_demand,
+                    ))
+                    .try_send();
+            }
+            #[cfg(test)]
+            Self::Disabled => {}
+        }
+    }
+
+    fn register_technical_relation(
+        &self,
+        subscription: SubscriptionIdentifier,
+        filter: signal_mind::TechnicalRelationFilter,
+        cursor: SubscriptionCursor,
+        initial_demand: SubscriptionDemandCredit,
+    ) {
+        match self {
+            Self::Actor(actor) => {
+                let _sent = actor
+                    .tell(RegisterTechnicalRelationSubscription::new(
+                        subscription,
+                        filter,
+                        cursor,
+                        initial_demand,
+                    ))
+                    .try_send();
+            }
+            #[cfg(test)]
+            Self::Disabled => {}
+        }
+    }
+
+    fn publish_thought(
+        &self,
+        subscription: SubscriptionIdentifier,
         thought: Thought,
     ) -> std::result::Result<(), SinkError> {
         match self {
             Self::Actor(actor) => actor
-                .tell(PublishThoughtDelta::new(subscription, filter, thought))
+                .tell(PublishThoughtDelta::new(subscription, thought))
                 .try_send()
                 .map_err(|error| SinkError::new(error.to_string())),
             #[cfg(test)]
@@ -901,12 +1431,11 @@ impl GraphSubscriptionPublisher {
     fn publish_relation(
         &self,
         subscription: SubscriptionIdentifier,
-        filter: signal_mind::RelationFilter,
         relation: Relation,
     ) -> std::result::Result<(), SinkError> {
         match self {
             Self::Actor(actor) => actor
-                .tell(PublishRelationDelta::new(subscription, filter, relation))
+                .tell(PublishRelationDelta::new(subscription, relation))
                 .try_send()
                 .map_err(|error| SinkError::new(error.to_string())),
             #[cfg(test)]
@@ -917,12 +1446,11 @@ impl GraphSubscriptionPublisher {
     fn publish_technical_node(
         &self,
         subscription: SubscriptionIdentifier,
-        filter: signal_mind::TechnicalNodeFilter,
         node: TechnicalNode,
     ) -> std::result::Result<(), SinkError> {
         match self {
             Self::Actor(actor) => actor
-                .tell(PublishTechnicalNodeDelta::new(subscription, filter, node))
+                .tell(PublishTechnicalNodeDelta::new(subscription, node))
                 .try_send()
                 .map_err(|error| SinkError::new(error.to_string())),
             #[cfg(test)]
@@ -933,16 +1461,11 @@ impl GraphSubscriptionPublisher {
     fn publish_technical_relation(
         &self,
         subscription: SubscriptionIdentifier,
-        filter: signal_mind::TechnicalRelationFilter,
         relation: TechnicalRelation,
     ) -> std::result::Result<(), SinkError> {
         match self {
             Self::Actor(actor) => actor
-                .tell(PublishTechnicalRelationDelta::new(
-                    subscription,
-                    filter,
-                    relation,
-                ))
+                .tell(PublishTechnicalRelationDelta::new(subscription, relation))
                 .try_send()
                 .map_err(|error| SinkError::new(error.to_string())),
             #[cfg(test)]
@@ -957,25 +1480,25 @@ struct GraphIdMint<'engine> {
 
 struct ThoughtSubscriptionSink {
     table: TableName,
-    filter: signal_mind::ThoughtFilter,
+    subscription: Option<SubscriptionIdentifier>,
     publisher: GraphSubscriptionPublisher,
 }
 
 struct RelationSubscriptionSink {
     table: TableName,
-    filter: signal_mind::RelationFilter,
+    subscription: Option<SubscriptionIdentifier>,
     publisher: GraphSubscriptionPublisher,
 }
 
 struct TechnicalNodeSubscriptionSink {
     table: TableName,
-    filter: signal_mind::TechnicalNodeFilter,
+    subscription: Option<SubscriptionIdentifier>,
     publisher: GraphSubscriptionPublisher,
 }
 
 struct TechnicalRelationSubscriptionSink {
     table: TableName,
-    filter: signal_mind::TechnicalRelationFilter,
+    subscription: Option<SubscriptionIdentifier>,
     publisher: GraphSubscriptionPublisher,
 }
 
@@ -1014,14 +1537,22 @@ struct CompactGraphIdentifier {
 }
 
 impl ThoughtSubscriptionSink {
-    fn new(
+    fn new(table: TableName, publisher: GraphSubscriptionPublisher) -> Arc<Self> {
+        Arc::new(Self {
+            table,
+            subscription: None,
+            publisher,
+        })
+    }
+
+    fn new_for_subscription(
         table: TableName,
-        filter: signal_mind::ThoughtFilter,
+        subscription: SubscriptionIdentifier,
         publisher: GraphSubscriptionPublisher,
     ) -> Arc<Self> {
         Arc::new(Self {
             table,
-            filter,
+            subscription: Some(subscription),
             publisher,
         })
     }
@@ -1040,14 +1571,22 @@ impl ThoughtSubscriptionSink {
 }
 
 impl RelationSubscriptionSink {
-    fn new(
+    fn new(table: TableName, publisher: GraphSubscriptionPublisher) -> Arc<Self> {
+        Arc::new(Self {
+            table,
+            subscription: None,
+            publisher,
+        })
+    }
+
+    fn new_for_subscription(
         table: TableName,
-        filter: signal_mind::RelationFilter,
+        subscription: SubscriptionIdentifier,
         publisher: GraphSubscriptionPublisher,
     ) -> Arc<Self> {
         Arc::new(Self {
             table,
-            filter,
+            subscription: Some(subscription),
             publisher,
         })
     }
@@ -1066,14 +1605,22 @@ impl RelationSubscriptionSink {
 }
 
 impl TechnicalNodeSubscriptionSink {
-    fn new(
+    fn new(table: TableName, publisher: GraphSubscriptionPublisher) -> Arc<Self> {
+        Arc::new(Self {
+            table,
+            subscription: None,
+            publisher,
+        })
+    }
+
+    fn new_for_subscription(
         table: TableName,
-        filter: signal_mind::TechnicalNodeFilter,
+        subscription: SubscriptionIdentifier,
         publisher: GraphSubscriptionPublisher,
     ) -> Arc<Self> {
         Arc::new(Self {
             table,
-            filter,
+            subscription: Some(subscription),
             publisher,
         })
     }
@@ -1092,14 +1639,22 @@ impl TechnicalNodeSubscriptionSink {
 }
 
 impl TechnicalRelationSubscriptionSink {
-    fn new(
+    fn new(table: TableName, publisher: GraphSubscriptionPublisher) -> Arc<Self> {
+        Arc::new(Self {
+            table,
+            subscription: None,
+            publisher,
+        })
+    }
+
+    fn new_for_subscription(
         table: TableName,
-        filter: signal_mind::TechnicalRelationFilter,
+        subscription: SubscriptionIdentifier,
         publisher: GraphSubscriptionPublisher,
     ) -> Arc<Self> {
         Arc::new(Self {
             table,
-            filter,
+            subscription: Some(subscription),
             publisher,
         })
     }
@@ -1133,8 +1688,9 @@ impl SubscriptionSink<StoredThought> for ThoughtSubscriptionSink {
             EngineSubscriptionEvent::Delta(delta) => {
                 self.ensure_table(delta.table())?;
                 self.publisher.publish_thought(
-                    MindTables::subscription_identifier_from_engine(delta.handle().id()),
-                    self.filter.clone(),
+                    self.subscription.clone().unwrap_or_else(|| {
+                        MindTables::subscription_identifier_from_engine(delta.handle().id())
+                    }),
                     delta.record().clone().into_record(),
                 )
             }
@@ -1158,8 +1714,9 @@ impl SubscriptionSink<StoredRelation> for RelationSubscriptionSink {
             EngineSubscriptionEvent::Delta(delta) => {
                 self.ensure_table(delta.table())?;
                 self.publisher.publish_relation(
-                    MindTables::subscription_identifier_from_engine(delta.handle().id()),
-                    self.filter.clone(),
+                    self.subscription.clone().unwrap_or_else(|| {
+                        MindTables::subscription_identifier_from_engine(delta.handle().id())
+                    }),
                     delta.record().clone().into_record(),
                 )
             }
@@ -1183,8 +1740,9 @@ impl SubscriptionSink<StoredTechnicalNode> for TechnicalNodeSubscriptionSink {
             EngineSubscriptionEvent::Delta(delta) => {
                 self.ensure_table(delta.table())?;
                 self.publisher.publish_technical_node(
-                    MindTables::subscription_identifier_from_engine(delta.handle().id()),
-                    self.filter.clone(),
+                    self.subscription.clone().unwrap_or_else(|| {
+                        MindTables::subscription_identifier_from_engine(delta.handle().id())
+                    }),
                     delta.record().clone().into_record(),
                 )
             }
@@ -1208,8 +1766,9 @@ impl SubscriptionSink<StoredTechnicalRelation> for TechnicalRelationSubscription
             EngineSubscriptionEvent::Delta(delta) => {
                 self.ensure_table(delta.table())?;
                 self.publisher.publish_technical_relation(
-                    MindTables::subscription_identifier_from_engine(delta.handle().id()),
-                    self.filter.clone(),
+                    self.subscription.clone().unwrap_or_else(|| {
+                        MindTables::subscription_identifier_from_engine(delta.handle().id())
+                    }),
                     delta.record().clone().into_record(),
                 )
             }
@@ -1265,10 +1824,11 @@ mod tests {
     use signal_mind::{
         ByTechnicalNodeStableKey, ByTechnicalRelationSource, ByThoughtKind, ComponentNode,
         GoalBody, GoalScope, RelationKind, SubmitRelation, SubmitTechnicalNode,
-        SubmitTechnicalRelation, SubmitThought, TechnicalNodeBody, TechnicalNodeFilter,
-        TechnicalNodeIdentifier, TechnicalNodeKind, TechnicalRelationEndpoint,
-        TechnicalRelationFilter, TechnicalRelationIdentifier, TechnicalRelationKind, TextBody,
-        ThoughtBody, ThoughtFilter, ThoughtKind, WirePath, WorkspaceGoal,
+        SubmitTechnicalRelation, SubmitThought, SubscriptionCursor, SubscriptionDemandCredit,
+        TechnicalNodeBody, TechnicalNodeFilter, TechnicalNodeIdentifier, TechnicalNodeKind,
+        TechnicalRelationEndpoint, TechnicalRelationFilter, TechnicalRelationIdentifier,
+        TechnicalRelationKind, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, WirePath,
+        WorkspaceGoal,
     };
     use signal_persona::ComponentName;
 
@@ -1286,6 +1846,8 @@ mod tests {
                 filter: ThoughtFilter::ByKind(ByThoughtKind {
                     kinds: vec![ThoughtKind::Goal],
                 }),
+                resume_after: None,
+                initial_demand: SubscriptionDemandCredit::new(1),
             })
             .expect("subscription appends");
         let stored = opened.record().clone();
@@ -1319,6 +1881,8 @@ mod tests {
                 filter: ThoughtFilter::ByKind(ByThoughtKind {
                     kinds: vec![ThoughtKind::Goal],
                 }),
+                resume_after: Some(SubscriptionCursor::initial()),
+                initial_demand: SubscriptionDemandCredit::new(1),
             })
             .expect("subscription appends");
 
@@ -1681,6 +2245,8 @@ mod tests {
                 filter: TechnicalNodeFilter::ByStableKey(ByTechnicalNodeStableKey {
                     stable_key: technical_key("component:mind"),
                 }),
+                resume_after: None,
+                initial_demand: SubscriptionDemandCredit::new(1),
             })
             .expect("technical node subscription asserts");
         let relation_subscription = tables
@@ -1688,6 +2254,8 @@ mod tests {
                 filter: TechnicalRelationFilter::BySource(ByTechnicalRelationSource {
                     source: technical_key("component:mind"),
                 }),
+                resume_after: None,
+                initial_demand: SubscriptionDemandCredit::new(1),
             })
             .expect("technical relation subscription asserts");
         let node_record = node_subscription.record().clone();

@@ -228,6 +228,41 @@
                   cargoTestExtraArgs = "--test actor_topology typed_relation_subscription_delivers_live_delta_through_subscription_actor";
                 }
               );
+          mind-subscription-resume-after-replays-ordered-available-history = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology subscription_resume_after_replays_ordered_available_history -- --exact";
+            }
+          );
+          mind-subscription-demand-releases-buffered-delta-without-overrun = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology subscription_demand_releases_buffered_delta_without_overrun -- --exact";
+            }
+          );
+          mind-subscription-retraction-cleans-runtime-stream = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology subscription_retraction_cleans_runtime_stream -- --exact";
+            }
+          );
+          mind-persisted-subscription-rehydrates-after-restart = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology persisted_subscription_rehydrates_after_restart -- --exact";
+            }
+          );
+          mind-daemon-boundary-accepts-subscription-demand-and-retraction = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test daemon_wire daemon_boundary_accepts_subscription_demand_and_retraction -- --exact";
+            }
+          );
           mind-graph-subscription-deltas-cannot-stop-at-table-sink = craneLib.cargoTest (
             commonArgs
             // {
@@ -323,13 +358,15 @@
               cargoTestExtraArgs = "--test actor_topology technical_storage_schema_and_table_facts_round_trip_through_actor_lane -- --exact";
             }
           );
-          mind-technical-split-dependency-kinds-and-defines-contract-validate-domain-range = craneLib.cargoTest (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-              cargoTestExtraArgs = "--test actor_topology technical_split_dependency_kinds_and_defines_contract_validate_domain_range -- --exact";
-            }
-          );
+          mind-technical-split-dependency-kinds-and-defines-contract-validate-domain-range =
+            craneLib.cargoTest
+              (
+                commonArgs
+                // {
+                  inherit cargoArtifacts;
+                  cargoTestExtraArgs = "--test actor_topology technical_split_dependency_kinds_and_defines_contract_validate_domain_range -- --exact";
+                }
+              );
           mind-technical-supersedes-appends-correction-without-replacing-old-fact = craneLib.cargoTest (
             commonArgs
             // {

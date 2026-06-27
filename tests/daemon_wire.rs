@@ -16,9 +16,10 @@ use signal_mind::{
     MindFrameBody as FrameBody, MindReply, MindRequest, NoteToSelf, ObservationBody,
     ObservationSummary, Opening, PathClaimScope, Query, QueryKind, QueryLimit, QueryRelations,
     QueryTechnicalNodes, QueryTechnicalRelations, QueryThoughts, RelationFilter, RelationKind,
-    RoleName, SubmitRelation, SubmitThought, TechnicalNodeFilter, TechnicalRelationFilter,
-    TechnicalRelationKind, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos,
-    Title, WirePath, WorkspaceGoal,
+    RoleName, SubmitRelation, SubmitThought, SubscribeThoughts, SubscriptionCursor,
+    SubscriptionDemand, SubscriptionDemandCredit, SubscriptionStreamKind, TechnicalNodeFilter,
+    TechnicalRelationFilter, TechnicalRelationKind, TextBody, ThoughtBody, ThoughtFilter,
+    ThoughtKind, TimestampNanos, Title, WirePath, WorkspaceGoal,
 };
 use signal_persona::{
     ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion,
@@ -114,6 +115,64 @@ fn mind_frame_codec_decodes_contract_local_operation_payload() {
 
     assert_eq!(decoded.actor(), &ActorName::new("designer"));
     assert_eq!(decoded.request(), &request);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn daemon_boundary_accepts_subscription_demand_and_retraction() {
+    let fixture = SocketFixture::new("subscription-lifecycle");
+    let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
+        .bind()
+        .await
+        .expect("daemon binds");
+    let endpoint = daemon.endpoint().clone();
+    let server = tokio::spawn(async move { daemon.serve_count(3).await });
+    let client = MindClient::new(endpoint, ActorName::new("operator"));
+
+    let accepted = client
+        .submit(MindRequest::SubscribeThoughts(SubscribeThoughts {
+            filter: ThoughtFilter::ByKind(ByThoughtKind {
+                kinds: vec![ThoughtKind::Goal],
+            }),
+            resume_after: Some(SubscriptionCursor::initial()),
+            initial_demand: SubscriptionDemandCredit::new(0),
+        }))
+        .await
+        .expect("subscription accepted over daemon boundary");
+    let MindReply::SubscriptionAccepted(subscription) = accepted else {
+        panic!("expected subscription accepted");
+    };
+
+    let demand = client
+        .submit(MindRequest::SubscriptionDemand(SubscriptionDemand {
+            subscription: subscription.subscription.clone(),
+            credit: SubscriptionDemandCredit::new(1),
+        }))
+        .await
+        .expect("demand accepted over daemon boundary");
+    assert!(matches!(
+        demand,
+        MindReply::SubscriptionDemandAccepted(accepted)
+            if accepted.subscription == subscription.subscription
+                && accepted.accepted == SubscriptionDemandCredit::new(1)
+    ));
+
+    let retracted = client
+        .submit(MindRequest::SubscriptionRetraction(
+            subscription.subscription.clone(),
+        ))
+        .await
+        .expect("retraction accepted over daemon boundary");
+    assert!(matches!(
+        retracted,
+        MindReply::SubscriptionRetracted(ack)
+            if ack.subscription == subscription.subscription
+                && ack.stream == SubscriptionStreamKind::Thoughts
+    ));
+
+    server
+        .await
+        .expect("daemon task joins")
+        .expect("daemon serves lifecycle requests");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

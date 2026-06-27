@@ -160,6 +160,7 @@ impl Actor for MindRoot {
         )
         .spawn()
         .await;
+        subscription.wait_for_startup().await;
         let supervision = supervision::SupervisionPhase::supervise(
             &actor_reference,
             supervision::SupervisionArguments::new(supervision::SupervisionProfile::mind()),
@@ -195,6 +196,11 @@ impl Actor for MindRoot {
         )
         .spawn()
         .await;
+        if let Ok(registrations) = store.ask(store::ReadSubscriptionRegistrations).await {
+            for registration in registrations.into_registrations() {
+                registration.register(&subscription).await;
+            }
+        }
         let _store_is_bound = subscription
             .ask(subscription::BindStore::new(store.clone()))
             .await
@@ -229,6 +235,7 @@ impl Actor for MindRoot {
                 domain: domain.clone(),
                 view: view.clone(),
                 reply: reply.clone(),
+                subscription: subscription.clone(),
             },
         )
         .spawn()

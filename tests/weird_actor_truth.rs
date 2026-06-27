@@ -735,8 +735,8 @@ fn graph_subscriptions_cannot_bypass_sema_engine_subscribe() {
     );
     assert_eq!(
         tables.text.matches(".engine.subscribe(").count(),
-        4,
-        "thought, relation, technical node, and technical relation subscriptions must register through sema-engine"
+        8,
+        "thought, relation, technical node, and technical relation subscriptions must register through sema-engine for fresh opens and restart rehydration"
     );
 }
 
@@ -759,10 +759,10 @@ fn graph_subscription_deltas_cannot_stop_at_table_sink() {
     assert!(
         subscription_actor
             .text
-            .contains("MindDelta::ThoughtCommitted")
+            .contains("SubscriptionStreamEvent::ThoughtCommitted")
             && subscription_actor
                 .text
-                .contains("MindDelta::RelationCommitted"),
+                .contains("SubscriptionStreamEvent::RelationCommitted"),
         "subscription actor must publish typed signal-mind delta variants, not raw table notifications"
     );
 }

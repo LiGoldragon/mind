@@ -134,6 +134,7 @@ impl MemoryGraph {
             | MindRequest::SubscribeThoughts(_)
             | MindRequest::SubscribeRelations(_)
             | MindRequest::SubscriptionRetraction(_)
+            | MindRequest::SubscriptionDemand(_)
             | MindRequest::AdjudicationRequest(_)
             | MindRequest::ChannelList(_) => None,
         }

@@ -79,6 +79,10 @@ pub(super) struct OpenTechnicalRelationSubscription {
 
 pub(super) struct ReadGraphRecords;
 
+pub(super) struct RetractSubscription {
+    pub(super) subscription: signal_mind::SubscriptionIdentifier,
+}
+
 pub(super) struct GraphStore {
     kernel: ActorRef<StoreKernel>,
 }
@@ -336,6 +340,16 @@ impl GraphStore {
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
+
+    async fn retract_subscription(
+        &self,
+        subscription: signal_mind::SubscriptionIdentifier,
+    ) -> crate::Result<bool> {
+        self.kernel
+            .ask(super::kernel::RetractSubscription::new(subscription))
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
 }
 
 impl Actor for GraphStore {
@@ -515,5 +529,19 @@ impl Message<ReadGraphRecords> for GraphStore {
             .unwrap_or_else(|_| GraphRecords {
                 relations: Vec::new(),
             })
+    }
+}
+
+impl Message<RetractSubscription> for GraphStore {
+    type Reply = bool;
+
+    async fn handle(
+        &mut self,
+        message: RetractSubscription,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.retract_subscription(message.subscription)
+            .await
+            .unwrap_or(false)
     }
 }

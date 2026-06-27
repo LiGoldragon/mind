@@ -3,7 +3,7 @@ use kameo::message::{Context, Message};
 use signal_mind::MindReply;
 
 use crate::graph::MindGraphLedger;
-use crate::tables::GraphSubscriptionPublisher;
+use crate::tables::{GraphSubscriptionPublisher, RuntimeSubscriptionRegistration};
 use crate::{MemoryGraph, MindEnvelope, MindTables, StoreLocation};
 
 use super::GraphRecords;
@@ -74,6 +74,12 @@ pub(super) struct SubscribeTechnicalRelations {
 }
 
 pub(super) struct ReadGraphRecords;
+
+pub(super) struct ReadSubscriptionRegistrations;
+
+pub(super) struct RetractSubscription {
+    subscription: signal_mind::SubscriptionIdentifier,
+}
 
 pub(super) struct ShutdownKernel;
 
@@ -188,6 +194,12 @@ impl SubscribeTechnicalNodes {
 impl SubscribeTechnicalRelations {
     pub(super) fn new(envelope: MindEnvelope) -> Self {
         Self { envelope }
+    }
+}
+
+impl RetractSubscription {
+    pub(super) fn new(subscription: signal_mind::SubscriptionIdentifier) -> Self {
+        Self { subscription }
     }
 }
 
@@ -351,6 +363,18 @@ impl StoreKernel {
                 .and_then(MindTables::relation_records)
                 .unwrap_or_default(),
         }
+    }
+
+    fn read_subscription_registrations(&self) -> Vec<RuntimeSubscriptionRegistration> {
+        self.tables()
+            .and_then(MindTables::runtime_subscription_registrations)
+            .unwrap_or_default()
+    }
+
+    fn retract_subscription(&self, subscription: signal_mind::SubscriptionIdentifier) -> bool {
+        self.tables()
+            .and_then(|tables| tables.retract_subscription(&subscription))
+            .is_ok()
     }
 }
 
@@ -543,6 +567,30 @@ impl Message<ReadGraphRecords> for StoreKernel {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.read_graph_records()
+    }
+}
+
+impl Message<ReadSubscriptionRegistrations> for StoreKernel {
+    type Reply = super::SubscriptionRegistrations;
+
+    async fn handle(
+        &mut self,
+        _message: ReadSubscriptionRegistrations,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        super::SubscriptionRegistrations::new(self.read_subscription_registrations())
+    }
+}
+
+impl Message<RetractSubscription> for StoreKernel {
+    type Reply = bool;
+
+    async fn handle(
+        &mut self,
+        message: RetractSubscription,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.retract_subscription(message.subscription)
     }
 }
 
