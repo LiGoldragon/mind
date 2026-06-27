@@ -53,6 +53,16 @@ pub struct SubscribeRelations {
     pub trace: ActorTrace,
 }
 
+pub struct SubscribeTechnicalNodes {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
+pub struct SubscribeTechnicalRelations {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
 impl ViewPhase {
     fn new(store: ActorRef<store::StoreSupervisor>) -> Self {
         Self { store }
@@ -195,6 +205,38 @@ impl ViewPhase {
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
+
+    async fn subscribe_technical_nodes(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        trace.record(TraceNode::VIEW_PHASE, TraceAction::MessageReceived);
+        trace.record(
+            TraceNode::SUBSCRIPTION_SUPERVISOR,
+            TraceAction::MessageReceived,
+        );
+        self.store
+            .ask(store::SubscribeTechnicalNodes { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn subscribe_technical_relations(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        trace.record(TraceNode::VIEW_PHASE, TraceAction::MessageReceived);
+        trace.record(
+            TraceNode::SUBSCRIPTION_SUPERVISOR,
+            TraceAction::MessageReceived,
+        );
+        self.store
+            .ask(store::SubscribeTechnicalRelations { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
 }
 
 impl Actor for ViewPhase {
@@ -318,6 +360,42 @@ impl Message<SubscribeRelations> for ViewPhase {
     ) -> Self::Reply {
         match self
             .subscribe_relations(message.envelope, message.trace)
+            .await
+        {
+            Ok(reply) => reply,
+            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
+        }
+    }
+}
+
+impl Message<SubscribeTechnicalNodes> for ViewPhase {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: SubscribeTechnicalNodes,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        match self
+            .subscribe_technical_nodes(message.envelope, message.trace)
+            .await
+        {
+            Ok(reply) => reply,
+            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
+        }
+    }
+}
+
+impl Message<SubscribeTechnicalRelations> for ViewPhase {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: SubscribeTechnicalRelations,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        match self
+            .subscribe_technical_relations(message.envelope, message.trace)
             .await
         {
             Ok(reply) => reply,

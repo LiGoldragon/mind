@@ -256,13 +256,45 @@
               cargoTestExtraArgs = "technical_relation_family_persists_endpoint_stable_keys";
             }
           );
-          mind-technical-subscription-families-persist-filters-without-delivery-logic = craneLib.cargoTest (
+          mind-technical-subscription-families-register-and-persist-filters = craneLib.cargoTest (
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoTestExtraArgs = "technical_subscription_families_persist_filters_without_delivery_logic";
+              cargoTestExtraArgs = "technical_subscription_families_register_and_persist_filters";
             }
           );
+          mind-technical-node-subscription-registers-and-returns-initial-snapshot = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology technical_node_subscription_registers_and_returns_initial_snapshot -- --exact";
+            }
+          );
+          mind-technical-node-subscription-delivers-live-delta-through-subscription-actor =
+            craneLib.cargoTest
+              (
+                commonArgs
+                // {
+                  inherit cargoArtifacts;
+                  cargoTestExtraArgs = "--test actor_topology technical_node_subscription_delivers_live_delta_through_subscription_actor -- --exact";
+                }
+              );
+          mind-technical-relation-subscription-registers-and-returns-initial-snapshot = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology technical_relation_subscription_registers_and_returns_initial_snapshot -- --exact";
+            }
+          );
+          mind-technical-relation-subscription-delivers-live-delta-through-subscription-actor =
+            craneLib.cargoTest
+              (
+                commonArgs
+                // {
+                  inherit cargoArtifacts;
+                  cargoTestExtraArgs = "--test actor_topology technical_relation_subscription_delivers_live_delta_through_subscription_actor -- --exact";
+                }
+              );
           mind-technical-node-and-relation-append-query-through-actor-lane = craneLib.cargoTest (
             commonArgs
             // {

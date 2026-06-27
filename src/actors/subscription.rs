@@ -2,11 +2,13 @@ use kameo::actor::{Actor, ActorRef};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
 use signal_mind::{
-    MindDelta, Relation, RelationFilter, SubscriptionEvent, SubscriptionIdentifier, Thought,
-    ThoughtFilter,
+    MindDelta, Relation, RelationFilter, SubscriptionEvent, SubscriptionIdentifier, TechnicalNode,
+    TechnicalNodeFilter, TechnicalRelation, TechnicalRelationFilter, Thought, ThoughtFilter,
 };
 
-use crate::graph::{RelationSelector, ThoughtSelector};
+use crate::graph::{
+    RelationSelector, TechnicalNodeSelector, TechnicalRelationSelector, ThoughtSelector,
+};
 
 use super::store;
 use super::trace::{ActorTrace, TraceAction, TraceNode};
@@ -41,6 +43,18 @@ pub(crate) struct PublishRelationDelta {
     subscription: SubscriptionIdentifier,
     filter: RelationFilter,
     relation: Relation,
+}
+
+pub(crate) struct PublishTechnicalNodeDelta {
+    subscription: SubscriptionIdentifier,
+    filter: TechnicalNodeFilter,
+    node: TechnicalNode,
+}
+
+pub(crate) struct PublishTechnicalRelationDelta {
+    subscription: SubscriptionIdentifier,
+    filter: TechnicalRelationFilter,
+    relation: TechnicalRelation,
 }
 
 pub struct ReadSubscriptionEvents {
@@ -115,6 +129,36 @@ impl SubscriptionSupervisor {
         }
     }
 
+    fn publish_technical_node(
+        &mut self,
+        message: PublishTechnicalNodeDelta,
+    ) -> SubscriptionPublishReceipt {
+        let selector = TechnicalNodeSelector::new(message.filter);
+        if selector.accepts(&message.node) {
+            self.publish(SubscriptionEvent {
+                subscription: message.subscription,
+                delta: MindDelta::TechnicalNodeCommitted(message.node),
+            })
+        } else {
+            SubscriptionPublishReceipt::new(self.post_commit_count)
+        }
+    }
+
+    fn publish_technical_relation(
+        &mut self,
+        message: PublishTechnicalRelationDelta,
+    ) -> SubscriptionPublishReceipt {
+        let selector = TechnicalRelationSelector::new(message.filter);
+        if selector.accepts(&message.relation) {
+            self.publish(SubscriptionEvent {
+                subscription: message.subscription,
+                delta: MindDelta::TechnicalRelationCommitted(message.relation),
+            })
+        } else {
+            SubscriptionPublishReceipt::new(self.post_commit_count)
+        }
+    }
+
     fn event_log(&self, request: ReadSubscriptionEvents) -> SubscriptionEventLog {
         SubscriptionEventLog::new(self.events.iter().take(request.limit()).cloned().collect())
     }
@@ -145,6 +189,34 @@ impl PublishRelationDelta {
         subscription: SubscriptionIdentifier,
         filter: RelationFilter,
         relation: Relation,
+    ) -> Self {
+        Self {
+            subscription,
+            filter,
+            relation,
+        }
+    }
+}
+
+impl PublishTechnicalNodeDelta {
+    pub(crate) fn new(
+        subscription: SubscriptionIdentifier,
+        filter: TechnicalNodeFilter,
+        node: TechnicalNode,
+    ) -> Self {
+        Self {
+            subscription,
+            filter,
+            node,
+        }
+    }
+}
+
+impl PublishTechnicalRelationDelta {
+    pub(crate) fn new(
+        subscription: SubscriptionIdentifier,
+        filter: TechnicalRelationFilter,
+        relation: TechnicalRelation,
     ) -> Self {
         Self {
             subscription,
@@ -258,6 +330,30 @@ impl Message<PublishRelationDelta> for SubscriptionSupervisor {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.publish_relation(message)
+    }
+}
+
+impl Message<PublishTechnicalNodeDelta> for SubscriptionSupervisor {
+    type Reply = SubscriptionPublishReceipt;
+
+    async fn handle(
+        &mut self,
+        message: PublishTechnicalNodeDelta,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.publish_technical_node(message)
+    }
+}
+
+impl Message<PublishTechnicalRelationDelta> for SubscriptionSupervisor {
+    type Reply = SubscriptionPublishReceipt;
+
+    async fn handle(
+        &mut self,
+        message: PublishTechnicalRelationDelta,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.publish_technical_relation(message)
     }
 }
 

@@ -89,6 +89,16 @@ pub struct SubscribeRelations {
     pub trace: ActorTrace,
 }
 
+pub struct SubscribeTechnicalNodes {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
+pub struct SubscribeTechnicalRelations {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
 pub(super) struct ReadGraphRecords;
 
 pub(super) struct ShutdownStore;
@@ -251,6 +261,30 @@ impl StoreSupervisor {
         trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
         self.graph
             .ask(graph::OpenRelationSubscription { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn subscribe_technical_nodes(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> crate::Result<PipelineReply> {
+        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
+        self.graph
+            .ask(graph::OpenTechnicalNodeSubscription { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn subscribe_technical_relations(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> crate::Result<PipelineReply> {
+        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
+        self.graph
+            .ask(graph::OpenTechnicalRelationSubscription { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
@@ -525,6 +559,34 @@ impl Message<SubscribeRelations> for StoreSupervisor {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.subscribe_relations(message.envelope, message.trace)
+            .await
+            .unwrap_or_else(PersistenceRejection::pipeline)
+    }
+}
+
+impl Message<SubscribeTechnicalNodes> for StoreSupervisor {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: SubscribeTechnicalNodes,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.subscribe_technical_nodes(message.envelope, message.trace)
+            .await
+            .unwrap_or_else(PersistenceRejection::pipeline)
+    }
+}
+
+impl Message<SubscribeTechnicalRelations> for StoreSupervisor {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: SubscribeTechnicalRelations,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.subscribe_technical_relations(message.envelope, message.trace)
             .await
             .unwrap_or_else(PersistenceRejection::pipeline)
     }

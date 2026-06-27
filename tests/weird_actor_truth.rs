@@ -735,8 +735,8 @@ fn graph_subscriptions_cannot_bypass_sema_engine_subscribe() {
     );
     assert_eq!(
         tables.text.matches(".engine.subscribe(").count(),
-        2,
-        "thought and relation subscriptions must both register through sema-engine"
+        4,
+        "thought, relation, technical node, and technical relation subscriptions must register through sema-engine"
     );
 }
 
@@ -750,7 +750,10 @@ fn graph_subscription_deltas_cannot_stop_at_table_sink() {
         "mind subscription sinks must use inline sema-engine delivery so actor tests can observe post-commit deltas without polling"
     );
     assert!(
-        tables.text.contains("PublishThoughtDelta") && tables.text.contains("PublishRelationDelta"),
+        tables.text.contains("PublishThoughtDelta")
+            && tables.text.contains("PublishRelationDelta")
+            && tables.text.contains("PublishTechnicalNodeDelta")
+            && tables.text.contains("PublishTechnicalRelationDelta"),
         "sema-engine deltas must be translated into typed mind subscription actor messages"
     );
     assert!(

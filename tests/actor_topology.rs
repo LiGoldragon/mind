@@ -10,14 +10,15 @@ use mind::{
 use signal_mind::{
     ActiveClaim, ActorName, ByRelationKind, ByTechnicalNodeStableKey, ByTechnicalRelationSource,
     ByThoughtKind, ClaimActivity, ClaimBody, ClaimScope, FileReference, GoalBody, GoalScope,
-    ItemKind, Magnitude, MindDelta, MindReply, MindRequest, Opening, PathClaimScope, Query,
-    QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes, QueryTechnicalRelations,
+    ItemKind, Magnitude, MindDelta, MindReply, MindRequest, MindSnapshot, Opening, PathClaimScope,
+    Query, QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes, QueryTechnicalRelations,
     QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter, RelationKind, RoleName,
     SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation, SubmitThought,
-    SubscribeRelations, SubscribeThoughts, TechnicalNodeBody, TechnicalNodeFilter,
-    TechnicalNodeKey, TechnicalNodeKind, TechnicalNodeRejectionReason, TechnicalRelationFilter,
-    TechnicalRelationKind, TechnicalRelationRejectionReason, TextBody, ThoughtBody, ThoughtFilter,
-    ThoughtKind, TimestampNanos, Title, WirePath, WorkspaceGoal,
+    SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations, SubscribeThoughts,
+    TechnicalNodeBody, TechnicalNodeFilter, TechnicalNodeKey, TechnicalNodeKind,
+    TechnicalNodeRejectionReason, TechnicalRelationFilter, TechnicalRelationKind,
+    TechnicalRelationRejectionReason, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind,
+    TimestampNanos, Title, WirePath, WorkspaceGoal,
 };
 use signal_persona::ComponentName;
 
@@ -585,6 +586,244 @@ async fn technical_append_rejects_invalid_records() {
                 TechnicalRelationRejectionReason::DomainRangeViolation(_)
             )
     ));
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn technical_node_subscription_registers_and_returns_initial_snapshot() {
+    let fixture = ActorFixture::new().await;
+    let component_key = TechnicalNodeKey::new("component:mind");
+    let _component = fixture
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: component_key.clone(),
+            kind: TechnicalNodeKind::Component,
+            body: TechnicalNodeBody::Component(signal_mind::ComponentNode {
+                component: ComponentName::new("mind"),
+                summary: Some(TextBody::new("mind daemon")),
+            }),
+        }))
+        .await;
+
+    let response = fixture
+        .submit(MindRequest::SubscribeTechnicalNodes(
+            SubscribeTechnicalNodes {
+                filter: TechnicalNodeFilter::ByStableKey(ByTechnicalNodeStableKey {
+                    stable_key: component_key.clone(),
+                }),
+            },
+        ))
+        .await;
+
+    let MindReply::SubscriptionAccepted(subscription) = response.reply().expect("reply exists")
+    else {
+        panic!("expected subscription accepted");
+    };
+
+    assert_eq!(subscription.subscription.as_str().len(), 3);
+    assert_eq!(subscription.initial_snapshot.len(), 1);
+    let MindSnapshot::TechnicalNode(node) = &subscription.initial_snapshot[0] else {
+        panic!("expected technical node snapshot");
+    };
+    assert_eq!(node.stable_key, component_key);
+    assert!(response.trace().contains_ordered(&[
+        TraceNode::MIND_ROOT,
+        TraceNode::INGRESS_PHASE,
+        TraceNode::DISPATCH_PHASE,
+        TraceNode::GRAPH_QUERY_FLOW,
+        TraceNode::VIEW_PHASE,
+        TraceNode::SUBSCRIPTION_SUPERVISOR,
+        TraceNode::STORE_SUPERVISOR,
+        TraceNode::GRAPH_STORE,
+        TraceNode::ID_MINT,
+        TraceNode::SEMA_READER,
+        TraceNode::SEMA_WRITER,
+        TraceNode::COMMIT,
+        TraceNode::REPLY_SHAPER,
+    ]));
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn technical_node_subscription_delivers_live_delta_through_subscription_actor() {
+    let fixture = ActorFixture::new().await;
+    let component_key = TechnicalNodeKey::new("component:mind");
+    let subscription_response = fixture
+        .submit(MindRequest::SubscribeTechnicalNodes(
+            SubscribeTechnicalNodes {
+                filter: TechnicalNodeFilter::ByStableKey(ByTechnicalNodeStableKey {
+                    stable_key: component_key.clone(),
+                }),
+            },
+        ))
+        .await;
+
+    let MindReply::SubscriptionAccepted(subscription) =
+        subscription_response.reply().expect("reply exists")
+    else {
+        panic!("expected subscription accepted");
+    };
+
+    let commit_response = fixture
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: component_key.clone(),
+            kind: TechnicalNodeKind::Component,
+            body: TechnicalNodeBody::Component(signal_mind::ComponentNode {
+                component: ComponentName::new("mind"),
+                summary: None,
+            }),
+        }))
+        .await;
+    let events = fixture.subscription_events().await;
+
+    let MindReply::TechnicalNodeCommitted(receipt) = commit_response.reply().expect("reply exists")
+    else {
+        panic!("expected technical node commit");
+    };
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].subscription, subscription.subscription);
+    let MindDelta::TechnicalNodeCommitted(node) = &events[0].delta else {
+        panic!("expected technical node delta");
+    };
+    assert_eq!(node.identifier, receipt.node.identifier);
+    assert_eq!(node.stable_key, component_key);
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn technical_relation_subscription_registers_and_returns_initial_snapshot() {
+    let fixture = ActorFixture::new().await;
+    let component_key = TechnicalNodeKey::new("component:mind");
+    let repository_key = TechnicalNodeKey::new("repository:mind");
+
+    let _component = fixture
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: component_key.clone(),
+            kind: TechnicalNodeKind::Component,
+            body: TechnicalNodeBody::Component(signal_mind::ComponentNode {
+                component: ComponentName::new("mind"),
+                summary: None,
+            }),
+        }))
+        .await;
+    let _repository = fixture
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: repository_key.clone(),
+            kind: TechnicalNodeKind::Repository,
+            body: TechnicalNodeBody::Repository(signal_mind::RepositoryNode {
+                path: WirePath::from_absolute_path("/git/github.com/LiGoldragon/mind")
+                    .expect("absolute path"),
+                remote: None,
+            }),
+        }))
+        .await;
+    let _relation = fixture
+        .submit(MindRequest::SubmitTechnicalRelation(
+            SubmitTechnicalRelation {
+                kind: TechnicalRelationKind::OwnsRepository,
+                source: component_key.clone(),
+                target: repository_key.clone(),
+                note: None,
+            },
+        ))
+        .await;
+
+    let response = fixture
+        .submit(MindRequest::SubscribeTechnicalRelations(
+            SubscribeTechnicalRelations {
+                filter: TechnicalRelationFilter::BySource(ByTechnicalRelationSource {
+                    source: component_key.clone(),
+                }),
+            },
+        ))
+        .await;
+
+    let MindReply::SubscriptionAccepted(subscription) = response.reply().expect("reply exists")
+    else {
+        panic!("expected subscription accepted");
+    };
+
+    assert_eq!(subscription.subscription.as_str().len(), 3);
+    assert_eq!(subscription.initial_snapshot.len(), 1);
+    let MindSnapshot::TechnicalRelation(relation) = &subscription.initial_snapshot[0] else {
+        panic!("expected technical relation snapshot");
+    };
+    assert_eq!(relation.source.stable_key, component_key);
+    assert_eq!(relation.target.stable_key, repository_key);
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn technical_relation_subscription_delivers_live_delta_through_subscription_actor() {
+    let fixture = ActorFixture::new().await;
+    let component_key = TechnicalNodeKey::new("component:mind");
+    let repository_key = TechnicalNodeKey::new("repository:mind");
+
+    let _component = fixture
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: component_key.clone(),
+            kind: TechnicalNodeKind::Component,
+            body: TechnicalNodeBody::Component(signal_mind::ComponentNode {
+                component: ComponentName::new("mind"),
+                summary: None,
+            }),
+        }))
+        .await;
+    let _repository = fixture
+        .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
+            stable_key: repository_key.clone(),
+            kind: TechnicalNodeKind::Repository,
+            body: TechnicalNodeBody::Repository(signal_mind::RepositoryNode {
+                path: WirePath::from_absolute_path("/git/github.com/LiGoldragon/mind")
+                    .expect("absolute path"),
+                remote: None,
+            }),
+        }))
+        .await;
+    let subscription_response = fixture
+        .submit(MindRequest::SubscribeTechnicalRelations(
+            SubscribeTechnicalRelations {
+                filter: TechnicalRelationFilter::BySource(ByTechnicalRelationSource {
+                    source: component_key.clone(),
+                }),
+            },
+        ))
+        .await;
+
+    let MindReply::SubscriptionAccepted(subscription) =
+        subscription_response.reply().expect("reply exists")
+    else {
+        panic!("expected subscription accepted");
+    };
+
+    let commit_response = fixture
+        .submit(MindRequest::SubmitTechnicalRelation(
+            SubmitTechnicalRelation {
+                kind: TechnicalRelationKind::OwnsRepository,
+                source: component_key.clone(),
+                target: repository_key.clone(),
+                note: None,
+            },
+        ))
+        .await;
+    let events = fixture.subscription_events().await;
+
+    let MindReply::TechnicalRelationCommitted(receipt) =
+        commit_response.reply().expect("reply exists")
+    else {
+        panic!("expected technical relation commit");
+    };
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].subscription, subscription.subscription);
+    let MindDelta::TechnicalRelationCommitted(relation) = &events[0].delta else {
+        panic!("expected technical relation delta");
+    };
+    assert_eq!(relation.identifier, receipt.relation.identifier);
+    assert_eq!(relation.source.stable_key, component_key);
+    assert_eq!(relation.target.stable_key, repository_key);
 
     fixture.stop().await;
 }

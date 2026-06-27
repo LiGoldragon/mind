@@ -91,6 +91,14 @@ impl DispatchPhase {
                 trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
                 self.subscribe_relations(envelope, trace).await?
             }
+            MindRequest::SubscribeTechnicalNodes(_) => {
+                trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
+                self.subscribe_technical_nodes(envelope, trace).await?
+            }
+            MindRequest::SubscribeTechnicalRelations(_) => {
+                trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
+                self.subscribe_technical_relations(envelope, trace).await?
+            }
             MindRequest::Opening(_)
             | MindRequest::NoteSubmission(_)
             | MindRequest::Link(_)
@@ -105,8 +113,6 @@ impl DispatchPhase {
             }
             MindRequest::AdjudicationRequest(_)
             | MindRequest::ChannelList(_)
-            | MindRequest::SubscribeTechnicalNodes(_)
-            | MindRequest::SubscribeTechnicalRelations(_)
             | MindRequest::SubscriptionRetraction(_) => self.unimplemented(trace),
         };
 
@@ -230,6 +236,28 @@ impl DispatchPhase {
     ) -> CrateResult<PipelineReply> {
         self.view
             .ask(view::SubscribeRelations { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn subscribe_technical_nodes(
+        &self,
+        envelope: MindEnvelope,
+        trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        self.view
+            .ask(view::SubscribeTechnicalNodes { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn subscribe_technical_relations(
+        &self,
+        envelope: MindEnvelope,
+        trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        self.view
+            .ask(view::SubscribeTechnicalRelations { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }

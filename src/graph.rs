@@ -126,6 +126,29 @@ impl<'tables> MindGraphLedger<'tables> {
         }
     }
 
+    pub(crate) fn subscribe_technical_nodes(&self, envelope: MindEnvelope) -> Result<MindReply> {
+        let MindEnvelope { request, .. } = envelope;
+        match request {
+            signal_mind::MindRequest::SubscribeTechnicalNodes(subscription) => {
+                self.open_technical_node_subscription(subscription)
+            }
+            _ => Ok(Self::unimplemented()),
+        }
+    }
+
+    pub(crate) fn subscribe_technical_relations(
+        &self,
+        envelope: MindEnvelope,
+    ) -> Result<MindReply> {
+        let MindEnvelope { request, .. } = envelope;
+        match request {
+            signal_mind::MindRequest::SubscribeTechnicalRelations(subscription) => {
+                self.open_technical_relation_subscription(subscription)
+            }
+            _ => Ok(Self::unimplemented()),
+        }
+    }
+
     fn commit_thought(
         &self,
         actor: signal_mind::ActorName,
@@ -280,6 +303,48 @@ impl<'tables> MindGraphLedger<'tables> {
             .filter(|relation| selector.accepts(relation))
             .cloned()
             .map(signal_mind::MindSnapshot::Relation)
+            .collect();
+        Ok(MindReply::SubscriptionAccepted(SubscriptionAccepted {
+            subscription: opened.record().subscription.clone(),
+            initial_snapshot,
+        }))
+    }
+
+    fn open_technical_node_subscription(
+        &self,
+        subscription: signal_mind::SubscribeTechnicalNodes,
+    ) -> Result<MindReply> {
+        let opened = self
+            .tables
+            .append_technical_node_subscription(subscription)?;
+        let selector = TechnicalNodeSelector::new(opened.record().filter.clone());
+        let initial_snapshot = opened
+            .initial()
+            .iter()
+            .filter(|node| selector.accepts(node))
+            .cloned()
+            .map(signal_mind::MindSnapshot::TechnicalNode)
+            .collect();
+        Ok(MindReply::SubscriptionAccepted(SubscriptionAccepted {
+            subscription: opened.record().subscription.clone(),
+            initial_snapshot,
+        }))
+    }
+
+    fn open_technical_relation_subscription(
+        &self,
+        subscription: signal_mind::SubscribeTechnicalRelations,
+    ) -> Result<MindReply> {
+        let opened = self
+            .tables
+            .append_technical_relation_subscription(subscription)?;
+        let selector = TechnicalRelationSelector::new(opened.record().filter.clone());
+        let initial_snapshot = opened
+            .initial()
+            .iter()
+            .filter(|relation| selector.accepts(relation))
+            .cloned()
+            .map(signal_mind::MindSnapshot::TechnicalRelation)
             .collect();
         Ok(MindReply::SubscriptionAccepted(SubscriptionAccepted {
             subscription: opened.record().subscription.clone(),

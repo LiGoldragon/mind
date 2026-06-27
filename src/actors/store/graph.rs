@@ -5,8 +5,9 @@ use crate::MindEnvelope;
 
 use super::kernel::{
     KernelReply, ReadGraphRecords as ReadKernelGraphRecords, ReadRelations, ReadTechnicalNodes,
-    ReadTechnicalRelations, ReadThoughts, StoreKernel, SubscribeRelations, SubscribeThoughts,
-    WriteRelation, WriteTechnicalNode, WriteTechnicalRelation, WriteThought,
+    ReadTechnicalRelations, ReadThoughts, StoreKernel, SubscribeRelations, SubscribeTechnicalNodes,
+    SubscribeTechnicalRelations, SubscribeThoughts, WriteRelation, WriteTechnicalNode,
+    WriteTechnicalRelation, WriteThought,
 };
 use super::persistence::PersistenceRejection;
 use super::{ActorTrace, GraphRecords, PipelineReply, TraceAction, TraceNode};
@@ -62,6 +63,16 @@ pub(super) struct OpenThoughtSubscription {
 }
 
 pub(super) struct OpenRelationSubscription {
+    pub(super) envelope: MindEnvelope,
+    pub(super) trace: ActorTrace,
+}
+
+pub(super) struct OpenTechnicalNodeSubscription {
+    pub(super) envelope: MindEnvelope,
+    pub(super) trace: ActorTrace,
+}
+
+pub(super) struct OpenTechnicalRelationSubscription {
     pub(super) envelope: MindEnvelope,
     pub(super) trace: ActorTrace,
 }
@@ -271,6 +282,54 @@ impl GraphStore {
         PipelineReply::new(reply, trace)
     }
 
+    async fn subscribe_technical_nodes(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> PipelineReply {
+        trace.record(TraceNode::GRAPH_STORE, TraceAction::MessageReceived);
+        trace.record(
+            TraceNode::SUBSCRIPTION_SUPERVISOR,
+            TraceAction::MessageReceived,
+        );
+        trace.record(TraceNode::ID_MINT, TraceAction::MessageReceived);
+        trace.record(TraceNode::SEMA_READER, TraceAction::MessageReceived);
+        trace.record(TraceNode::SEMA_WRITER, TraceAction::WriteIntentSent);
+        let reply = self
+            .kernel
+            .ask(SubscribeTechnicalNodes::new(envelope))
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+            .map(KernelReply::into_reply)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+        trace.record(TraceNode::COMMIT, TraceAction::CommitCompleted);
+        PipelineReply::new(reply, trace)
+    }
+
+    async fn subscribe_technical_relations(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> PipelineReply {
+        trace.record(TraceNode::GRAPH_STORE, TraceAction::MessageReceived);
+        trace.record(
+            TraceNode::SUBSCRIPTION_SUPERVISOR,
+            TraceAction::MessageReceived,
+        );
+        trace.record(TraceNode::ID_MINT, TraceAction::MessageReceived);
+        trace.record(TraceNode::SEMA_READER, TraceAction::MessageReceived);
+        trace.record(TraceNode::SEMA_WRITER, TraceAction::WriteIntentSent);
+        let reply = self
+            .kernel
+            .ask(SubscribeTechnicalRelations::new(envelope))
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+            .map(KernelReply::into_reply)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+        trace.record(TraceNode::COMMIT, TraceAction::CommitCompleted);
+        PipelineReply::new(reply, trace)
+    }
+
     async fn read_graph_records(&self) -> crate::Result<GraphRecords> {
         self.kernel
             .ask(ReadKernelGraphRecords)
@@ -413,6 +472,32 @@ impl Message<OpenRelationSubscription> for GraphStore {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.subscribe_relations(message.envelope, message.trace)
+            .await
+    }
+}
+
+impl Message<OpenTechnicalNodeSubscription> for GraphStore {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: OpenTechnicalNodeSubscription,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.subscribe_technical_nodes(message.envelope, message.trace)
+            .await
+    }
+}
+
+impl Message<OpenTechnicalRelationSubscription> for GraphStore {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: OpenTechnicalRelationSubscription,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.subscribe_technical_relations(message.envelope, message.trace)
             .await
     }
 }

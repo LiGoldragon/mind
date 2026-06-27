@@ -65,6 +65,14 @@ pub(super) struct SubscribeRelations {
     envelope: MindEnvelope,
 }
 
+pub(super) struct SubscribeTechnicalNodes {
+    envelope: MindEnvelope,
+}
+
+pub(super) struct SubscribeTechnicalRelations {
+    envelope: MindEnvelope,
+}
+
 pub(super) struct ReadGraphRecords;
 
 pub(super) struct ShutdownKernel;
@@ -166,6 +174,18 @@ impl SubscribeThoughts {
 }
 
 impl SubscribeRelations {
+    pub(super) fn new(envelope: MindEnvelope) -> Self {
+        Self { envelope }
+    }
+}
+
+impl SubscribeTechnicalNodes {
+    pub(super) fn new(envelope: MindEnvelope) -> Self {
+        Self { envelope }
+    }
+}
+
+impl SubscribeTechnicalRelations {
     pub(super) fn new(envelope: MindEnvelope) -> Self {
         Self { envelope }
     }
@@ -298,6 +318,26 @@ impl StoreKernel {
         let reply = self
             .tables()
             .and_then(|tables| MindGraphLedger::new(tables).subscribe_relations(envelope))
+            .map(Some)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+
+        KernelReply::new(reply)
+    }
+
+    fn subscribe_technical_nodes(&self, envelope: MindEnvelope) -> KernelReply {
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).subscribe_technical_nodes(envelope))
+            .map(Some)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+
+        KernelReply::new(reply)
+    }
+
+    fn subscribe_technical_relations(&self, envelope: MindEnvelope) -> KernelReply {
+        let reply = self
+            .tables()
+            .and_then(|tables| MindGraphLedger::new(tables).subscribe_technical_relations(envelope))
             .map(Some)
             .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
 
@@ -467,6 +507,30 @@ impl Message<SubscribeRelations> for StoreKernel {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.subscribe_relations(message.envelope)
+    }
+}
+
+impl Message<SubscribeTechnicalNodes> for StoreKernel {
+    type Reply = KernelReply;
+
+    async fn handle(
+        &mut self,
+        message: SubscribeTechnicalNodes,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.subscribe_technical_nodes(message.envelope)
+    }
+}
+
+impl Message<SubscribeTechnicalRelations> for StoreKernel {
+    type Reply = KernelReply;
+
+    async fn handle(
+        &mut self,
+        message: SubscribeTechnicalRelations,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.subscribe_technical_relations(message.envelope)
     }
 }
 
