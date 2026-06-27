@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -5,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mind::actors::{ActorManifest, ActorResidency, ReadSubscriptionEvents, TraceAction, TraceNode};
 use mind::{
     ActorRef, MindEnvelope, MindRoot, MindRootArguments, MindRootReply, StoreLocation,
-    SubmitEnvelope,
+    SubmitEnvelope, TechnicalSeedDataset,
 };
 use signal_mind::{
     ActiveClaim, ActorName, ByRelationKind, ByTechnicalNodeStableKey, ByTechnicalRelationSource,
@@ -824,6 +825,152 @@ async fn technical_relation_subscription_delivers_live_delta_through_subscriptio
     assert_eq!(relation.identifier, receipt.relation.identifier);
     assert_eq!(relation.source.stable_key, component_key);
     assert_eq!(relation.target.stable_key, repository_key);
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn public_technical_seed_delivers_subscription_deltas() {
+    let fixture = ActorFixture::new().await;
+    let dataset = TechnicalSeedDataset::public_first_slice();
+    let node_subscription = fixture
+        .submit(MindRequest::SubscribeTechnicalNodes(
+            SubscribeTechnicalNodes {
+                filter: TechnicalNodeFilter::ByKind(signal_mind::ByTechnicalNodeKind {
+                    kinds: Vec::new(),
+                }),
+            },
+        ))
+        .await;
+    let relation_subscription = fixture
+        .submit(MindRequest::SubscribeTechnicalRelations(
+            SubscribeTechnicalRelations {
+                filter: TechnicalRelationFilter::ByKind(signal_mind::ByTechnicalRelationKind {
+                    kinds: Vec::new(),
+                }),
+            },
+        ))
+        .await;
+
+    let MindReply::SubscriptionAccepted(node_subscription) = node_subscription
+        .reply()
+        .expect("node subscription reply exists")
+    else {
+        panic!("expected technical node subscription");
+    };
+    let MindReply::SubscriptionAccepted(relation_subscription) = relation_subscription
+        .reply()
+        .expect("relation subscription reply exists")
+    else {
+        panic!("expected technical relation subscription");
+    };
+
+    for node in dataset.nodes().iter().cloned() {
+        let response = fixture.submit(MindRequest::SubmitTechnicalNode(node)).await;
+        assert!(matches!(
+            response.reply().expect("node reply exists"),
+            MindReply::TechnicalNodeCommitted(_)
+        ));
+    }
+    for relation in dataset.relations().iter().cloned() {
+        let response = fixture
+            .submit(MindRequest::SubmitTechnicalRelation(relation))
+            .await;
+        assert!(matches!(
+            response.reply().expect("relation reply exists"),
+            MindReply::TechnicalRelationCommitted(_)
+        ));
+    }
+
+    let events = fixture.subscription_events().await;
+    let node_delta_count = events
+        .iter()
+        .filter(|event| {
+            event.subscription == node_subscription.subscription
+                && matches!(event.delta, MindDelta::TechnicalNodeCommitted(_))
+        })
+        .count();
+    let relation_delta_count = events
+        .iter()
+        .filter(|event| {
+            event.subscription == relation_subscription.subscription
+                && matches!(event.delta, MindDelta::TechnicalRelationCommitted(_))
+        })
+        .count();
+
+    assert_eq!(node_delta_count, dataset.nodes().len());
+    assert_eq!(relation_delta_count, dataset.relations().len());
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn public_technical_seed_queries_back_exact_facts_through_actor_lane() {
+    let fixture = ActorFixture::new().await;
+    let dataset = TechnicalSeedDataset::public_first_slice();
+
+    for node in dataset.nodes().iter().cloned() {
+        let response = fixture.submit(MindRequest::SubmitTechnicalNode(node)).await;
+        assert!(matches!(
+            response.reply().expect("node reply exists"),
+            MindReply::TechnicalNodeCommitted(_)
+        ));
+    }
+    for relation in dataset.relations().iter().cloned() {
+        let response = fixture
+            .submit(MindRequest::SubmitTechnicalRelation(relation))
+            .await;
+        assert!(matches!(
+            response.reply().expect("relation reply exists"),
+            MindReply::TechnicalRelationCommitted(_)
+        ));
+    }
+
+    let nodes = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            filter: TechnicalNodeFilter::ByKind(signal_mind::ByTechnicalNodeKind {
+                kinds: Vec::new(),
+            }),
+            limit: QueryLimit::new(100),
+        }))
+        .await;
+    let relations = fixture
+        .submit(MindRequest::QueryTechnicalRelations(
+            QueryTechnicalRelations {
+                filter: TechnicalRelationFilter::BySource(ByTechnicalRelationSource {
+                    source: dataset.mind_component_key(),
+                }),
+                limit: QueryLimit::new(100),
+            },
+        ))
+        .await;
+
+    let MindReply::TechnicalNodeList(nodes) = nodes.reply().expect("node list reply exists") else {
+        panic!("expected technical node list");
+    };
+    let MindReply::TechnicalRelationList(relations) =
+        relations.reply().expect("relation list reply exists")
+    else {
+        panic!("expected technical relation list");
+    };
+    let actual_node_keys = nodes
+        .nodes
+        .iter()
+        .map(|node| node.stable_key.clone())
+        .collect::<HashSet<_>>();
+    let expected_node_keys = dataset.all_node_keys().into_iter().collect::<HashSet<_>>();
+
+    assert_eq!(actual_node_keys, expected_node_keys);
+    assert!(relations.relations.iter().any(|relation| {
+        relation.kind == TechnicalRelationKind::UsesContract
+            && relation.source.stable_key == dataset.mind_component_key()
+            && relation.target.stable_key == dataset.signal_mind_contract_key()
+    }));
+    assert!(relations.relations.iter().any(|relation| {
+        relation.kind == TechnicalRelationKind::UsesStorage
+            && relation.source.stable_key == dataset.mind_component_key()
+            && relation.target.stable_key == dataset.durable_storage_claim_key()
+    }));
 
     fixture.stop().await;
 }

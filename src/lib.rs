@@ -13,6 +13,7 @@ pub mod memory;
 pub mod meta;
 pub mod supervision;
 pub mod tables;
+pub mod technical_seed;
 pub mod text;
 pub mod transport;
 
@@ -45,5 +46,6 @@ pub use supervision::{
     SupervisionFrameCodec, SupervisionListener, SupervisionProfile, SupervisionSocketMode,
 };
 pub use tables::MindTables;
+pub use technical_seed::TechnicalSeedDataset;
 pub use text::{MindTextReply, MindTextRequest};
 pub use transport::{MindClient, MindDaemon, MindDaemonEndpoint, MindFrameCodec, MindSocketMode};

@@ -309,13 +309,29 @@
               cargoTestExtraArgs = "--test actor_topology technical_append_rejects_invalid_records -- --exact";
             }
           );
-          mind-technical-node-append-mints-compact-identifier-and-rejects-kind-body-mismatch = craneLib.cargoTest (
+          mind-public-technical-seed-delivers-subscription-deltas = craneLib.cargoTest (
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoTestExtraArgs = "technical_node_append_mints_compact_identifier_and_rejects_kind_body_mismatch";
+              cargoTestExtraArgs = "--test actor_topology public_technical_seed_delivers_subscription_deltas -- --exact";
             }
           );
+          mind-public-technical-seed-survives-daemon-restart = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test daemon_wire mind_typed_technical_seed_survives_daemon_restart_and_queries_back -- --exact";
+            }
+          );
+          mind-technical-node-append-mints-compact-identifier-and-rejects-kind-body-mismatch =
+            craneLib.cargoTest
+              (
+                commonArgs
+                // {
+                  inherit cargoArtifacts;
+                  cargoTestExtraArgs = "technical_node_append_mints_compact_identifier_and_rejects_kind_body_mismatch";
+                }
+              );
           mind-technical-node-append-rejects-duplicate-stable-key = craneLib.cargoTest (
             commonArgs
             // {

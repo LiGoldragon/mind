@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::os::unix::fs::PermissionsExt;
@@ -5,17 +6,19 @@ use std::sync::{Mutex, MutexGuard};
 
 use mind::{
     MindClient, MindDaemon, MindDaemonEndpoint, MindFrameCodec, MindSocketMode, StoreLocation,
-    SupervisionFrameCodec, SupervisionListener, SupervisionSocketMode,
+    SupervisionFrameCodec, SupervisionListener, SupervisionSocketMode, TechnicalSeedDataset,
 };
 use signal_frame::{ExchangeIdentifier, ExchangeLane, LaneSequence, RequestPayload, SessionEpoch};
 use signal_mind::{
-    ActiveClaim, ActorName, Alternative, AlternativeIdentifier, ByRelationKind, ByThoughtKind,
-    ClaimActivity, ClaimBody, ClaimScope, DecisionBody, GoalBody, GoalScope, ItemKind, Magnitude,
-    MindFrame as Frame, MindFrameBody as FrameBody, MindReply, MindRequest, NoteToSelf,
-    ObservationBody, ObservationSummary, Opening, PathClaimScope, Query, QueryKind, QueryLimit,
-    QueryRelations, QueryThoughts, RelationFilter, RelationKind, RoleName, SubmitRelation,
-    SubmitThought, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos, Title,
-    WirePath, WorkspaceGoal,
+    ActiveClaim, ActorName, Alternative, AlternativeIdentifier, ByRelationKind,
+    ByTechnicalNodeKind, ByTechnicalRelationKind, ByThoughtKind, ClaimActivity, ClaimBody,
+    ClaimScope, DecisionBody, GoalBody, GoalScope, ItemKind, Magnitude, MindFrame as Frame,
+    MindFrameBody as FrameBody, MindReply, MindRequest, NoteToSelf, ObservationBody,
+    ObservationSummary, Opening, PathClaimScope, Query, QueryKind, QueryLimit, QueryRelations,
+    QueryTechnicalNodes, QueryTechnicalRelations, QueryThoughts, RelationFilter, RelationKind,
+    RoleName, SubmitRelation, SubmitThought, TechnicalNodeFilter, TechnicalRelationFilter,
+    TechnicalRelationKind, TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos,
+    Title, WirePath, WorkspaceGoal,
 };
 use signal_persona::{
     ComponentHealth, ComponentKind, ComponentName, EngineManagementProtocolVersion,
@@ -523,6 +526,110 @@ async fn mind_typed_relation_round_trip_uses_committed_thought_ids() {
     assert_eq!(list.relations[0].id, receipt.relation);
     assert_eq!(list.relations[0].source, prerequisite_goal.record);
     assert_eq!(list.relations[0].target, goal.record);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mind_typed_technical_seed_survives_daemon_restart_and_queries_back() {
+    let fixture = SocketFixture::new("technical-seed-restart");
+    let dataset = TechnicalSeedDataset::public_first_slice();
+
+    {
+        let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
+            .bind()
+            .await
+            .expect("first daemon binds");
+        let endpoint = daemon.endpoint().clone();
+        let request_count = dataset.nodes().len() + dataset.relations().len();
+        let server = tokio::spawn(async move { daemon.serve_count(request_count).await });
+        let client = MindClient::new(endpoint, ActorName::new("operator"));
+
+        for node in dataset.nodes().iter().cloned() {
+            let reply = client
+                .submit(MindRequest::SubmitTechnicalNode(node))
+                .await
+                .expect("technical node submitted through daemon");
+            assert!(matches!(reply, MindReply::TechnicalNodeCommitted(_)));
+        }
+        for relation in dataset.relations().iter().cloned() {
+            let reply = client
+                .submit(MindRequest::SubmitTechnicalRelation(relation))
+                .await
+                .expect("technical relation submitted through daemon");
+            assert!(matches!(reply, MindReply::TechnicalRelationCommitted(_)));
+        }
+
+        server
+            .await
+            .expect("first daemon joins")
+            .expect("first daemon serves seed");
+    }
+
+    let daemon = MindDaemon::new(fixture.endpoint(), fixture.store())
+        .bind()
+        .await
+        .expect("second daemon binds");
+    let endpoint = daemon.endpoint().clone();
+    let server = tokio::spawn(async move { daemon.serve_count(2).await });
+    let client = MindClient::new(endpoint, ActorName::new("operator"));
+    let nodes = client
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            filter: TechnicalNodeFilter::ByKind(ByTechnicalNodeKind { kinds: Vec::new() }),
+            limit: QueryLimit::new(100),
+        }))
+        .await
+        .expect("technical nodes query through restarted daemon");
+    let relations = client
+        .submit(MindRequest::QueryTechnicalRelations(
+            QueryTechnicalRelations {
+                filter: TechnicalRelationFilter::ByKind(ByTechnicalRelationKind {
+                    kinds: Vec::new(),
+                }),
+                limit: QueryLimit::new(100),
+            },
+        ))
+        .await
+        .expect("technical relations query through restarted daemon");
+
+    server
+        .await
+        .expect("second daemon joins")
+        .expect("second daemon serves queries");
+
+    let MindReply::TechnicalNodeList(nodes) = nodes else {
+        panic!("expected technical node list");
+    };
+    let MindReply::TechnicalRelationList(relations) = relations else {
+        panic!("expected technical relation list");
+    };
+    let actual_node_keys = nodes
+        .nodes
+        .iter()
+        .map(|node| node.stable_key.clone())
+        .collect::<HashSet<_>>();
+    let expected_node_keys = dataset.all_node_keys().into_iter().collect::<HashSet<_>>();
+    let actual_relation_triples = relations
+        .relations
+        .iter()
+        .map(|relation| {
+            (
+                relation.kind,
+                relation.source.stable_key.clone(),
+                relation.target.stable_key.clone(),
+            )
+        })
+        .collect::<HashSet<_>>();
+    let expected_relation_triples = dataset
+        .all_relation_triples()
+        .into_iter()
+        .collect::<HashSet<_>>();
+
+    assert_eq!(actual_node_keys, expected_node_keys);
+    assert_eq!(actual_relation_triples, expected_relation_triples);
+    assert!(relations.relations.iter().any(|relation| {
+        relation.kind == TechnicalRelationKind::UsesStorage
+            && relation.source.stable_key == dataset.mind_component_key()
+            && relation.target.stable_key == dataset.durable_storage_claim_key()
+    }));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
