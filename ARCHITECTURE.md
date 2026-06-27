@@ -274,7 +274,7 @@ Current implementation:
   `store_kernel_supervised_thread_restart_reopens_same_database`: a first
   `MindRoot` commits to `mind.sema`, stops, and a second `MindRoot` immediately
   reopens the same database and reads the committed state.
-- `MindTables` schema v9 registers every durable mind table as a
+- `MindTables` schema v10 registers every durable mind table as a
   `sema-engine` record family with typed family identity: the
   `memory_graph` snapshot, the typed Thought/Relation graph records,
   typed TechnicalNode/TechnicalRelation records, and the graph plus
@@ -597,6 +597,21 @@ This repo does not own:
   rejected before persistence.
 - `SubmitRelation` must pass the `signal-mind` relation
   endpoint validator; runtime-local relation folklore is not accepted.
+- `SubmitTechnicalNode` must carry a canonical `TechnicalNodeKey` whose family
+  matches the submitted node kind; malformed keys reject before persistence.
+- Technical storage facts are first-class graph records:
+  `StorageResource`, `SchemaFamily`, and `Table` nodes persist and query through
+  the same actor lane as other technical nodes.
+- Technical dependency relations use split `BuildDependency`,
+  `RuntimeDependency`, `WireDependency`, `StorageDependency`,
+  `TaskDependency`, and `ProvenanceDependency` kinds; the removed catch-all
+  dependency relation is not accepted.
+- `ContractNode` carries its contract surface only; ownership is expressed as a
+  separate `DefinesContract` relation from the repository or crate to the
+  contract node.
+- Technical corrections append a newer technical fact and a `Supersedes`
+  relation to the old fact. Mind does not mutate or upsert the old technical
+  fact as the correction mechanism.
 - `Authored` relations must point from an identity Reference Thought to the
   authored Thought; file/document/URL references cannot author graph records.
 - `Supersedes` relations must point from a newer Thought to an older Thought
@@ -693,6 +708,10 @@ constraints:
 | `mind_lockfile_cannot_resolve_two_sema_kernels` | Cargo cannot resolve duplicate `sema` / `signal-frame` sources while `mind` consumes `sema-engine`. |
 | `typed_relation_rejects_missing_thought_endpoint` | relation endpoints are real thought IDs, not unchecked strings. |
 | `relation_kind_rejects_wrong_domain` | relation domain/range rules come from `signal-mind` and reject invalid endpoints before persistence. |
+| `technical_node_key_validation_rejects_invalid_shapes` | invalid technical keys reject before they can enter a Mind request. |
+| `technical_storage_schema_and_table_facts_round_trip_through_actor_lane` | storage resources, schema families, and tables persist and query as technical graph facts. |
+| `technical_split_dependency_kinds_and_defines_contract_validate_domain_range` | split dependency kinds and `DefinesContract` use the `signal-mind` v2 domain/range validator. |
+| `technical_supersedes_appends_correction_without_replacing_old_fact` | technical correction is a new fact plus `Supersedes`, with the old fact still present. |
 | `authored_relation_rejects_non_identity_reference_source` | `Authored` uses the contract endpoint validator and rejects non-identity Reference sources before persistence. |
 | `superseded_thought_excluded_from_current_query` | correction is a `Supersedes` relation and current queries hide the old target. |
 | `supersedes_relation_rejects_different_thought_kinds` | cross-kind supersession is rejected before persistence. |

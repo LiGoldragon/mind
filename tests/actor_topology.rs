@@ -25,6 +25,81 @@ use signal_persona::ComponentName;
 
 static ACTOR_FIXTURE_LOCK: Mutex<()> = Mutex::new(());
 
+fn technical_key(value: &str) -> TechnicalNodeKey {
+    TechnicalNodeKey::from_canonical(value).expect("test technical key is canonical")
+}
+
+fn technical_component(stable_key: &str, component: &str) -> SubmitTechnicalNode {
+    SubmitTechnicalNode {
+        stable_key: technical_key(stable_key),
+        kind: TechnicalNodeKind::Component,
+        body: TechnicalNodeBody::Component(signal_mind::ComponentNode {
+            component: ComponentName::new(component),
+            summary: None,
+        }),
+    }
+}
+
+fn technical_repository(stable_key: &str, path: &str) -> SubmitTechnicalNode {
+    SubmitTechnicalNode {
+        stable_key: technical_key(stable_key),
+        kind: TechnicalNodeKind::Repository,
+        body: TechnicalNodeBody::Repository(signal_mind::RepositoryNode {
+            path: WirePath::from_absolute_path(path).expect("test repository path is absolute"),
+            remote: None,
+        }),
+    }
+}
+
+fn technical_crate(stable_key: &str, name: &str, repository: &str) -> SubmitTechnicalNode {
+    SubmitTechnicalNode {
+        stable_key: technical_key(stable_key),
+        kind: TechnicalNodeKind::Crate,
+        body: TechnicalNodeBody::Crate(signal_mind::CrateNode {
+            name: TextBody::new(name),
+            repository: technical_key(repository),
+        }),
+    }
+}
+
+fn technical_contract(
+    stable_key: &str,
+    name: &str,
+    surface: signal_mind::ContractSurface,
+) -> SubmitTechnicalNode {
+    SubmitTechnicalNode {
+        stable_key: technical_key(stable_key),
+        kind: TechnicalNodeKind::Contract,
+        body: TechnicalNodeBody::Contract(signal_mind::ContractNode {
+            name: TextBody::new(name),
+            surface,
+        }),
+    }
+}
+
+fn technical_claim(stable_key: &str, claim: &str) -> SubmitTechnicalNode {
+    SubmitTechnicalNode {
+        stable_key: technical_key(stable_key),
+        kind: TechnicalNodeKind::TechnicalClaim,
+        body: TechnicalNodeBody::TechnicalClaim(signal_mind::TechnicalClaimNode {
+            claim: TextBody::new(claim),
+        }),
+    }
+}
+
+fn technical_relation(
+    kind: TechnicalRelationKind,
+    source: &str,
+    target: &str,
+) -> SubmitTechnicalRelation {
+    SubmitTechnicalRelation {
+        kind,
+        source: technical_key(source),
+        target: technical_key(target),
+        note: None,
+    }
+}
+
 struct ActorFixture {
     root: ActorRef<MindRoot>,
     actor: ActorName,
@@ -369,8 +444,8 @@ async fn typed_thought_query_uses_reader_without_writer() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn technical_node_and_relation_append_query_through_actor_lane() {
     let fixture = ActorFixture::new().await;
-    let component_key = TechnicalNodeKey::new("component:mind");
-    let repository_key = TechnicalNodeKey::new("repository:mind");
+    let component_key = technical_key("component:mind");
+    let repository_key = technical_key("repo:mind");
 
     let component = fixture
         .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
@@ -476,8 +551,8 @@ async fn technical_node_and_relation_append_query_through_actor_lane() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn technical_append_rejects_invalid_records() {
     let fixture = ActorFixture::new().await;
-    let component_key = TechnicalNodeKey::new("component:mind");
-    let repository_key = TechnicalNodeKey::new("repository:mind");
+    let component_key = technical_key("component:mind");
+    let repository_key = technical_key("repo:mind");
 
     let _component = fixture
         .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
@@ -515,7 +590,7 @@ async fn technical_append_rejects_invalid_records() {
         .submit(MindRequest::SubmitTechnicalRelation(
             SubmitTechnicalRelation {
                 kind: TechnicalRelationKind::OwnsRepository,
-                source: TechnicalNodeKey::new("component:missing"),
+                source: technical_key("component:missing"),
                 target: repository_key.clone(),
                 note: None,
             },
@@ -565,7 +640,7 @@ async fn technical_append_rejects_invalid_records() {
         MindReply::TechnicalRelationRejected(rejection)
             if rejection.reason
                 == TechnicalRelationRejectionReason::MissingEndpoint(
-                    TechnicalNodeKey::new("component:missing")
+                    technical_key("component:missing")
                 )
     ));
     assert!(matches!(
@@ -591,10 +666,344 @@ async fn technical_append_rejects_invalid_records() {
     fixture.stop().await;
 }
 
+#[test]
+fn technical_node_key_validation_rejects_invalid_shapes() {
+    let invalid_keys = [
+        "mind",
+        "repository:mind",
+        "component:Mind",
+        "component:",
+        "contract:signal-mind",
+        "storage:mind",
+        "schema:mind:",
+        "table:mind:technical nodes",
+    ];
+
+    for key in invalid_keys {
+        assert!(
+            TechnicalNodeKey::from_canonical(key).is_err(),
+            "{key} should reject before it can enter a MindRequest"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn technical_storage_schema_and_table_facts_round_trip_through_actor_lane() {
+    let fixture = ActorFixture::new().await;
+    let storage_key = technical_key("storage:mind:mind.sema");
+    let schema_key = technical_key("schema:mind:technical-v2");
+    let table_key = technical_key("table:mind:technical_nodes");
+
+    let nodes = [
+        technical_component("component:mind", "mind"),
+        SubmitTechnicalNode {
+            stable_key: storage_key.clone(),
+            kind: TechnicalNodeKind::StorageResource,
+            body: TechnicalNodeBody::StorageResource(signal_mind::StorageResourceNode {
+                owner: technical_key("component:mind"),
+                name: TextBody::new("mind.sema"),
+                path: Some(
+                    WirePath::from_absolute_path("/home/li/.local/state/mind/mind.sema")
+                        .expect("absolute path"),
+                ),
+            }),
+        },
+        SubmitTechnicalNode {
+            stable_key: schema_key.clone(),
+            kind: TechnicalNodeKind::SchemaFamily,
+            body: TechnicalNodeBody::SchemaFamily(signal_mind::SchemaFamilyNode {
+                owner: technical_key("component:mind"),
+                name: TextBody::new("technical-v2"),
+                version: Some(TextBody::new("2")),
+            }),
+        },
+        SubmitTechnicalNode {
+            stable_key: table_key.clone(),
+            kind: TechnicalNodeKind::Table,
+            body: TechnicalNodeBody::Table(signal_mind::TableNode {
+                storage: storage_key.clone(),
+                name: TextBody::new("technical_nodes"),
+                schema_family: Some(schema_key.clone()),
+            }),
+        },
+    ];
+
+    for node in nodes {
+        assert!(matches!(
+            fixture
+                .submit(MindRequest::SubmitTechnicalNode(node))
+                .await
+                .reply()
+                .expect("node reply exists"),
+            MindReply::TechnicalNodeCommitted(_)
+        ));
+    }
+
+    for relation in [
+        technical_relation(
+            TechnicalRelationKind::StorageDependency,
+            "component:mind",
+            "storage:mind:mind.sema",
+        ),
+        technical_relation(
+            TechnicalRelationKind::StorageDependency,
+            "storage:mind:mind.sema",
+            "schema:mind:technical-v2",
+        ),
+        technical_relation(
+            TechnicalRelationKind::StorageDependency,
+            "schema:mind:technical-v2",
+            "table:mind:technical_nodes",
+        ),
+    ] {
+        assert!(matches!(
+            fixture
+                .submit(MindRequest::SubmitTechnicalRelation(relation))
+                .await
+                .reply()
+                .expect("relation reply exists"),
+            MindReply::TechnicalRelationCommitted(_)
+        ));
+    }
+
+    let storage_nodes = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            filter: TechnicalNodeFilter::ByKind(signal_mind::ByTechnicalNodeKind {
+                kinds: vec![
+                    TechnicalNodeKind::StorageResource,
+                    TechnicalNodeKind::SchemaFamily,
+                    TechnicalNodeKind::Table,
+                ],
+            }),
+            limit: QueryLimit::new(10),
+        }))
+        .await;
+    let storage_relations = fixture
+        .submit(MindRequest::QueryTechnicalRelations(
+            QueryTechnicalRelations {
+                filter: TechnicalRelationFilter::ByKind(signal_mind::ByTechnicalRelationKind {
+                    kinds: vec![TechnicalRelationKind::StorageDependency],
+                }),
+                limit: QueryLimit::new(10),
+            },
+        ))
+        .await;
+
+    let MindReply::TechnicalNodeList(storage_nodes) = storage_nodes
+        .reply()
+        .expect("storage node query reply exists")
+    else {
+        panic!("expected storage node list");
+    };
+    let MindReply::TechnicalRelationList(storage_relations) = storage_relations
+        .reply()
+        .expect("storage relation query reply exists")
+    else {
+        panic!("expected storage relation list");
+    };
+
+    assert_eq!(storage_nodes.nodes.len(), 3);
+    assert!(
+        storage_nodes
+            .nodes
+            .iter()
+            .any(|node| node.stable_key == storage_key)
+    );
+    assert!(
+        storage_nodes
+            .nodes
+            .iter()
+            .any(|node| node.stable_key == schema_key)
+    );
+    assert!(
+        storage_nodes
+            .nodes
+            .iter()
+            .any(|node| node.stable_key == table_key)
+    );
+    assert_eq!(storage_relations.relations.len(), 3);
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn technical_split_dependency_kinds_and_defines_contract_validate_domain_range() {
+    let fixture = ActorFixture::new().await;
+
+    for node in [
+        technical_component("component:mind", "mind"),
+        technical_repository("repo:mind", "/git/github.com/LiGoldragon/mind"),
+        technical_repository(
+            "repo:signal-mind",
+            "/git/github.com/LiGoldragon/signal-mind",
+        ),
+        technical_crate("crate:mind", "mind", "repo:mind"),
+        technical_crate("crate:signal-mind", "signal-mind", "repo:signal-mind"),
+        technical_contract(
+            "contract:signal-mind:ordinary",
+            "signal-mind ordinary contract",
+            signal_mind::ContractSurface::Ordinary,
+        ),
+    ] {
+        assert!(matches!(
+            fixture
+                .submit(MindRequest::SubmitTechnicalNode(node))
+                .await
+                .reply()
+                .expect("node reply exists"),
+            MindReply::TechnicalNodeCommitted(_)
+        ));
+    }
+
+    for relation in [
+        technical_relation(
+            TechnicalRelationKind::DefinesContract,
+            "repo:signal-mind",
+            "contract:signal-mind:ordinary",
+        ),
+        technical_relation(
+            TechnicalRelationKind::BuildDependency,
+            "component:mind",
+            "crate:mind",
+        ),
+        technical_relation(
+            TechnicalRelationKind::RuntimeDependency,
+            "component:mind",
+            "crate:mind",
+        ),
+        technical_relation(
+            TechnicalRelationKind::WireDependency,
+            "component:mind",
+            "contract:signal-mind:ordinary",
+        ),
+    ] {
+        assert!(matches!(
+            fixture
+                .submit(MindRequest::SubmitTechnicalRelation(relation))
+                .await
+                .reply()
+                .expect("relation reply exists"),
+            MindReply::TechnicalRelationCommitted(_)
+        ));
+    }
+
+    let wrong_wire_target = fixture
+        .submit(MindRequest::SubmitTechnicalRelation(technical_relation(
+            TechnicalRelationKind::WireDependency,
+            "component:mind",
+            "crate:signal-mind",
+        )))
+        .await;
+
+    assert!(matches!(
+        wrong_wire_target
+            .reply()
+            .expect("wrong wire target reply exists"),
+        MindReply::TechnicalRelationRejected(rejection)
+            if matches!(
+                rejection.reason,
+                TechnicalRelationRejectionReason::DomainRangeViolation(_)
+            )
+    ));
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn technical_supersedes_appends_correction_without_replacing_old_fact() {
+    let fixture = ActorFixture::new().await;
+
+    for node in [
+        technical_claim(
+            "claim:old-storage-shape",
+            "mind stores technical facts in prose",
+        ),
+        technical_claim(
+            "claim:new-storage-shape",
+            "mind stores technical facts as typed nodes and relations",
+        ),
+    ] {
+        assert!(matches!(
+            fixture
+                .submit(MindRequest::SubmitTechnicalNode(node))
+                .await
+                .reply()
+                .expect("node reply exists"),
+            MindReply::TechnicalNodeCommitted(_)
+        ));
+    }
+
+    let supersedes = fixture
+        .submit(MindRequest::SubmitTechnicalRelation(technical_relation(
+            TechnicalRelationKind::Supersedes,
+            "claim:new-storage-shape",
+            "claim:old-storage-shape",
+        )))
+        .await;
+    assert!(matches!(
+        supersedes.reply().expect("supersedes reply exists"),
+        MindReply::TechnicalRelationCommitted(_)
+    ));
+
+    let claims = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            filter: TechnicalNodeFilter::ByKind(signal_mind::ByTechnicalNodeKind {
+                kinds: vec![TechnicalNodeKind::TechnicalClaim],
+            }),
+            limit: QueryLimit::new(10),
+        }))
+        .await;
+    let corrections = fixture
+        .submit(MindRequest::QueryTechnicalRelations(
+            QueryTechnicalRelations {
+                filter: TechnicalRelationFilter::ByKind(signal_mind::ByTechnicalRelationKind {
+                    kinds: vec![TechnicalRelationKind::Supersedes],
+                }),
+                limit: QueryLimit::new(10),
+            },
+        ))
+        .await;
+
+    let MindReply::TechnicalNodeList(claims) = claims.reply().expect("claim query reply exists")
+    else {
+        panic!("expected claim list");
+    };
+    let MindReply::TechnicalRelationList(corrections) =
+        corrections.reply().expect("correction query reply exists")
+    else {
+        panic!("expected correction relation list");
+    };
+
+    assert_eq!(claims.nodes.len(), 2);
+    assert!(
+        claims
+            .nodes
+            .iter()
+            .any(|node| node.stable_key == technical_key("claim:old-storage-shape"))
+    );
+    assert!(
+        claims
+            .nodes
+            .iter()
+            .any(|node| node.stable_key == technical_key("claim:new-storage-shape"))
+    );
+    assert_eq!(corrections.relations.len(), 1);
+    assert_eq!(
+        corrections.relations[0].source.stable_key,
+        technical_key("claim:new-storage-shape")
+    );
+    assert_eq!(
+        corrections.relations[0].target.stable_key,
+        technical_key("claim:old-storage-shape")
+    );
+
+    fixture.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn technical_node_subscription_registers_and_returns_initial_snapshot() {
     let fixture = ActorFixture::new().await;
-    let component_key = TechnicalNodeKey::new("component:mind");
+    let component_key = technical_key("component:mind");
     let _component = fixture
         .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
             stable_key: component_key.clone(),
@@ -649,7 +1058,7 @@ async fn technical_node_subscription_registers_and_returns_initial_snapshot() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn technical_node_subscription_delivers_live_delta_through_subscription_actor() {
     let fixture = ActorFixture::new().await;
-    let component_key = TechnicalNodeKey::new("component:mind");
+    let component_key = technical_key("component:mind");
     let subscription_response = fixture
         .submit(MindRequest::SubscribeTechnicalNodes(
             SubscribeTechnicalNodes {
@@ -696,8 +1105,8 @@ async fn technical_node_subscription_delivers_live_delta_through_subscription_ac
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn technical_relation_subscription_registers_and_returns_initial_snapshot() {
     let fixture = ActorFixture::new().await;
-    let component_key = TechnicalNodeKey::new("component:mind");
-    let repository_key = TechnicalNodeKey::new("repository:mind");
+    let component_key = technical_key("component:mind");
+    let repository_key = technical_key("repo:mind");
 
     let _component = fixture
         .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
@@ -760,8 +1169,8 @@ async fn technical_relation_subscription_registers_and_returns_initial_snapshot(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn technical_relation_subscription_delivers_live_delta_through_subscription_actor() {
     let fixture = ActorFixture::new().await;
-    let component_key = TechnicalNodeKey::new("component:mind");
-    let repository_key = TechnicalNodeKey::new("repository:mind");
+    let component_key = technical_key("component:mind");
+    let repository_key = technical_key("repo:mind");
 
     let _component = fixture
         .submit(MindRequest::SubmitTechnicalNode(SubmitTechnicalNode {
@@ -962,12 +1371,12 @@ async fn public_technical_seed_queries_back_exact_facts_through_actor_lane() {
 
     assert_eq!(actual_node_keys, expected_node_keys);
     assert!(relations.relations.iter().any(|relation| {
-        relation.kind == TechnicalRelationKind::UsesContract
+        relation.kind == TechnicalRelationKind::WireDependency
             && relation.source.stable_key == dataset.mind_component_key()
             && relation.target.stable_key == dataset.signal_mind_contract_key()
     }));
     assert!(relations.relations.iter().any(|relation| {
-        relation.kind == TechnicalRelationKind::UsesStorage
+        relation.kind == TechnicalRelationKind::StorageDependency
             && relation.source.stable_key == dataset.mind_component_key()
             && relation.target.stable_key == dataset.durable_storage_claim_key()
     }));

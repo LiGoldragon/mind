@@ -13,9 +13,9 @@ use signal_mind::{
     ActorName, RecordIdentifier, Relation, RelationIdentifier, SubmitRelation, SubmitTechnicalNode,
     SubmitTechnicalRelation, SubmitThought, SubscribeRelations, SubscribeTechnicalNodes,
     SubscribeTechnicalRelations, SubscribeThoughts, SubscriptionIdentifier, TechnicalNode,
-    TechnicalNodeIdentifier, TechnicalNodeKey, TechnicalNodeRejectionReason, TechnicalRelation,
-    TechnicalRelationEndpoint, TechnicalRelationIdentifier, TechnicalRelationRejectionReason,
-    Thought, TimestampNanos,
+    TechnicalNodeIdentifier, TechnicalNodeKey, TechnicalNodeKindMismatch,
+    TechnicalNodeRejectionReason, TechnicalRelation, TechnicalRelationEndpoint,
+    TechnicalRelationIdentifier, TechnicalRelationRejectionReason, Thought, TimestampNanos,
 };
 
 use crate::actors::subscription::{
@@ -24,7 +24,8 @@ use crate::actors::subscription::{
 };
 use crate::{MemoryGraph, Result, StoreLocation};
 
-const MIND_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(9);
+const MIND_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(10);
+const MIND_SCHEMA_VERSION_V9: SchemaVersion = SchemaVersion::new(9);
 const MIND_SCHEMA_VERSION_V8: SchemaVersion = SchemaVersion::new(8);
 
 const MEMORY_GRAPH: TableName = TableName::new("memory_graph");
@@ -283,8 +284,8 @@ impl MindTables {
     ) -> Result<Self> {
         let mut engine = match Engine::open(Self::engine_open(store)) {
             Ok(engine) => engine,
-            Err(error) if Self::is_v8_store_opened_as_v9(&error) => {
-                Self::migrate_v8_to_v9(store)?;
+            Err(error) if Self::is_older_store_opened_as_current(&error) => {
+                Self::migrate_older_store_to_current(store, Self::older_store_version(&error))?;
                 Engine::open(Self::engine_open(store))?
             }
             Err(error) => return Err(error.into()),
@@ -376,21 +377,29 @@ impl MindTables {
         )
     }
 
-    fn is_v8_store_opened_as_v9(error: &sema_engine::Error) -> bool {
+    fn is_older_store_opened_as_current(error: &sema_engine::Error) -> bool {
         matches!(
             error,
             sema_engine::Error::Sema(sema_engine::StorageKernelError::SchemaVersionMismatch {
                 expected,
                 found,
-            }) if *expected == MIND_SCHEMA_VERSION && *found == MIND_SCHEMA_VERSION_V8
+            }) if *expected == MIND_SCHEMA_VERSION
+                && (*found == MIND_SCHEMA_VERSION_V8 || *found == MIND_SCHEMA_VERSION_V9)
         )
     }
 
-    fn migrate_v8_to_v9(store: &StoreLocation) -> Result<()> {
-        let mut engine = Engine::open(Self::engine_open_with_version(
-            store,
-            MIND_SCHEMA_VERSION_V8,
-        ))?;
+    fn older_store_version(error: &sema_engine::Error) -> SchemaVersion {
+        match error {
+            sema_engine::Error::Sema(sema_engine::StorageKernelError::SchemaVersionMismatch {
+                found,
+                ..
+            }) => *found,
+            _ => MIND_SCHEMA_VERSION,
+        }
+    }
+
+    fn migrate_older_store_to_current(store: &StoreLocation, version: SchemaVersion) -> Result<()> {
+        let mut engine = Engine::open(Self::engine_open_with_version(store, version))?;
         engine.register_table(Self::family_descriptor::<MemoryGraph>(
             MEMORY_GRAPH,
             "memory-graph",
@@ -416,6 +425,30 @@ impl MindTables {
             "relation-subscription",
             MIND_SCHEMA_VERSION_V8,
         ))?;
+        if version == MIND_SCHEMA_VERSION_V9 {
+            engine.register_table(Self::family_descriptor::<StoredTechnicalNode>(
+                TECHNICAL_NODES,
+                "technical-node",
+                MIND_SCHEMA_VERSION_V9,
+            ))?;
+            engine.register_table(Self::family_descriptor::<StoredTechnicalRelation>(
+                TECHNICAL_RELATIONS,
+                "technical-relation",
+                MIND_SCHEMA_VERSION_V9,
+            ))?;
+            engine.register_table(Self::family_descriptor::<StoredTechnicalNodeSubscription>(
+                TECHNICAL_NODE_SUBSCRIPTIONS,
+                "technical-node-subscription",
+                MIND_SCHEMA_VERSION_V9,
+            ))?;
+            engine.register_table(
+                Self::family_descriptor::<StoredTechnicalRelationSubscription>(
+                    TECHNICAL_RELATION_SUBSCRIPTIONS,
+                    "technical-relation-subscription",
+                    MIND_SCHEMA_VERSION_V9,
+                ),
+            )?;
+        }
         drop(engine);
 
         let database = Database::create(store.as_path())?;
@@ -537,6 +570,22 @@ impl MindTables {
         actor: ActorName,
         submission: SubmitTechnicalNode,
     ) -> Result<std::result::Result<TechnicalNode, TechnicalNodeRejectionReason>> {
+        if let Err(rejection) = TechnicalNodeKey::from_canonical(submission.stable_key.as_str()) {
+            return Ok(Err(TechnicalNodeRejectionReason::InvalidStableNodeKey(
+                rejection,
+            )));
+        }
+
+        let expected_kind = submission.stable_key.expected_node_kind();
+        if submission.kind != expected_kind {
+            return Ok(Err(TechnicalNodeRejectionReason::KindBodyMismatch(
+                TechnicalNodeKindMismatch {
+                    expected_kind,
+                    got_body_kind: submission.kind,
+                },
+            )));
+        }
+
         if let Err(mismatch) = submission.kind.validate_body(&submission.body) {
             return Ok(Err(TechnicalNodeRejectionReason::KindBodyMismatch(
                 mismatch,
@@ -801,6 +850,10 @@ impl MindTables {
         &self,
         stable_key: &TechnicalNodeKey,
     ) -> Result<Option<TechnicalNode>> {
+        if TechnicalNodeKey::from_canonical(stable_key.as_str()).is_err() {
+            return Ok(None);
+        }
+
         Ok(self
             .technical_node_records()?
             .into_iter()
@@ -1219,6 +1272,10 @@ mod tests {
     };
     use signal_persona::ComponentName;
 
+    fn technical_key(value: &str) -> TechnicalNodeKey {
+        TechnicalNodeKey::from_canonical(value).expect("test technical key is canonical")
+    }
+
     #[test]
     fn thought_subscription_is_durable_table_data() {
         let store = StoreLocation::new(unique_store_path("thought-subscription-durable"));
@@ -1417,7 +1474,7 @@ mod tests {
             .append_technical_node(
                 ActorName::new("operator"),
                 SubmitTechnicalNode {
-                    stable_key: TechnicalNodeKey::new("component:mind"),
+                    stable_key: technical_key("component:mind"),
                     kind: TechnicalNodeKind::Component,
                     body: TechnicalNodeBody::Component(ComponentNode {
                         component: ComponentName::new("mind"),
@@ -1431,7 +1488,7 @@ mod tests {
             .append_technical_node(
                 ActorName::new("operator"),
                 SubmitTechnicalNode {
-                    stable_key: TechnicalNodeKey::new("repository:wrong-body"),
+                    stable_key: technical_key("repo:wrong-body"),
                     kind: TechnicalNodeKind::Repository,
                     body: TechnicalNodeBody::Component(ComponentNode {
                         component: ComponentName::new("wrong-body"),
@@ -1461,7 +1518,7 @@ mod tests {
         let store = StoreLocation::new(unique_store_path("technical-node-duplicate"));
         let tables =
             MindTables::open(&store, GraphSubscriptionPublisher::disabled()).expect("tables open");
-        let stable_key = TechnicalNodeKey::new("component:mind");
+        let stable_key = technical_key("component:mind");
         tables
             .append_technical_node(
                 ActorName::new("operator"),
@@ -1509,9 +1566,9 @@ mod tests {
         let store = StoreLocation::new(unique_store_path("technical-relation-append"));
         let tables =
             MindTables::open(&store, GraphSubscriptionPublisher::disabled()).expect("tables open");
-        let component_key = TechnicalNodeKey::new("component:mind");
-        let repository_key = TechnicalNodeKey::new("repository:mind");
-        let missing_key = TechnicalNodeKey::new("component:missing");
+        let component_key = technical_key("component:mind");
+        let repository_key = technical_key("repo:mind");
+        let missing_key = technical_key("component:missing");
         let component = tables
             .append_technical_node(
                 ActorName::new("operator"),
@@ -1622,14 +1679,14 @@ mod tests {
         let node_subscription = tables
             .append_technical_node_subscription(SubscribeTechnicalNodes {
                 filter: TechnicalNodeFilter::ByStableKey(ByTechnicalNodeStableKey {
-                    stable_key: TechnicalNodeKey::new("component:mind"),
+                    stable_key: technical_key("component:mind"),
                 }),
             })
             .expect("technical node subscription asserts");
         let relation_subscription = tables
             .append_technical_relation_subscription(SubscribeTechnicalRelations {
                 filter: TechnicalRelationFilter::BySource(ByTechnicalRelationSource {
-                    source: TechnicalNodeKey::new("component:mind"),
+                    source: technical_key("component:mind"),
                 }),
             })
             .expect("technical relation subscription asserts");
@@ -1671,8 +1728,8 @@ mod tests {
     }
 
     #[test]
-    fn v8_store_opens_as_v9_and_preserves_existing_graph_rows() {
-        let store = StoreLocation::new(unique_store_path("v8-to-v9-open"));
+    fn v8_store_opens_as_current_and_preserves_existing_graph_rows() {
+        let store = StoreLocation::new(unique_store_path("v8-to-current-open"));
         let original = seed_v8_thought_store(&store);
 
         let tables =
@@ -1827,7 +1884,7 @@ mod tests {
     fn technical_node(identifier: &str, stable_key: &str) -> TechnicalNode {
         TechnicalNode {
             identifier: TechnicalNodeIdentifier::new(identifier),
-            stable_key: TechnicalNodeKey::new(stable_key),
+            stable_key: technical_key(stable_key),
             kind: TechnicalNodeKind::Component,
             body: TechnicalNodeBody::Component(ComponentNode {
                 component: ComponentName::new(stable_key.replace(':', "-")),
@@ -1845,14 +1902,14 @@ mod tests {
     ) -> TechnicalRelation {
         TechnicalRelation {
             identifier: TechnicalRelationIdentifier::new(identifier),
-            kind: TechnicalRelationKind::DependsOn,
+            kind: TechnicalRelationKind::RuntimeDependency,
             source: TechnicalRelationEndpoint {
                 identifier: TechnicalNodeIdentifier::new("aaa"),
-                stable_key: TechnicalNodeKey::new(source_key),
+                stable_key: technical_key(source_key),
             },
             target: TechnicalRelationEndpoint {
                 identifier: TechnicalNodeIdentifier::new("aab"),
-                stable_key: TechnicalNodeKey::new(target_key),
+                stable_key: technical_key(target_key),
             },
             author: ActorName::new("operator"),
             occurred_at: TimestampNanos::new(2),

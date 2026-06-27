@@ -309,6 +309,34 @@
               cargoTestExtraArgs = "--test actor_topology technical_append_rejects_invalid_records -- --exact";
             }
           );
+          mind-technical-node-key-validation-rejects-invalid-shapes = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology technical_node_key_validation_rejects_invalid_shapes -- --exact";
+            }
+          );
+          mind-technical-storage-schema-and-table-facts-round-trip-through-actor-lane = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology technical_storage_schema_and_table_facts_round_trip_through_actor_lane -- --exact";
+            }
+          );
+          mind-technical-split-dependency-kinds-and-defines-contract-validate-domain-range = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology technical_split_dependency_kinds_and_defines_contract_validate_domain_range -- --exact";
+            }
+          );
+          mind-technical-supersedes-appends-correction-without-replacing-old-fact = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology technical_supersedes_appends_correction_without_replacing_old_fact -- --exact";
+            }
+          );
           mind-public-technical-seed-delivers-subscription-deltas = craneLib.cargoTest (
             commonArgs
             // {
@@ -346,11 +374,11 @@
               cargoTestExtraArgs = "technical_relation_append_resolves_endpoints_and_rejects_invalid_triples";
             }
           );
-          mind-v8-store-opens-as-v9-and-preserves-existing-graph-rows = craneLib.cargoTest (
+          mind-v8-store-opens-as-current-and-preserves-existing-graph-rows = craneLib.cargoTest (
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoTestExtraArgs = "v8_store_opens_as_v9_and_preserves_existing_graph_rows";
+              cargoTestExtraArgs = "v8_store_opens_as_current_and_preserves_existing_graph_rows";
             }
           );
           cli = craneLib.cargoTest (

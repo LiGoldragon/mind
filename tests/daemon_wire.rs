@@ -622,7 +622,7 @@ async fn mind_typed_technical_seed_survives_daemon_restart_and_queries_back() {
     assert_eq!(actual_node_keys, expected_node_keys);
     assert_eq!(actual_relation_triples, expected_relation_triples);
     assert!(relations.relations.iter().any(|relation| {
-        relation.kind == TechnicalRelationKind::UsesStorage
+        relation.kind == TechnicalRelationKind::StorageDependency
             && relation.source.stable_key == dataset.mind_component_key()
             && relation.target.stable_key == dataset.durable_storage_claim_key()
     }));

@@ -1,8 +1,9 @@
 use signal_mind::{
-    ComponentNode, ContractNode, CrateNode, ReportNode, RepositoryNode, SourceArtifactNode,
-    SubmitTechnicalNode, SubmitTechnicalRelation, TechnicalClaimNode, TechnicalNodeBody,
-    TechnicalNodeKey, TechnicalNodeKind, TechnicalRelationKind, TechnicalSourceLocator, TextBody,
-    WirePath, WitnessNode,
+    ComponentNode, ContractNode, ContractSurface, CrateNode, ReportNode, RepositoryNode,
+    SchemaFamilyNode, SourceArtifactNode, StorageResourceNode, SubmitTechnicalNode,
+    SubmitTechnicalRelation, TableNode, TechnicalClaimNode, TechnicalNodeBody, TechnicalNodeKey,
+    TechnicalNodeKind, TechnicalRelationKind, TechnicalSourceLocator, TextBody, WirePath,
+    WitnessNode,
 };
 use signal_persona::ComponentName;
 
@@ -59,70 +60,91 @@ impl TechnicalSeedDataset {
     }
 
     pub fn durable_storage_claim_key(&self) -> TechnicalNodeKey {
-        Self::key("claim:mind-durable-mind-sema-through-sema-engine")
+        Self::key("storage:mind:mind.sema")
     }
 
     fn public_first_slice_nodes() -> Vec<SubmitTechnicalNode> {
         vec![
             Self::component("component:mind", "mind", "Persona central mind daemon"),
             Self::repository(
-                "repository:mind",
+                "repo:mind",
                 "/git/github.com/LiGoldragon/mind",
                 "https://github.com/LiGoldragon/mind",
             ),
             Self::repository(
-                "repository:signal-mind",
+                "repo:signal-mind",
                 "/git/github.com/LiGoldragon/signal-mind",
                 "https://github.com/LiGoldragon/signal-mind",
             ),
             Self::repository(
-                "repository:meta-signal-mind",
+                "repo:meta-signal-mind",
                 "/git/github.com/LiGoldragon/meta-signal-mind",
                 "https://github.com/LiGoldragon/meta-signal-mind",
             ),
             Self::repository(
-                "repository:sema-engine",
+                "repo:sema-engine",
                 "/git/github.com/LiGoldragon/sema-engine",
                 "https://github.com/LiGoldragon/sema-engine",
             ),
             Self::contract(
                 "contract:signal-mind:ordinary",
                 "signal-mind ordinary contract",
-                "repository:signal-mind",
+                ContractSurface::Ordinary,
             ),
             Self::contract(
                 "contract:meta-signal-mind:meta-policy",
                 "meta-signal-mind meta policy contract",
-                "repository:meta-signal-mind",
+                ContractSurface::Meta,
             ),
-            Self::crate_node("crate:sema-engine", "sema-engine", "repository:sema-engine"),
+            Self::crate_node("crate:mind", "mind", "repo:mind"),
+            Self::crate_node("crate:signal-mind", "signal-mind", "repo:signal-mind"),
+            Self::crate_node("crate:sema-engine", "sema-engine", "repo:sema-engine"),
+            Self::storage_resource(
+                "storage:mind:mind.sema",
+                "component:mind",
+                "mind.sema",
+                "/home/li/.local/state/mind/mind.sema",
+            ),
+            Self::schema_family("schema:mind:technical-v2", "component:mind", "technical-v2"),
+            Self::table(
+                "table:mind:technical_nodes",
+                "storage:mind:mind.sema",
+                "technical_nodes",
+                Some("schema:mind:technical-v2"),
+            ),
+            Self::table(
+                "table:mind:technical_relations",
+                "storage:mind:mind.sema",
+                "technical_relations",
+                Some("schema:mind:technical-v2"),
+            ),
             Self::source_artifact(
-                "source:signal-mind:src/graph.rs",
+                "artifact:signal-mind-src-graph.rs",
                 "/git/github.com/LiGoldragon/signal-mind/src/graph.rs",
                 "signal-mind graph records and subscription event shapes",
             ),
             Self::source_artifact(
-                "source:signal-mind:src/lib.rs",
+                "artifact:signal-mind-src-lib.rs",
                 "/git/github.com/LiGoldragon/signal-mind/src/lib.rs",
                 "signal-mind channel declaration and contract-local heads",
             ),
             Self::source_artifact(
-                "source:mind:src/tables.rs",
+                "artifact:mind-src-tables.rs",
                 "/git/github.com/LiGoldragon/mind/src/tables.rs",
                 "mind technical node and relation storage families",
             ),
             Self::source_artifact(
-                "source:mind:src/actors/dispatch.rs",
+                "artifact:mind-src-actors-dispatch.rs",
                 "/git/github.com/LiGoldragon/mind/src/actors/dispatch.rs",
                 "mind dispatch routing for technical memory operations",
             ),
             Self::source_artifact(
-                "source:sema-engine:src/engine.rs",
+                "artifact:sema-engine-src-engine.rs",
                 "/git/github.com/LiGoldragon/sema-engine/src/engine.rs",
                 "sema-engine durable engine implementation",
             ),
             Self::report(
-                "report:system-operator:218-signal-mind-contract-modernization-stop-point-2026-06-13",
+                "report:system-operator-218-signal-mind-contract-modernization-stop-point-2026-06-13",
                 "/home/li/primary/reports/system-operator/218-signal-mind-contract-modernization-stop-point-2026-06-13.md",
                 "signal-mind contract modernization stop point and schema gap",
             ),
@@ -171,48 +193,78 @@ impl TechnicalSeedDataset {
             Self::relation(
                 TechnicalRelationKind::OwnsRepository,
                 "component:mind",
-                "repository:mind",
+                "repo:mind",
                 "mind owns its public implementation repository",
             ),
             Self::relation(
-                TechnicalRelationKind::UsesContract,
+                TechnicalRelationKind::WireDependency,
                 "component:mind",
                 "contract:signal-mind:ordinary",
                 "mind consumes the ordinary signal-mind contract",
             ),
             Self::relation(
-                TechnicalRelationKind::UsesContract,
+                TechnicalRelationKind::WireDependency,
                 "component:mind",
                 "contract:meta-signal-mind:meta-policy",
                 "mind consumes the owner-side meta policy contract",
             ),
             Self::relation(
-                TechnicalRelationKind::UsesStorage,
+                TechnicalRelationKind::StorageDependency,
                 "component:mind",
-                "claim:mind-durable-mind-sema-through-sema-engine",
+                "storage:mind:mind.sema",
                 "mind owns durable mind.sema through sema-engine",
             ),
             Self::relation(
+                TechnicalRelationKind::BuildDependency,
+                "component:mind",
+                "crate:sema-engine",
+                "mind builds against sema-engine",
+            ),
+            Self::relation(
+                TechnicalRelationKind::RuntimeDependency,
+                "component:mind",
+                "crate:sema-engine",
+                "mind uses sema-engine at runtime",
+            ),
+            Self::relation(
+                TechnicalRelationKind::StorageDependency,
+                "storage:mind:mind.sema",
+                "schema:mind:technical-v2",
+                "mind.sema stores the technical vocabulary v2 schema family",
+            ),
+            Self::relation(
+                TechnicalRelationKind::StorageDependency,
+                "schema:mind:technical-v2",
+                "table:mind:technical_nodes",
+                "technical vocabulary v2 includes the technical_nodes table",
+            ),
+            Self::relation(
+                TechnicalRelationKind::StorageDependency,
+                "schema:mind:technical-v2",
+                "table:mind:technical_relations",
+                "technical vocabulary v2 includes the technical_relations table",
+            ),
+            Self::relation(
                 TechnicalRelationKind::DefinesContract,
-                "repository:signal-mind",
+                "repo:signal-mind",
                 "contract:signal-mind:ordinary",
                 "signal-mind defines the ordinary Mind channel",
             ),
             Self::relation(
                 TechnicalRelationKind::DefinesContract,
-                "repository:meta-signal-mind",
+                "repo:meta-signal-mind",
                 "contract:meta-signal-mind:meta-policy",
                 "meta-signal-mind defines the meta Mind policy channel",
             ),
             Self::relation(
                 TechnicalRelationKind::DefinesCrate,
-                "repository:sema-engine",
+                "repo:sema-engine",
                 "crate:sema-engine",
                 "sema-engine repository defines the sema-engine crate",
             ),
             Self::relation(
                 TechnicalRelationKind::Documents,
-                "report:system-operator:218-signal-mind-contract-modernization-stop-point-2026-06-13",
+                "report:system-operator-218-signal-mind-contract-modernization-stop-point-2026-06-13",
                 "contract:signal-mind:ordinary",
                 "report 218 documents the signal-mind schema gap and modernization stop point",
             ),
@@ -237,60 +289,60 @@ impl TechnicalSeedDataset {
             Self::relation(
                 TechnicalRelationKind::LocatedAt,
                 "contract:signal-mind:ordinary",
-                "source:signal-mind:src/lib.rs",
+                "artifact:signal-mind-src-lib.rs",
                 "the ordinary Mind channel is declared in signal-mind/src/lib.rs",
             ),
             Self::relation(
                 TechnicalRelationKind::LocatedAt,
                 "contract:signal-mind:ordinary",
-                "source:signal-mind:src/graph.rs",
+                "artifact:signal-mind-src-graph.rs",
                 "the graph event vocabulary is implemented in signal-mind/src/graph.rs",
             ),
             Self::relation(
                 TechnicalRelationKind::LocatedAt,
                 "claim:mind-durable-mind-sema-through-sema-engine",
-                "source:mind:src/tables.rs",
+                "artifact:mind-src-tables.rs",
                 "mind/src/tables.rs owns the technical Sema families",
             ),
             Self::relation(
                 TechnicalRelationKind::LocatedAt,
                 "claim:first-technical-memory-slice-explicit-technical-nodes-relations",
-                "source:mind:src/tables.rs",
+                "artifact:mind-src-tables.rs",
                 "technical node and relation records are durable table families",
             ),
             Self::relation(
                 TechnicalRelationKind::LocatedAt,
                 "claim:first-technical-memory-slice-explicit-technical-nodes-relations",
-                "source:mind:src/actors/dispatch.rs",
+                "artifact:mind-src-actors-dispatch.rs",
                 "technical requests route through mind dispatch",
             ),
             Self::relation(
                 TechnicalRelationKind::LocatedAt,
                 "crate:sema-engine",
-                "source:sema-engine:src/engine.rs",
+                "artifact:sema-engine-src-engine.rs",
                 "sema-engine crate behavior is located in sema-engine/src/engine.rs",
             ),
             Self::relation(
                 TechnicalRelationKind::Implements,
-                "source:signal-mind:src/lib.rs",
+                "artifact:signal-mind-src-lib.rs",
                 "contract:signal-mind:ordinary",
                 "signal-mind/src/lib.rs implements the ordinary Mind contract declaration",
             ),
             Self::relation(
                 TechnicalRelationKind::Implements,
-                "source:mind:src/tables.rs",
+                "artifact:mind-src-tables.rs",
                 "claim:first-technical-memory-slice-explicit-technical-nodes-relations",
                 "mind/src/tables.rs implements the first technical memory table families",
             ),
             Self::relation(
                 TechnicalRelationKind::Implements,
-                "source:mind:src/actors/dispatch.rs",
+                "artifact:mind-src-actors-dispatch.rs",
                 "claim:first-technical-memory-slice-explicit-technical-nodes-relations",
                 "mind dispatch implements technical memory request routing",
             ),
             Self::relation(
                 TechnicalRelationKind::Implements,
-                "source:sema-engine:src/engine.rs",
+                "artifact:sema-engine-src-engine.rs",
                 "claim:mind-durable-mind-sema-through-sema-engine",
                 "sema-engine implements the durable engine mind uses",
             ),
@@ -360,13 +412,59 @@ impl TechnicalSeedDataset {
         }
     }
 
-    fn contract(stable_key: &str, name: &str, crate_key: &str) -> SubmitTechnicalNode {
+    fn contract(stable_key: &str, name: &str, surface: ContractSurface) -> SubmitTechnicalNode {
         SubmitTechnicalNode {
             stable_key: Self::key(stable_key),
             kind: TechnicalNodeKind::Contract,
             body: TechnicalNodeBody::Contract(ContractNode {
                 name: TextBody::new(name),
-                crate_key: Self::key(crate_key),
+                surface,
+            }),
+        }
+    }
+
+    fn storage_resource(
+        stable_key: &str,
+        owner: &str,
+        name: &str,
+        path: &str,
+    ) -> SubmitTechnicalNode {
+        SubmitTechnicalNode {
+            stable_key: Self::key(stable_key),
+            kind: TechnicalNodeKind::StorageResource,
+            body: TechnicalNodeBody::StorageResource(StorageResourceNode {
+                owner: Self::key(owner),
+                name: TextBody::new(name),
+                path: Some(Self::wire_path(path)),
+            }),
+        }
+    }
+
+    fn schema_family(stable_key: &str, owner: &str, name: &str) -> SubmitTechnicalNode {
+        SubmitTechnicalNode {
+            stable_key: Self::key(stable_key),
+            kind: TechnicalNodeKind::SchemaFamily,
+            body: TechnicalNodeBody::SchemaFamily(SchemaFamilyNode {
+                owner: Self::key(owner),
+                name: TextBody::new(name),
+                version: Some(TextBody::new("2")),
+            }),
+        }
+    }
+
+    fn table(
+        stable_key: &str,
+        storage: &str,
+        name: &str,
+        schema_family: Option<&str>,
+    ) -> SubmitTechnicalNode {
+        SubmitTechnicalNode {
+            stable_key: Self::key(stable_key),
+            kind: TechnicalNodeKind::Table,
+            body: TechnicalNodeBody::Table(TableNode {
+                storage: Self::key(storage),
+                name: TextBody::new(name),
+                schema_family: schema_family.map(Self::key),
             }),
         }
     }
@@ -429,7 +527,7 @@ impl TechnicalSeedDataset {
     }
 
     fn key(value: &str) -> TechnicalNodeKey {
-        TechnicalNodeKey::new(value)
+        TechnicalNodeKey::from_canonical(value).expect("seed technical keys are canonical")
     }
 
     fn wire_path(value: &str) -> WirePath {

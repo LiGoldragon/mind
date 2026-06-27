@@ -325,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "mind"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "kameo",
  "meta-signal-mind",
@@ -715,8 +715,8 @@ dependencies = [
 
 [[package]]
 name = "signal-mind"
-version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#5a5a4fb43e92da301e018853330eb08288e7b6ac"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?rev=eefdb69e8075e1a2b2b52bbc8e5834393cf5998c#eefdb69e8075e1a2b2b52bbc8e5834393cf5998c"
 dependencies = [
  "nota",
  "rkyv",
