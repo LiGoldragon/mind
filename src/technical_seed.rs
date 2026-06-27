@@ -1,9 +1,9 @@
 use signal_mind::{
     ComponentNode, ContractNode, ContractSurface, CrateNode, ReportNode, RepositoryNode,
     SchemaFamilyNode, SourceArtifactNode, StorageResourceNode, SubmitTechnicalNode,
-    SubmitTechnicalRelation, TableNode, TechnicalClaimNode, TechnicalNodeBody, TechnicalNodeKey,
-    TechnicalNodeKind, TechnicalRelationKind, TechnicalSourceLocator, TextBody, WirePath,
-    WitnessNode,
+    SubmitTechnicalRelation, TableNode, TaskToken, TechnicalClaimNode, TechnicalNodeBody,
+    TechnicalNodeKey, TechnicalNodeKind, TechnicalRelationKind, TechnicalSourceLocator, TextBody,
+    WirePath, WitnessNode, WorkItemNode,
 };
 use signal_persona::ComponentName;
 
@@ -61,6 +61,22 @@ impl TechnicalSeedDataset {
 
     pub fn durable_storage_claim_key(&self) -> TechnicalNodeKey {
         Self::key("storage:mind:mind.sema")
+    }
+
+    pub fn primary_irfi_epic_key(&self) -> TechnicalNodeKey {
+        Self::key("task:primary-irfi")
+    }
+
+    pub fn primary_irfi_slice_claim_key(&self) -> TechnicalNodeKey {
+        Self::key("claim:primary-irfi-completed-first-technical-memory-slice")
+    }
+
+    pub fn mind_nix_check_witness_key(&self) -> TechnicalNodeKey {
+        Self::key("witness:mind-nix-flake-check-2026-06-27")
+    }
+
+    pub fn signal_mind_nix_check_witness_key(&self) -> TechnicalNodeKey {
+        Self::key("witness:signal-mind-nix-flake-check-2026-06-27")
     }
 
     fn public_first_slice_nodes() -> Vec<SubmitTechnicalNode> {
@@ -148,6 +164,101 @@ impl TechnicalSeedDataset {
                 "/home/li/primary/reports/system-operator/218-signal-mind-contract-modernization-stop-point-2026-06-13.md",
                 "signal-mind contract modernization stop point and schema gap",
             ),
+            Self::report(
+                "report:system-operator-210-sema-versioned-state-engine-and-mind-implementation-2026-06-11",
+                "/home/li/primary/reports/system-operator/210-sema-versioned-state-engine-and-mind-implementation-2026-06-11.md",
+                "sema-engine versioned state substrate and mind integration provenance",
+            ),
+            Self::work_item(
+                "task:primary-irfi",
+                "primary-irfi",
+                "Mind typed technical dependency memory production slice",
+            ),
+            Self::work_item(
+                "task:primary-irfi.1",
+                "primary-irfi.1",
+                "Add signal-mind technical contract types and round-trip tests",
+            ),
+            Self::work_item(
+                "task:primary-irfi.2",
+                "primary-irfi.2",
+                "Update mind to consume the new signal-mind contract",
+            ),
+            Self::work_item(
+                "task:primary-irfi.3",
+                "primary-irfi.3",
+                "Add MindTables schema v9 technical storage families",
+            ),
+            Self::work_item(
+                "task:primary-irfi.4",
+                "primary-irfi.4",
+                "Implement Mind technical append and query handling",
+            ),
+            Self::work_item(
+                "task:primary-irfi.5",
+                "primary-irfi.5",
+                "Extend Mind subscriptions and events for technical records",
+            ),
+            Self::work_item(
+                "task:primary-irfi.6",
+                "primary-irfi.6",
+                "Add public technical seed dataset and end-to-end witnesses",
+            ),
+            Self::work_item(
+                "task:primary-irfi.7",
+                "primary-irfi.7",
+                "Bump versions and land Nix/check witnesses for Mind technical memory",
+            ),
+            Self::source_artifact_with_locator(
+                "artifact:signal-mind-commit-5a5a4fb4",
+                TechnicalSourceLocator::Url(TextBody::new(
+                    "https://github.com/LiGoldragon/signal-mind/commit/5a5a4fb43e92da301e018853330eb08288e7b6ac",
+                )),
+                "signal-mind 0.2.0 technical memory contract commit",
+            ),
+            Self::source_artifact_with_locator(
+                "artifact:mind-commit-c546b29f",
+                TechnicalSourceLocator::Url(TextBody::new(
+                    "https://github.com/LiGoldragon/mind/commit/c546b29f66b0edf6820217e4610ed872fb00d3f6",
+                )),
+                "mind consumes signal-mind 0.2.0 technical contract commit",
+            ),
+            Self::source_artifact_with_locator(
+                "artifact:mind-commit-ad12bfc4",
+                TechnicalSourceLocator::Url(TextBody::new(
+                    "https://github.com/LiGoldragon/mind/commit/ad12bfc487f7142390922a2d2bee234c3f982f6d",
+                )),
+                "MindTables schema v9 technical storage family commit",
+            ),
+            Self::source_artifact_with_locator(
+                "artifact:mind-commit-4c705095",
+                TechnicalSourceLocator::Url(TextBody::new(
+                    "https://github.com/LiGoldragon/mind/commit/4c705095e7f1c96ca02478f3053f538c402a5a03",
+                )),
+                "mind 0.5.0 technical append and query commit",
+            ),
+            Self::source_artifact_with_locator(
+                "artifact:mind-commit-9fd00cf3",
+                TechnicalSourceLocator::Url(TextBody::new(
+                    "https://github.com/LiGoldragon/mind/commit/9fd00cf385d4317cdf3df582fdd3a0334e36984b",
+                )),
+                "technical subscription event delivery commit",
+            ),
+            Self::source_artifact_with_locator(
+                "artifact:mind-commit-888ddd51",
+                TechnicalSourceLocator::Url(TextBody::new(
+                    "https://github.com/LiGoldragon/mind/commit/888ddd518f90ec705df2ffff0d4af92a62e87279",
+                )),
+                "public technical seed witness commit",
+            ),
+            Self::source_artifact_with_locator(
+                "artifact:beads-primary-irfi-public-epic",
+                TechnicalSourceLocator::Task(
+                    TaskToken::try_new("primary-irfi".to_string())
+                        .expect("primary-irfi is a valid task token"),
+                ),
+                "public BEADS epic that completed the first Mind technical memory slice",
+            ),
             Self::claim(
                 "claim:signal-mind-public-wire-vocabulary",
                 "signal-mind owns public Mind wire vocabulary",
@@ -159,6 +270,14 @@ impl TechnicalSeedDataset {
             Self::claim(
                 "claim:first-technical-memory-slice-explicit-technical-nodes-relations",
                 "first technical memory slice adds explicit technical nodes and relations, not generic Thought conventions",
+            ),
+            Self::claim(
+                "claim:primary-irfi-completed-first-technical-memory-slice",
+                "primary-irfi completed the first public Mind typed technical dependency memory production slice",
+            ),
+            Self::claim(
+                "claim:mind-technical-memory-nix-witnesses-passed-2026-06-27",
+                "Mind technical memory Nix witnesses passed on 2026-06-27",
             ),
             Self::witness(
                 "witness:persistence",
@@ -184,6 +303,16 @@ impl TechnicalSeedDataset {
                 "witness:technical-subscription-delivery",
                 "technical node and relation subscriptions deliver post-commit deltas",
                 "Symbol:public_technical_seed_delivers_subscription_deltas",
+            ),
+            Self::witness(
+                "witness:mind-nix-flake-check-2026-06-27",
+                "mind nix flake check -L passed on 2026-06-27 with technical storage, append/query, subscription, seed, daemon, CLI, fmt, doc, clippy, and actor-truth checks",
+                "Nix:mind:nix-flake-check-L:2026-06-27",
+            ),
+            Self::witness(
+                "witness:signal-mind-nix-flake-check-2026-06-27",
+                "signal-mind nix flake check -L passed on 2026-06-27 with round-trip, validation, docs, fmt, and clippy checks",
+                "Nix:signal-mind:nix-flake-check-L:2026-06-27",
             ),
         ]
     }
@@ -269,6 +398,12 @@ impl TechnicalSeedDataset {
                 "report 218 documents the signal-mind schema gap and modernization stop point",
             ),
             Self::relation(
+                TechnicalRelationKind::Documents,
+                "report:system-operator-210-sema-versioned-state-engine-and-mind-implementation-2026-06-11",
+                "crate:sema-engine",
+                "report 210 documents sema-engine versioned state provenance used by mind",
+            ),
+            Self::relation(
                 TechnicalRelationKind::ClaimsAbout,
                 "claim:signal-mind-public-wire-vocabulary",
                 "contract:signal-mind:ordinary",
@@ -285,6 +420,18 @@ impl TechnicalSeedDataset {
                 "claim:first-technical-memory-slice-explicit-technical-nodes-relations",
                 "component:mind",
                 "the first technical memory slice is a mind production slice",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ClaimsAbout,
+                "claim:primary-irfi-completed-first-technical-memory-slice",
+                "task:primary-irfi",
+                "the completed-slice claim is about the primary-irfi epic",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ClaimsAbout,
+                "claim:mind-technical-memory-nix-witnesses-passed-2026-06-27",
+                "task:primary-irfi.7",
+                "the Nix witness claim is about final version/check reconciliation",
             ),
             Self::relation(
                 TechnicalRelationKind::LocatedAt,
@@ -323,6 +470,12 @@ impl TechnicalSeedDataset {
                 "sema-engine crate behavior is located in sema-engine/src/engine.rs",
             ),
             Self::relation(
+                TechnicalRelationKind::LocatedAt,
+                "task:primary-irfi",
+                "artifact:beads-primary-irfi-public-epic",
+                "the primary-irfi epic source is the public BEADS task",
+            ),
+            Self::relation(
                 TechnicalRelationKind::Implements,
                 "artifact:signal-mind-src-lib.rs",
                 "contract:signal-mind:ordinary",
@@ -345,6 +498,228 @@ impl TechnicalSeedDataset {
                 "artifact:sema-engine-src-engine.rs",
                 "claim:mind-durable-mind-sema-through-sema-engine",
                 "sema-engine implements the durable engine mind uses",
+            ),
+            Self::relation(
+                TechnicalRelationKind::Implements,
+                "task:primary-irfi.1",
+                "contract:signal-mind:ordinary",
+                "primary-irfi.1 implemented the signal-mind technical contract surface",
+            ),
+            Self::relation(
+                TechnicalRelationKind::Implements,
+                "task:primary-irfi.2",
+                "claim:signal-mind-public-wire-vocabulary",
+                "primary-irfi.2 made mind consume the new technical wire vocabulary",
+            ),
+            Self::relation(
+                TechnicalRelationKind::Implements,
+                "task:primary-irfi.3",
+                "claim:mind-durable-mind-sema-through-sema-engine",
+                "primary-irfi.3 added the technical storage families under mind.sema",
+            ),
+            Self::relation(
+                TechnicalRelationKind::Implements,
+                "task:primary-irfi.4",
+                "claim:first-technical-memory-slice-explicit-technical-nodes-relations",
+                "primary-irfi.4 implemented technical append and query handling",
+            ),
+            Self::relation(
+                TechnicalRelationKind::Implements,
+                "task:primary-irfi.5",
+                "claim:first-technical-memory-slice-explicit-technical-nodes-relations",
+                "primary-irfi.5 implemented technical subscription delivery",
+            ),
+            Self::relation(
+                TechnicalRelationKind::Implements,
+                "task:primary-irfi.6",
+                "claim:first-technical-memory-slice-explicit-technical-nodes-relations",
+                "primary-irfi.6 added the public seed dataset and witnesses",
+            ),
+            Self::relation(
+                TechnicalRelationKind::Implements,
+                "task:primary-irfi.7",
+                "claim:mind-technical-memory-nix-witnesses-passed-2026-06-27",
+                "primary-irfi.7 landed final version and Nix/check witness evidence",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi",
+                "task:primary-irfi.1",
+                "the primary-irfi epic completion depended on child task primary-irfi.1",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi",
+                "task:primary-irfi.2",
+                "the primary-irfi epic completion depended on child task primary-irfi.2",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi",
+                "task:primary-irfi.3",
+                "the primary-irfi epic completion depended on child task primary-irfi.3",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi",
+                "task:primary-irfi.4",
+                "the primary-irfi epic completion depended on child task primary-irfi.4",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi",
+                "task:primary-irfi.5",
+                "the primary-irfi epic completion depended on child task primary-irfi.5",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi",
+                "task:primary-irfi.6",
+                "the primary-irfi epic completion depended on child task primary-irfi.6",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi",
+                "task:primary-irfi.7",
+                "the primary-irfi epic completion depended on child task primary-irfi.7",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi.1",
+                "task:primary-irfi.2",
+                "contract work unblocked mind consumption",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi.2",
+                "task:primary-irfi.3",
+                "contract consumption unblocked storage family work",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi.3",
+                "task:primary-irfi.4",
+                "storage families unblocked append and query handling",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi.4",
+                "task:primary-irfi.5",
+                "append handling unblocked technical subscription delivery",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi.4",
+                "task:primary-irfi.6",
+                "append and query handling unblocked seed witnesses",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi.5",
+                "task:primary-irfi.6",
+                "subscription delivery unblocked seed subscription witnesses",
+            ),
+            Self::relation(
+                TechnicalRelationKind::TaskDependency,
+                "task:primary-irfi.6",
+                "task:primary-irfi.7",
+                "seed witnesses unblocked final version/check reconciliation",
+            ),
+            Self::relation(
+                TechnicalRelationKind::Blocks,
+                "task:primary-irfi.1",
+                "task:primary-irfi.2",
+                "primary-irfi.1 blocked primary-irfi.2",
+            ),
+            Self::relation(
+                TechnicalRelationKind::Blocks,
+                "task:primary-irfi.6",
+                "task:primary-irfi.7",
+                "primary-irfi.6 blocked final version/check reconciliation",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenanceDependency,
+                "claim:primary-irfi-completed-first-technical-memory-slice",
+                "task:primary-irfi",
+                "the completed first-slice claim is grounded in the public BEADS epic",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenanceDependency,
+                "claim:primary-irfi-completed-first-technical-memory-slice",
+                "artifact:beads-primary-irfi-public-epic",
+                "the public BEADS epic is the source record for the completed slice",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenanceDependency,
+                "task:primary-irfi.1",
+                "artifact:signal-mind-commit-5a5a4fb4",
+                "primary-irfi.1 shipped in signal-mind commit 5a5a4fb4",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenanceDependency,
+                "task:primary-irfi.2",
+                "artifact:mind-commit-c546b29f",
+                "primary-irfi.2 shipped in mind commit c546b29f",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenanceDependency,
+                "task:primary-irfi.3",
+                "artifact:mind-commit-ad12bfc4",
+                "primary-irfi.3 shipped in mind commit ad12bfc4",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenanceDependency,
+                "task:primary-irfi.4",
+                "artifact:mind-commit-4c705095",
+                "primary-irfi.4 shipped in mind commit 4c705095",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenanceDependency,
+                "task:primary-irfi.5",
+                "artifact:mind-commit-9fd00cf3",
+                "primary-irfi.5 shipped in mind commit 9fd00cf3",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenanceDependency,
+                "task:primary-irfi.6",
+                "artifact:mind-commit-888ddd51",
+                "primary-irfi.6 shipped in mind commit 888ddd51",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenanceDependency,
+                "task:primary-irfi.7",
+                "witness:mind-nix-flake-check-2026-06-27",
+                "primary-irfi.7 recorded the passing mind Nix flake check",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenanceDependency,
+                "task:primary-irfi.7",
+                "witness:signal-mind-nix-flake-check-2026-06-27",
+                "primary-irfi.7 recorded the passing signal-mind Nix flake check",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenBy,
+                "claim:primary-irfi-completed-first-technical-memory-slice",
+                "witness:mind-nix-flake-check-2026-06-27",
+                "mind Nix checks prove the first technical memory slice",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenBy,
+                "claim:primary-irfi-completed-first-technical-memory-slice",
+                "witness:signal-mind-nix-flake-check-2026-06-27",
+                "signal-mind Nix checks prove the contract side of the first technical memory slice",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenBy,
+                "claim:mind-technical-memory-nix-witnesses-passed-2026-06-27",
+                "witness:mind-nix-flake-check-2026-06-27",
+                "the mind Nix witness proves the final mind checks passed",
+            ),
+            Self::relation(
+                TechnicalRelationKind::ProvenBy,
+                "claim:mind-technical-memory-nix-witnesses-passed-2026-06-27",
+                "witness:signal-mind-nix-flake-check-2026-06-27",
+                "the signal-mind Nix witness proves the final contract checks passed",
             ),
             Self::relation(
                 TechnicalRelationKind::ProvenBy,
@@ -423,6 +798,17 @@ impl TechnicalSeedDataset {
         }
     }
 
+    fn work_item(stable_key: &str, task: &str, title: &str) -> SubmitTechnicalNode {
+        SubmitTechnicalNode {
+            stable_key: Self::key(stable_key),
+            kind: TechnicalNodeKind::WorkItem,
+            body: TechnicalNodeBody::WorkItem(WorkItemNode {
+                task: TaskToken::try_new(task.to_string()).expect("seed task token is valid"),
+                title: TextBody::new(title),
+            }),
+        }
+    }
+
     fn storage_resource(
         stable_key: &str,
         owner: &str,
@@ -470,11 +856,23 @@ impl TechnicalSeedDataset {
     }
 
     fn source_artifact(stable_key: &str, path: &str, summary: &str) -> SubmitTechnicalNode {
+        Self::source_artifact_with_locator(
+            stable_key,
+            TechnicalSourceLocator::Path(Self::wire_path(path)),
+            summary,
+        )
+    }
+
+    fn source_artifact_with_locator(
+        stable_key: &str,
+        locator: TechnicalSourceLocator,
+        summary: &str,
+    ) -> SubmitTechnicalNode {
         SubmitTechnicalNode {
             stable_key: Self::key(stable_key),
             kind: TechnicalNodeKind::SourceArtifact,
             body: TechnicalNodeBody::SourceArtifact(SourceArtifactNode {
-                locator: TechnicalSourceLocator::Path(Self::wire_path(path)),
+                locator,
                 summary: Some(TextBody::new(summary)),
             }),
         }

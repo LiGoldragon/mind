@@ -217,6 +217,25 @@ impl ActorFixture {
             .expect("actor request succeeds")
     }
 
+    async fn submit_technical_seed(&self, dataset: &TechnicalSeedDataset) {
+        for node in dataset.nodes().iter().cloned() {
+            let response = self.submit(MindRequest::SubmitTechnicalNode(node)).await;
+            assert!(matches!(
+                response.reply().expect("node reply exists"),
+                MindReply::TechnicalNodeCommitted(_)
+            ));
+        }
+        for relation in dataset.relations().iter().cloned() {
+            let response = self
+                .submit(MindRequest::SubmitTechnicalRelation(relation))
+                .await;
+            assert!(matches!(
+                response.reply().expect("relation reply exists"),
+                MindReply::TechnicalRelationCommitted(_)
+            ));
+        }
+    }
+
     async fn subscription_events(&self) -> Vec<signal_mind::SubscriptionEvent> {
         self.root
             .ask(ReadSubscriptionEvents::all())
@@ -1766,22 +1785,7 @@ async fn public_technical_seed_queries_back_exact_facts_through_actor_lane() {
     let fixture = ActorFixture::new().await;
     let dataset = TechnicalSeedDataset::public_first_slice();
 
-    for node in dataset.nodes().iter().cloned() {
-        let response = fixture.submit(MindRequest::SubmitTechnicalNode(node)).await;
-        assert!(matches!(
-            response.reply().expect("node reply exists"),
-            MindReply::TechnicalNodeCommitted(_)
-        ));
-    }
-    for relation in dataset.relations().iter().cloned() {
-        let response = fixture
-            .submit(MindRequest::SubmitTechnicalRelation(relation))
-            .await;
-        assert!(matches!(
-            response.reply().expect("relation reply exists"),
-            MindReply::TechnicalRelationCommitted(_)
-        ));
-    }
+    fixture.submit_technical_seed(&dataset).await;
 
     let nodes = fixture
         .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
@@ -1828,6 +1832,147 @@ async fn public_technical_seed_queries_back_exact_facts_through_actor_lane() {
             && relation.source.stable_key == dataset.mind_component_key()
             && relation.target.stable_key == dataset.durable_storage_claim_key()
     }));
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn public_technical_seed_primary_irfi_queries_return_epic_closure_and_provenance() {
+    let fixture = ActorFixture::new().await;
+    let dataset = TechnicalSeedDataset::public_first_slice();
+
+    fixture.submit_technical_seed(&dataset).await;
+
+    let about_epic = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            query: TechnicalNodeQuery::About(AboutTechnicalNode {
+                stable_key: dataset.primary_irfi_epic_key(),
+            }),
+            limit: QueryLimit::new(100),
+        }))
+        .await;
+    let MindReply::TechnicalNodeNeighborhood(about_epic) =
+        about_epic.reply().expect("about reply exists")
+    else {
+        panic!("expected technical node neighborhood reply");
+    };
+    assert_eq!(
+        about_epic
+            .center
+            .as_ref()
+            .expect("primary-irfi center exists")
+            .stable_key,
+        dataset.primary_irfi_epic_key()
+    );
+    assert!(
+        about_epic
+            .outgoing
+            .iter()
+            .filter(|relation| relation.kind == TechnicalRelationKind::TaskDependency)
+            .count()
+            >= 7
+    );
+    assert!(about_epic.outgoing.iter().any(|relation| {
+        relation.kind == TechnicalRelationKind::LocatedAt
+            && relation.target.stable_key
+                == technical_key("artifact:beads-primary-irfi-public-epic")
+    }));
+
+    let dependency_closure = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            query: TechnicalNodeQuery::DependencyClosure(TechnicalDependencyClosureQuery {
+                stable_key: dataset.primary_irfi_epic_key(),
+                kinds: vec![TechnicalRelationKind::TaskDependency],
+            }),
+            limit: QueryLimit::new(100),
+        }))
+        .await;
+    let MindReply::TechnicalDependencyClosure(dependency_closure) =
+        dependency_closure.reply().expect("closure reply exists")
+    else {
+        panic!("expected technical dependency closure reply");
+    };
+    let closure_keys = dependency_closure
+        .nodes
+        .iter()
+        .map(|node| node.stable_key.clone())
+        .collect::<HashSet<_>>();
+    for child in [
+        "task:primary-irfi.1",
+        "task:primary-irfi.2",
+        "task:primary-irfi.3",
+        "task:primary-irfi.4",
+        "task:primary-irfi.5",
+        "task:primary-irfi.6",
+        "task:primary-irfi.7",
+    ] {
+        assert!(closure_keys.contains(&technical_key(child)));
+    }
+    assert!(
+        dependency_closure
+            .relations
+            .iter()
+            .all(|relation| relation.kind == TechnicalRelationKind::TaskDependency)
+    );
+    assert!(!dependency_closure.has_more);
+
+    let claim_provenance = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            query: TechnicalNodeQuery::ProvenanceChain(TechnicalProvenanceChainQuery {
+                stable_key: dataset.primary_irfi_slice_claim_key(),
+                kinds: Vec::new(),
+            }),
+            limit: QueryLimit::new(100),
+        }))
+        .await;
+    let MindReply::TechnicalProvenanceChain(claim_provenance) = claim_provenance
+        .reply()
+        .expect("claim provenance reply exists")
+    else {
+        panic!("expected technical provenance chain reply");
+    };
+    let claim_provenance_keys = claim_provenance
+        .nodes
+        .iter()
+        .map(|node| node.stable_key.clone())
+        .collect::<HashSet<_>>();
+    assert!(claim_provenance_keys.contains(&dataset.primary_irfi_epic_key()));
+    assert!(
+        claim_provenance_keys.contains(&technical_key("artifact:beads-primary-irfi-public-epic"))
+    );
+    assert!(claim_provenance_keys.contains(&dataset.mind_nix_check_witness_key()));
+    assert!(claim_provenance_keys.contains(&dataset.signal_mind_nix_check_witness_key()));
+    assert!(claim_provenance.relations.iter().any(|relation| {
+        relation.kind == TechnicalRelationKind::ProvenanceDependency
+            && relation.target.stable_key == dataset.primary_irfi_epic_key()
+    }));
+    assert!(claim_provenance.relations.iter().any(|relation| {
+        relation.kind == TechnicalRelationKind::ProvenBy
+            && relation.target.stable_key == dataset.mind_nix_check_witness_key()
+    }));
+
+    let final_task_provenance = fixture
+        .submit(MindRequest::QueryTechnicalNodes(QueryTechnicalNodes {
+            query: TechnicalNodeQuery::ProvenanceChain(TechnicalProvenanceChainQuery {
+                stable_key: technical_key("task:primary-irfi.7"),
+                kinds: Vec::new(),
+            }),
+            limit: QueryLimit::new(100),
+        }))
+        .await;
+    let MindReply::TechnicalProvenanceChain(final_task_provenance) = final_task_provenance
+        .reply()
+        .expect("final task provenance reply exists")
+    else {
+        panic!("expected technical provenance chain reply");
+    };
+    let final_task_provenance_keys = final_task_provenance
+        .nodes
+        .iter()
+        .map(|node| node.stable_key.clone())
+        .collect::<HashSet<_>>();
+    assert!(final_task_provenance_keys.contains(&dataset.mind_nix_check_witness_key()));
+    assert!(final_task_provenance_keys.contains(&dataset.signal_mind_nix_check_witness_key()));
 
     fixture.stop().await;
 }

@@ -390,6 +390,13 @@
               cargoTestExtraArgs = "--test actor_topology public_technical_seed_delivers_subscription_deltas -- --exact";
             }
           );
+          mind-public-technical-seed-primary-irfi-provenance = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test actor_topology public_technical_seed_primary_irfi_queries_return_epic_closure_and_provenance -- --exact";
+            }
+          );
           mind-public-technical-seed-survives-daemon-restart = craneLib.cargoTest (
             commonArgs
             // {
