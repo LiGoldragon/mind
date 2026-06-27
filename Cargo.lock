@@ -716,7 +716,7 @@ dependencies = [
 [[package]]
 name = "signal-mind"
 version = "0.5.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?rev=fcc074131b437cfa3a28f2509da37c32a6a15c70#fcc074131b437cfa3a28f2509da37c32a6a15c70"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#eb2e0025e60a07901a096178a26e214fb5d40ba1"
 dependencies = [
  "nota",
  "rkyv",

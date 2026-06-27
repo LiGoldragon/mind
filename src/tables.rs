@@ -1079,12 +1079,11 @@ impl MindTables {
 
     pub(crate) fn retract_subscription(&self, subscription: &SubscriptionIdentifier) -> Result<()> {
         let key = RecordKey::new(subscription.as_str());
-        if self
+        if !self
             .engine
             .match_records(QueryPlan::key(self.thought_subscriptions, key.clone()))?
             .records()
-            .first()
-            .is_some()
+            .is_empty()
         {
             self.engine
                 .retract(Retraction::<StoredThoughtSubscription>::new(
@@ -1095,12 +1094,11 @@ impl MindTables {
         }
 
         let key = RecordKey::new(subscription.as_str());
-        if self
+        if !self
             .engine
             .match_records(QueryPlan::key(self.relation_subscriptions, key.clone()))?
             .records()
-            .first()
-            .is_some()
+            .is_empty()
         {
             self.engine
                 .retract(Retraction::<StoredRelationSubscription>::new(
@@ -1111,15 +1109,14 @@ impl MindTables {
         }
 
         let key = RecordKey::new(subscription.as_str());
-        if self
+        if !self
             .engine
             .match_records(QueryPlan::key(
                 self.technical_node_subscriptions,
                 key.clone(),
             ))?
             .records()
-            .first()
-            .is_some()
+            .is_empty()
         {
             self.engine
                 .retract(Retraction::<StoredTechnicalNodeSubscription>::new(
@@ -1130,15 +1127,14 @@ impl MindTables {
         }
 
         let key = RecordKey::new(subscription.as_str());
-        if self
+        if !self
             .engine
             .match_records(QueryPlan::key(
                 self.technical_relation_subscriptions,
                 key.clone(),
             ))?
             .records()
-            .first()
-            .is_some()
+            .is_empty()
         {
             self.engine
                 .retract(Retraction::<StoredTechnicalRelationSubscription>::new(

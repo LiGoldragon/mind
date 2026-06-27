@@ -180,6 +180,7 @@ impl ActorFixture {
         Self::from_store_with_guard(store, guard).await
     }
 
+    #[allow(clippy::await_holding_lock)]
     async fn from_store_with_guard(store: PathBuf, guard: MutexGuard<'static, ()>) -> Self {
         Self {
             root: MindRoot::start(MindRootArguments::new(StoreLocation::new(
