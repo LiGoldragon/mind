@@ -358,6 +358,13 @@ transaction as the data row. Mind does not maintain a separate backup
 journal; remote mirror/server policy belongs to the reusable SEMA-state
 versioning layer above `sema-engine`.
 
+`sema-engine` is the exclusive interface to the database: mind holds no
+storage-kernel write path and makes no direct redb calls (per Spirit fosp,
+Correction). The versioned operation log — not the redb store — is the
+authoritative source of truth for mind's Sema state; the redb store is a
+rebuildable materialized view folded from that log (per Spirit iir4,
+Decision).
+
 Recommended tables:
 
 | Table | Purpose |
