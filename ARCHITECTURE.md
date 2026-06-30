@@ -431,6 +431,28 @@ graph LR
     event --> note
 ```
 
+## 6.4 · Future direction — memory, error events, and role-vector skill loading
+
+These archived intent records name capabilities `mind` is intended to own once
+`persona-mind` ships; they are direction, not yet built surface.
+
+- **Agent-error event logging (`wgii`).** Agent errors — mermaid syntax, NOTA
+  formatting, naming violations, and the like — are logged into Mind as typed
+  events, forming the basis for skill-improvement loops and auditor input.
+- **Shared agent memory (`wl2a`).** Agent memory defaults route through a
+  reliable shared memory system shared across agents; Claude-specific memory
+  use is an explicit gated path, not the default.
+- **Role-vector-driven skill loading (`x92t`).** Each token in a lane's role
+  vector contributes to the default skill bundle `persona-mind` sends at boot.
+  A lane with role `[PersonaSignal Designer]` loads the base designer skills
+  (`skills/designer.md`) plus persona-signal-specific skills; `[Note Designer]`
+  loads designer skills plus note-specific. Specialization tokens map directly
+  to skill files or registered skill bundles. This composes with the existing
+  intent that skills bundle into roles, refining it so the bundle is derivable
+  from the role vector rather than from a single role string. (The role-vector
+  encoding itself is owned by `orchestrate`'s lane registry; `mind` consumes it
+  to compose the boot-time skill bundle.)
+
 ## 6.5 · Supervision-relation reception
 
 The mind daemon answers the `signal-persona::SupervisionRequest` relation
