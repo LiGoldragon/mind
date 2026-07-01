@@ -3,7 +3,10 @@ use kameo::error::Infallible;
 use kameo::message::{Context, Message};
 use signal_mind::MindReply;
 
-use crate::{Error, MindEnvelope, Result, StoreLocation, supervision};
+use crate::{
+    Error, FixtureKnowledgeJudge, KnowledgeJudgePort, MindEnvelope, Result, StoreLocation,
+    supervision,
+};
 
 use super::trace::{ActorTrace, TraceAction, TraceNode};
 use super::{choreography, dispatch, domain, ingress, reply, store, subscription, view};
@@ -35,6 +38,7 @@ struct RootChildren {
 pub struct Arguments {
     pub store: StoreLocation,
     pub orchestrate_meta_endpoint: Option<choreography::MetaEndpoint>,
+    pub knowledge_judge: KnowledgeJudgePort,
 }
 
 impl Arguments {
@@ -42,11 +46,17 @@ impl Arguments {
         Self {
             store,
             orchestrate_meta_endpoint: None,
+            knowledge_judge: std::sync::Arc::new(FixtureKnowledgeJudge::empty()),
         }
     }
 
     pub fn with_orchestrate_meta_endpoint(mut self, endpoint: choreography::MetaEndpoint) -> Self {
         self.orchestrate_meta_endpoint = Some(endpoint);
+        self
+    }
+
+    pub fn with_knowledge_judge(mut self, judge: KnowledgeJudgePort) -> Self {
+        self.knowledge_judge = judge;
         self
     }
 }
@@ -192,6 +202,7 @@ impl Actor for MindRoot {
             store::Arguments {
                 store: arguments.store.clone(),
                 subscription: subscription.clone(),
+                knowledge_judge: arguments.knowledge_judge.clone(),
             },
         )
         .spawn()

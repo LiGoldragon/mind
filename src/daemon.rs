@@ -21,8 +21,9 @@ use triad_runtime::{AcceptedConnection, FrameError};
 
 use crate::schema::daemon::ComponentDaemon;
 use crate::{
-    ActorRef, Error as MindError, MetaMindFrameCodec, MindFrameCodec, MindRoot, MindRootArguments,
-    StoreLocation, SupervisionFrameCodec,
+    ActorRef, AgentKnowledgeJudge, Error as MindError, FixtureKnowledgeJudge, KnowledgeJudgePort,
+    MetaMindFrameCodec, MindFrameCodec, MindKnowledgeJudgeConfiguration, MindRoot,
+    MindRootArguments, StoreLocation, SupervisionFrameCodec,
 };
 
 /// The type-level selector for mind's emitted daemon. It carries no runtime
@@ -38,6 +39,7 @@ pub struct MindProcessDaemon;
 /// time.
 pub struct MindEngine {
     store: StoreLocation,
+    knowledge_judge: KnowledgeJudgePort,
     root: OnceCell<ActorRef<MindRoot>>,
     working_codec: MindFrameCodec,
     meta_mind_codec: MetaMindFrameCodec,
@@ -58,8 +60,16 @@ pub enum MindDaemonError {
 
 impl MindEngine {
     pub fn open(store: StoreLocation) -> Self {
+        Self::open_with_knowledge_judge(store, std::sync::Arc::new(FixtureKnowledgeJudge::empty()))
+    }
+
+    pub fn open_with_knowledge_judge(
+        store: StoreLocation,
+        knowledge_judge: KnowledgeJudgePort,
+    ) -> Self {
         Self {
             store,
+            knowledge_judge,
             root: OnceCell::new(),
             working_codec: MindFrameCodec::default(),
             meta_mind_codec: MetaMindFrameCodec::default(),
@@ -71,7 +81,11 @@ impl MindEngine {
     async fn root(&self) -> Result<&ActorRef<MindRoot>, MindDaemonError> {
         self.root
             .get_or_try_init(|| async {
-                Ok(MindRoot::start(MindRootArguments::new(self.store.clone())).await?)
+                Ok(MindRoot::start(
+                    MindRootArguments::new(self.store.clone())
+                        .with_knowledge_judge(std::sync::Arc::clone(&self.knowledge_judge)),
+                )
+                .await?)
             })
             .await
     }
@@ -134,9 +148,18 @@ impl ComponentDaemon for MindProcessDaemon {
     }
 
     fn build_runtime(configuration: &Self::Configuration) -> Result<Self::Engine, Self::Error> {
-        Ok(MindEngine::open(StoreLocation::new(
-            configuration.store_path.as_str(),
-        )))
+        let knowledge_judge: KnowledgeJudgePort = match &configuration.knowledge_judge {
+            MindKnowledgeJudgeConfiguration::Fixture => {
+                std::sync::Arc::new(FixtureKnowledgeJudge::empty())
+            }
+            MindKnowledgeJudgeConfiguration::Agent(configuration) => {
+                std::sync::Arc::new(AgentKnowledgeJudge::new(configuration.clone()))
+            }
+        };
+        Ok(MindEngine::open_with_knowledge_judge(
+            StoreLocation::new(configuration.store_path.as_str()),
+            knowledge_judge,
+        ))
     }
 
     async fn handle_working_connection(

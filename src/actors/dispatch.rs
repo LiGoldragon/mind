@@ -72,6 +72,10 @@ impl DispatchPhase {
                 trace.record(TraceNode::GRAPH_FLOW, TraceAction::MessageReceived);
                 self.submit_technical_relation(envelope, trace).await?
             }
+            MindRequest::SubmitKnowledge(_) => {
+                trace.record(TraceNode::GRAPH_FLOW, TraceAction::MessageReceived);
+                self.submit_knowledge(envelope, trace).await?
+            }
             MindRequest::QueryThoughts(_) => {
                 trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
                 self.query_thoughts(envelope, trace).await?
@@ -87,6 +91,10 @@ impl DispatchPhase {
             MindRequest::QueryTechnicalRelations(_) => {
                 trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
                 self.query_technical_relations(envelope, trace).await?
+            }
+            MindRequest::QueryKnowledge(_) => {
+                trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
+                self.query_knowledge(envelope, trace).await?
             }
             MindRequest::SubscribeThoughts(_) => {
                 trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
@@ -195,6 +203,17 @@ impl DispatchPhase {
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
 
+    async fn submit_knowledge(
+        &self,
+        envelope: MindEnvelope,
+        trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        self.domain
+            .ask(domain::SubmitKnowledge { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
     async fn query_thoughts(
         &self,
         envelope: MindEnvelope,
@@ -224,6 +243,17 @@ impl DispatchPhase {
     ) -> CrateResult<PipelineReply> {
         self.view
             .ask(view::QueryTechnicalRelations { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn query_knowledge(
+        &self,
+        envelope: MindEnvelope,
+        trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        self.view
+            .ask(view::QueryKnowledge { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }

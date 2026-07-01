@@ -10,13 +10,13 @@ use sema_engine::{
     TableReference, VersionedStoreName, VersioningPolicy,
 };
 use signal_mind::{
-    ActorName, RecordIdentifier, Relation, RelationIdentifier, SubmitRelation, SubmitTechnicalNode,
-    SubmitTechnicalRelation, SubmitThought, SubscribeRelations, SubscribeTechnicalNodes,
-    SubscribeTechnicalRelations, SubscribeThoughts, SubscriptionCursor, SubscriptionDemandCredit,
-    SubscriptionIdentifier, TechnicalNode, TechnicalNodeIdentifier, TechnicalNodeKey,
-    TechnicalNodeKindMismatch, TechnicalNodeRejectionReason, TechnicalRelation,
-    TechnicalRelationEndpoint, TechnicalRelationIdentifier, TechnicalRelationRejectionReason,
-    Thought, TimestampNanos,
+    AcceptedKnowledge, ActorName, KnowledgeIdentifier, RecordIdentifier, Relation,
+    RelationIdentifier, SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation,
+    SubmitThought, SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations,
+    SubscribeThoughts, SubscriptionCursor, SubscriptionDemandCredit, SubscriptionIdentifier,
+    TechnicalNode, TechnicalNodeIdentifier, TechnicalNodeKey, TechnicalNodeKindMismatch,
+    TechnicalNodeRejectionReason, TechnicalRelation, TechnicalRelationEndpoint,
+    TechnicalRelationIdentifier, TechnicalRelationRejectionReason, Thought, TimestampNanos,
 };
 
 use crate::actors::subscription::{
@@ -26,7 +26,8 @@ use crate::actors::subscription::{
 };
 use crate::{MemoryGraph, Result, StoreLocation};
 
-const MIND_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(10);
+const MIND_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(11);
+const MIND_SCHEMA_VERSION_V10: SchemaVersion = SchemaVersion::new(10);
 const MIND_SCHEMA_VERSION_V9: SchemaVersion = SchemaVersion::new(9);
 const MIND_SCHEMA_VERSION_V8: SchemaVersion = SchemaVersion::new(8);
 
@@ -41,6 +42,7 @@ const THOUGHTS: TableName = TableName::new("thoughts");
 const RELATIONS: TableName = TableName::new("relations");
 const TECHNICAL_NODES: TableName = TableName::new("technical_nodes");
 const TECHNICAL_RELATIONS: TableName = TableName::new("technical_relations");
+const ACCEPTED_KNOWLEDGE: TableName = TableName::new("accepted_knowledge");
 const SEMA_META: TableDefinition<&str, u64> = TableDefinition::new("__sema_meta");
 const SEMA_SCHEMA_VERSION_KEY: &str = "schema_version";
 
@@ -51,6 +53,7 @@ pub struct MindTables {
     relations: TableReference<StoredRelation>,
     technical_nodes: TableReference<StoredTechnicalNode>,
     technical_relations: TableReference<StoredTechnicalRelation>,
+    accepted_knowledge: TableReference<StoredAcceptedKnowledge>,
     thought_subscriptions: TableReference<StoredThoughtSubscription>,
     relation_subscriptions: TableReference<StoredRelationSubscription>,
     technical_node_subscriptions: TableReference<StoredTechnicalNodeSubscription>,
@@ -100,6 +103,11 @@ pub(crate) struct StoredTechnicalNode {
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StoredTechnicalRelation {
     record: TechnicalRelation,
+}
+
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredAcceptedKnowledge {
+    record: AcceptedKnowledge,
 }
 
 pub(crate) struct OpenedThoughtSubscription {
@@ -257,6 +265,26 @@ impl StoredTechnicalRelation {
     }
 }
 
+impl StoredAcceptedKnowledge {
+    fn new(record: AcceptedKnowledge) -> Self {
+        Self { record }
+    }
+
+    fn identifier(&self) -> &KnowledgeIdentifier {
+        match &self.record {
+            AcceptedKnowledge::Entity(record) => &record.header.identifier,
+            AcceptedKnowledge::Statement(record) => &record.header.identifier,
+            AcceptedKnowledge::Relation(record) => &record.header.identifier,
+            AcceptedKnowledge::Domain(record) => &record.header.identifier,
+            AcceptedKnowledge::Source(record) => &record.header.identifier,
+        }
+    }
+
+    fn into_record(self) -> AcceptedKnowledge {
+        self.record
+    }
+}
+
 impl OpenedThoughtSubscription {
     fn new(
         record: StoredThoughtSubscription,
@@ -409,6 +437,12 @@ impl EngineRecord for StoredTechnicalRelation {
     }
 }
 
+impl EngineRecord for StoredAcceptedKnowledge {
+    fn record_key(&self) -> RecordKey {
+        RecordKey::new(self.identifier().as_str())
+    }
+}
+
 impl EngineRecord for MemoryGraph {
     fn record_key(&self) -> RecordKey {
         RecordKey::new(MEMORY_GRAPH_KEY)
@@ -477,6 +511,11 @@ impl MindTables {
             "technical-relation",
             MIND_SCHEMA_VERSION,
         ))?;
+        let accepted_knowledge = engine.register_table(Self::family_descriptor(
+            ACCEPTED_KNOWLEDGE,
+            "accepted-knowledge",
+            MIND_SCHEMA_VERSION,
+        ))?;
         let thought_subscriptions = engine.register_table(Self::family_descriptor(
             THOUGHT_SUBSCRIPTIONS,
             "thought-subscription",
@@ -504,6 +543,7 @@ impl MindTables {
             relations,
             technical_nodes,
             technical_relations,
+            accepted_knowledge,
             thought_subscriptions,
             relation_subscriptions,
             technical_node_subscriptions,
@@ -548,7 +588,9 @@ impl MindTables {
                 expected,
                 found,
             }) if *expected == MIND_SCHEMA_VERSION
-                && (*found == MIND_SCHEMA_VERSION_V8 || *found == MIND_SCHEMA_VERSION_V9)
+                && (*found == MIND_SCHEMA_VERSION_V8
+                    || *found == MIND_SCHEMA_VERSION_V9
+                    || *found == MIND_SCHEMA_VERSION_V10)
         )
     }
 
@@ -589,27 +631,32 @@ impl MindTables {
             "relation-subscription",
             MIND_SCHEMA_VERSION_V8,
         ))?;
-        if version == MIND_SCHEMA_VERSION_V9 {
+        if version == MIND_SCHEMA_VERSION_V9 || version == MIND_SCHEMA_VERSION_V10 {
+            let technical_version = if version == MIND_SCHEMA_VERSION_V10 {
+                MIND_SCHEMA_VERSION_V10
+            } else {
+                MIND_SCHEMA_VERSION_V9
+            };
             engine.register_table(Self::family_descriptor::<StoredTechnicalNode>(
                 TECHNICAL_NODES,
                 "technical-node",
-                MIND_SCHEMA_VERSION_V9,
+                technical_version,
             ))?;
             engine.register_table(Self::family_descriptor::<StoredTechnicalRelation>(
                 TECHNICAL_RELATIONS,
                 "technical-relation",
-                MIND_SCHEMA_VERSION_V9,
+                technical_version,
             ))?;
             engine.register_table(Self::family_descriptor::<StoredTechnicalNodeSubscription>(
                 TECHNICAL_NODE_SUBSCRIPTIONS,
                 "technical-node-subscription",
-                MIND_SCHEMA_VERSION_V9,
+                technical_version,
             ))?;
             engine.register_table(
                 Self::family_descriptor::<StoredTechnicalRelationSubscription>(
                     TECHNICAL_RELATION_SUBSCRIPTIONS,
                     "technical-relation-subscription",
-                    MIND_SCHEMA_VERSION_V9,
+                    technical_version,
                 ),
             )?;
         }
@@ -868,6 +915,28 @@ impl MindTables {
             .iter()
             .cloned()
             .map(StoredTechnicalRelation::into_record)
+            .collect())
+    }
+
+    pub(crate) fn assert_accepted_knowledge(
+        &self,
+        record: AcceptedKnowledge,
+    ) -> Result<AcceptedKnowledge> {
+        self.engine.assert(Assertion::new(
+            self.accepted_knowledge,
+            StoredAcceptedKnowledge::new(record.clone()),
+        ))?;
+        Ok(record)
+    }
+
+    pub(crate) fn accepted_knowledge_records(&self) -> Result<Vec<AcceptedKnowledge>> {
+        Ok(self
+            .engine
+            .match_records(QueryPlan::all(self.accepted_knowledge))?
+            .records()
+            .iter()
+            .cloned()
+            .map(StoredAcceptedKnowledge::into_record)
             .collect())
     }
 
@@ -1796,16 +1865,16 @@ impl CompactGraphIdentifier {
     }
 }
 
-struct StoreClock {
+pub(crate) struct StoreClock {
     epoch: SystemTime,
 }
 
 impl StoreClock {
-    fn system() -> Self {
+    pub(crate) fn system() -> Self {
         Self { epoch: UNIX_EPOCH }
     }
 
-    fn timestamp(&self) -> Result<TimestampNanos> {
+    pub(crate) fn timestamp(&self) -> Result<TimestampNanos> {
         let nanos = SystemTime::now()
             .duration_since(self.epoch)?
             .as_nanos()

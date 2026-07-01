@@ -1,31 +1,48 @@
 use std::collections::HashSet;
+use std::io::Write;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use mind::actors::{ActorManifest, ActorResidency, ReadSubscriptionEvents, TraceAction, TraceNode};
 use mind::{
-    ActorRef, MindEnvelope, MindRoot, MindRootArguments, MindRootReply, StoreLocation,
-    SubmitEnvelope, TechnicalSeedDataset,
+    ActorRef, AgentKnowledgeJudge, FixtureKnowledgeJudge, KnowledgeJudgePort, MindEnvelope,
+    MindKnowledgeJudgeAgentConfiguration, MindRoot, MindRootArguments, MindRootReply,
+    StoreLocation, SubmitEnvelope, TechnicalSeedDataset,
+};
+use nota_next::NotaEncode;
+use signal_agent::{
+    Completion, CompletionText, Input as AgentInput, Output as AgentOutput, StopReasonText,
+    TokenUsage,
 };
 use signal_mind::{
-    AboutTechnicalNode, AcceptedSubscriptionStream, ActiveClaim, ActorName, ByRelationKind,
-    ByTechnicalNodeStableKey, ByTechnicalRelationSource, ByThoughtKind, ClaimActivity, ClaimBody,
-    ClaimScope, FileReference, GoalBody, GoalScope, ItemKind, Magnitude, MindReply, MindRequest,
-    Opening, PathClaimScope, Query, QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes,
-    QueryTechnicalRelations, QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter,
-    RelationKind, RoleName, SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation,
-    SubmitThought, SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations,
-    SubscribeThoughts, SubscriptionCursor, SubscriptionDemand, SubscriptionDemandCredit,
-    SubscriptionStreamEvent, SubscriptionStreamKind, TaskToken, TechnicalDependencyClosureQuery,
-    TechnicalNodeBody, TechnicalNodeFilter, TechnicalNodeKey, TechnicalNodeKind,
-    TechnicalNodeQuery, TechnicalNodeRejectionReason, TechnicalProvenanceChainQuery,
-    TechnicalRelationFilter, TechnicalRelationKind, TechnicalRelationNeighborhoodDirection,
+    AboutTechnicalNode, AcceptedKnowledge, AcceptedKnowledgeDraft, AcceptedSubscriptionStream,
+    ActiveClaim, ActorName, ByRelationKind, ByTechnicalNodeStableKey, ByTechnicalRelationSource,
+    ByThoughtKind, CandidateSummary, ClaimActivity, ClaimBody, ClaimScope, CurrentView,
+    FileReference, GoalBody, GoalScope, ItemKind, KnowledgeCandidate, KnowledgeDomainCandidate,
+    KnowledgeDomainKey, KnowledgeDomainSelector, KnowledgeEndpointSelector,
+    KnowledgeEntityCandidate, KnowledgeFixturePolicy, KnowledgeIdentifier, KnowledgeJudgeVerdict,
+    KnowledgeList, KnowledgeQuery, KnowledgeRecordDraft, KnowledgeRecordKind, KnowledgeRejection,
+    KnowledgeRejectionReason, KnowledgeRelationDraft, KnowledgeRelationKind,
+    KnowledgeSourceCandidate, KnowledgeStableKey, KnowledgeStatementCandidate, KnowledgeSubmission,
+    Magnitude, MindReply, MindRequest, Opening, PathClaimScope, Query, QueryKind, QueryLimit,
+    QueryRelations, QueryTechnicalNodes, QueryTechnicalRelations, QueryThoughts, ReferenceBody,
+    ReferenceTarget, RelationFilter, RelationKind, RelationSelector, RetryHint, RoleName,
+    SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation, SubmitThought,
+    SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations, SubscribeThoughts,
+    SubscriptionCursor, SubscriptionDemand, SubscriptionDemandCredit, SubscriptionStreamEvent,
+    SubscriptionStreamKind, TaskToken, TechnicalDependencyClosureQuery, TechnicalNodeBody,
+    TechnicalNodeFilter, TechnicalNodeKey, TechnicalNodeKind, TechnicalNodeQuery,
+    TechnicalNodeRejectionReason, TechnicalProvenanceChainQuery, TechnicalRelationFilter,
+    TechnicalRelationKind, TechnicalRelationNeighborhoodDirection,
     TechnicalRelationNeighborhoodQuery, TechnicalRelationRejectionReason, TechnicalSourceLocator,
     TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos, Title, WirePath,
     WorkspaceGoal,
 };
 use signal_persona::ComponentName;
+use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
 static ACTOR_FIXTURE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -181,6 +198,25 @@ impl ActorFixture {
     }
 
     #[allow(clippy::await_holding_lock)]
+    async fn with_knowledge_judge(judge: KnowledgeJudgePort) -> Self {
+        let guard = ACTOR_FIXTURE_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let store = Self::store_path();
+        Self {
+            root: MindRoot::start(
+                MindRootArguments::new(StoreLocation::new(store.to_string_lossy().to_string()))
+                    .with_knowledge_judge(judge),
+            )
+            .await
+            .expect("mind root starts with knowledge judge"),
+            actor: ActorName::new("operator-assistant"),
+            store,
+            _guard: guard,
+        }
+    }
+
+    #[allow(clippy::await_holding_lock)]
     async fn from_store_with_guard(store: PathBuf, guard: MutexGuard<'static, ()>) -> Self {
         Self {
             root: MindRoot::start(MindRootArguments::new(StoreLocation::new(
@@ -256,6 +292,258 @@ impl ActorFixture {
     }
 }
 
+struct FakeKnowledgeAgent {
+    socket_path: PathBuf,
+    captured_prompts: Arc<Mutex<Vec<String>>>,
+    thread: thread::JoinHandle<()>,
+}
+
+impl FakeKnowledgeAgent {
+    fn spawn_texts(replies: Vec<String>) -> Self {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let socket_path = std::env::temp_dir().join(format!(
+            "mind-knowledge-agent-{}-{stamp}.sock",
+            std::process::id()
+        ));
+        let listener = UnixListener::bind(&socket_path).expect("bind fake knowledge agent socket");
+        let captured_prompts = Arc::new(Mutex::new(Vec::new()));
+        let thread_captured_prompts = Arc::clone(&captured_prompts);
+        let thread = thread::spawn(move || {
+            for reply in replies {
+                let (stream, _) = listener.accept().expect("accept fake knowledge agent call");
+                Self::answer(stream, reply, &thread_captured_prompts);
+            }
+        });
+        Self {
+            socket_path,
+            captured_prompts,
+            thread,
+        }
+    }
+
+    fn answer(mut stream: UnixStream, reply: String, captured_prompts: &Arc<Mutex<Vec<String>>>) {
+        let codec = LengthPrefixedCodec::default();
+        let request = codec
+            .read_body(&mut stream)
+            .expect("read agent request")
+            .into_bytes();
+        let (_route, input) =
+            AgentInput::decode_signal_frame(&request).expect("decode agent input");
+        let AgentInput::Call(call) = input else {
+            panic!("expected agent Call input, got {input:?}");
+        };
+        let prompt = call.payload();
+        assert_eq!(
+            prompt
+                .prompt_options()
+                .provider()
+                .map(|provider| provider.payload().as_str()),
+            Some(MindKnowledgeJudgeAgentConfiguration::DEEPSEEK_PROVIDER)
+        );
+        assert_eq!(
+            prompt
+                .prompt_options()
+                .model()
+                .map(|model| model.payload().as_str()),
+            Some(MindKnowledgeJudgeAgentConfiguration::DEEPSEEK_FLASH_MODEL)
+        );
+        assert_eq!(
+            prompt
+                .prompt_options()
+                .maximum_output_tokens()
+                .map(|tokens| *tokens.payload()),
+            Some(MindKnowledgeJudgeAgentConfiguration::DEFAULT_MAXIMUM_OUTPUT_TOKENS)
+        );
+        let system = prompt
+            .system()
+            .expect("knowledge judge prompt has system text")
+            .payload()
+            .clone();
+        let user = prompt.chat_transcript().payload()[0].text.payload().clone();
+        captured_prompts
+            .lock()
+            .expect("capture prompt")
+            .push(format!("{system}\n\n{user}"));
+        let output = AgentOutput::completed(Completion {
+            completion_text: CompletionText::new(reply),
+            stop_reason: StopReasonText::new("stop"),
+            token_usage: TokenUsage::new(None, None),
+        });
+        codec
+            .write_body(
+                &mut stream,
+                &FrameBody::new(output.encode_signal_frame().expect("encode agent output")),
+            )
+            .expect("write agent output");
+        stream.flush().expect("flush agent output");
+    }
+
+    fn knowledge_judge(&self) -> AgentKnowledgeJudge {
+        AgentKnowledgeJudge::new(MindKnowledgeJudgeAgentConfiguration::deepseek_flash(
+            signal_mind::WirePath::from_absolute_path(
+                self.socket_path.to_string_lossy().into_owned(),
+            )
+            .expect("fake agent socket path is absolute"),
+        ))
+    }
+
+    fn captured_prompts(&self) -> Vec<String> {
+        self.captured_prompts
+            .lock()
+            .expect("capture prompts")
+            .clone()
+    }
+
+    fn join(self) {
+        self.thread.join().expect("fake knowledge agent joins");
+        let _ = std::fs::remove_file(self.socket_path);
+    }
+}
+
+fn knowledge_key(value: &str) -> KnowledgeStableKey {
+    KnowledgeStableKey::from_canonical(value).expect("test knowledge key is canonical")
+}
+
+fn domain_key(value: &str) -> KnowledgeDomainKey {
+    KnowledgeDomainKey::from_canonical(value).expect("test domain key is canonical")
+}
+
+fn knowledge_submission(candidate: KnowledgeCandidate) -> MindRequest {
+    MindRequest::SubmitKnowledge(KnowledgeSubmission {
+        candidate,
+        fixture_policy: KnowledgeFixturePolicy::FixtureOnly,
+        requester_context: signal_mind::KnowledgeRequesterContext {
+            request_summary: None,
+        },
+    })
+}
+
+fn knowledge_query(query: KnowledgeQuery) -> MindRequest {
+    MindRequest::QueryKnowledge(query)
+}
+
+fn accept(
+    records: Vec<KnowledgeRecordDraft>,
+    relations: Vec<KnowledgeRelationDraft>,
+) -> KnowledgeJudgeVerdict {
+    KnowledgeJudgeVerdict::Accept(AcceptedKnowledgeDraft { records, relations })
+}
+
+fn reject(reason: KnowledgeRejectionReason, summary: &str) -> KnowledgeJudgeVerdict {
+    KnowledgeJudgeVerdict::Reject(KnowledgeRejection {
+        reason,
+        candidate_summary: CandidateSummary {
+            summary: TextBody::new(summary),
+        },
+        retry_hint: Some(RetryHint {
+            hint: TextBody::new("fixture rejection"),
+        }),
+    })
+}
+
+fn entity_candidate(stable_key: &str, name: &str, domains: Vec<&str>) -> KnowledgeEntityCandidate {
+    KnowledgeEntityCandidate {
+        stable_key: Some(knowledge_key(stable_key)),
+        name: TextBody::new(name),
+        description: None,
+        domains: domains.into_iter().map(domain_key).collect(),
+    }
+}
+
+fn statement_candidate(
+    stable_key: &str,
+    body: &str,
+    domains: Vec<&str>,
+) -> KnowledgeStatementCandidate {
+    KnowledgeStatementCandidate {
+        stable_key: Some(knowledge_key(stable_key)),
+        body: TextBody::new(body),
+        about: Vec::new(),
+        domains: domains.into_iter().map(domain_key).collect(),
+    }
+}
+
+fn source_candidate(stable_key: &str, locator: &str) -> KnowledgeSourceCandidate {
+    KnowledgeSourceCandidate {
+        stable_key: Some(knowledge_key(stable_key)),
+        locator: TextBody::new(locator),
+        description: None,
+    }
+}
+
+fn domain_candidate(stable_key: &str, name: &str) -> KnowledgeDomainCandidate {
+    KnowledgeDomainCandidate {
+        domain_key: domain_key(stable_key),
+        name: TextBody::new(name),
+        description: None,
+    }
+}
+
+fn relation_draft(
+    kind: KnowledgeRelationKind,
+    source: &str,
+    target: &str,
+) -> KnowledgeRelationDraft {
+    KnowledgeRelationDraft {
+        kind,
+        source: KnowledgeEndpointSelector::StableKey(knowledge_key(source)),
+        target: KnowledgeEndpointSelector::StableKey(knowledge_key(target)),
+        note: None,
+    }
+}
+
+fn accepted_records(reply: &MindRootReply) -> Vec<AcceptedKnowledge> {
+    let MindReply::KnowledgeAccepted(accepted) = reply.reply().expect("knowledge reply exists")
+    else {
+        panic!("expected accepted knowledge reply");
+    };
+    accepted.accepted.records.clone()
+}
+
+fn knowledge_list(reply: &MindRootReply) -> KnowledgeList {
+    let MindReply::KnowledgeList(list) = reply.reply().expect("knowledge list reply exists") else {
+        panic!("expected knowledge list");
+    };
+    list.clone()
+}
+
+fn stable_key_of(record: &AcceptedKnowledge) -> Option<&KnowledgeStableKey> {
+    match record {
+        AcceptedKnowledge::Entity(record) => record.header.stable_key.as_ref(),
+        AcceptedKnowledge::Statement(record) => record.header.stable_key.as_ref(),
+        AcceptedKnowledge::Relation(record) => record.header.stable_key.as_ref(),
+        AcceptedKnowledge::Domain(record) => record.header.stable_key.as_ref(),
+        AcceptedKnowledge::Source(record) => record.header.stable_key.as_ref(),
+    }
+}
+
+fn identifier_of(record: &AcceptedKnowledge) -> &KnowledgeIdentifier {
+    match record {
+        AcceptedKnowledge::Entity(record) => &record.header.identifier,
+        AcceptedKnowledge::Statement(record) => &record.header.identifier,
+        AcceptedKnowledge::Relation(record) => &record.header.identifier,
+        AcceptedKnowledge::Domain(record) => &record.header.identifier,
+        AcceptedKnowledge::Source(record) => &record.header.identifier,
+    }
+}
+
+async fn count_knowledge_kind(
+    fixture: &ActorFixture,
+    kind: KnowledgeRecordKind,
+    view: CurrentView,
+) -> usize {
+    knowledge_list(
+        &fixture
+            .submit(knowledge_query(KnowledgeQuery::ListByKind(kind, view)))
+            .await,
+    )
+    .records
+    .len()
+}
+
 #[test]
 fn topology_manifest_names_required_actor_planes() {
     let manifest = ActorManifest::mind_phase_one();
@@ -288,6 +576,444 @@ fn topology_manifest_names_required_actor_planes() {
     assert!(manifest.contains_edge(TraceNode::STORE_SUPERVISOR, TraceNode::MEMORY_STORE));
     assert!(manifest.contains_edge(TraceNode::STORE_SUPERVISOR, TraceNode::GRAPH_STORE));
     assert!(manifest.contains_edge(TraceNode::REPLY_SHAPER, TraceNode::NOTA_REPLY_ENCODER));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn accepted_knowledge_fixture_slice_admits_queries_and_preserves_rejection_boundaries() {
+    let verdicts = vec![
+        accept(
+            vec![KnowledgeRecordDraft::Domain(domain_candidate(
+                "domain:component",
+                "Component",
+            ))],
+            Vec::new(),
+        ),
+        accept(
+            vec![KnowledgeRecordDraft::Domain(domain_candidate(
+                "domain:contract",
+                "Contract",
+            ))],
+            Vec::new(),
+        ),
+        accept(
+            vec![KnowledgeRecordDraft::Entity(entity_candidate(
+                "component:mind",
+                "mind",
+                vec!["domain:component"],
+            ))],
+            vec![relation_draft(
+                KnowledgeRelationKind::ClassifiedAs,
+                "component:mind",
+                "domain:component",
+            )],
+        ),
+        accept(
+            vec![KnowledgeRecordDraft::Entity(entity_candidate(
+                "contract:signal-mind:ordinary",
+                "signal-mind ordinary contract",
+                vec!["domain:contract"],
+            ))],
+            vec![relation_draft(
+                KnowledgeRelationKind::ClassifiedAs,
+                "contract:signal-mind:ordinary",
+                "domain:contract",
+            )],
+        ),
+        accept(
+            vec![KnowledgeRecordDraft::Entity(entity_candidate(
+                "repo:signal-mind",
+                "signal-mind repository",
+                Vec::new(),
+            ))],
+            Vec::new(),
+        ),
+        accept(
+            Vec::new(),
+            vec![relation_draft(
+                KnowledgeRelationKind::Defines,
+                "repo:signal-mind",
+                "contract:signal-mind:ordinary",
+            )],
+        ),
+        reject(
+            KnowledgeRejectionReason::NotKnowledge,
+            "valid text is not knowledge",
+        ),
+        accept(
+            vec![
+                KnowledgeRecordDraft::Statement(statement_candidate(
+                    "statement:architecture:old",
+                    "Mind owns accepted knowledge.",
+                    vec!["domain:component"],
+                )),
+                KnowledgeRecordDraft::Source(source_candidate(
+                    "source:mind-architecture",
+                    "/git/github.com/LiGoldragon/mind/ARCHITECTURE.md",
+                )),
+            ],
+            vec![relation_draft(
+                KnowledgeRelationKind::SupportedBy,
+                "statement:architecture:old",
+                "source:mind-architecture",
+            )],
+        ),
+        accept(
+            vec![KnowledgeRecordDraft::Statement(statement_candidate(
+                "statement:architecture:new",
+                "Mind owns accepted knowledge through the accepted-knowledge store.",
+                vec!["domain:component"],
+            ))],
+            vec![relation_draft(
+                KnowledgeRelationKind::Supersedes,
+                "statement:architecture:new",
+                "statement:architecture:old",
+            )],
+        ),
+        reject(
+            KnowledgeRejectionReason::ConflictsAcceptedKnowledge(Vec::new()),
+            "contradicts accepted knowledge",
+        ),
+    ];
+    let judge = Arc::new(FixtureKnowledgeJudge::new(verdicts));
+    let fixture = ActorFixture::with_knowledge_judge(judge.clone()).await;
+
+    fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Domain(
+            domain_candidate("domain:component", "Component"),
+        )))
+        .await;
+    assert_eq!(
+        count_knowledge_kind(
+            &fixture,
+            KnowledgeRecordKind::Domain,
+            CurrentView::IncludeSuperseded
+        )
+        .await,
+        1
+    );
+
+    fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Domain(
+            domain_candidate("domain:contract", "Contract"),
+        )))
+        .await;
+    assert_eq!(
+        count_knowledge_kind(
+            &fixture,
+            KnowledgeRecordKind::Domain,
+            CurrentView::IncludeSuperseded
+        )
+        .await,
+        2
+    );
+
+    let mind_entity = accepted_records(
+        &fixture
+            .submit(knowledge_submission(KnowledgeCandidate::Entity(
+                entity_candidate("component:mind", "mind", vec!["domain:component"]),
+            )))
+            .await,
+    )
+    .into_iter()
+    .find(|record| matches!(record, AcceptedKnowledge::Entity(_)))
+    .expect("mind entity accepted");
+    let mind_identifier = identifier_of(&mind_entity).clone();
+
+    assert_eq!(
+        knowledge_list(
+            &fixture
+                .submit(knowledge_query(KnowledgeQuery::GetByIdentifier(
+                    mind_identifier
+                )))
+                .await,
+        )
+        .records
+        .len(),
+        1
+    );
+    assert_eq!(
+        knowledge_list(
+            &fixture
+                .submit(knowledge_query(KnowledgeQuery::GetByStableKey(
+                    knowledge_key("component:mind"),
+                )))
+                .await,
+        )
+        .records
+        .len(),
+        1
+    );
+
+    fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Entity(
+            entity_candidate(
+                "contract:signal-mind:ordinary",
+                "signal-mind ordinary contract",
+                vec!["domain:contract"],
+            ),
+        )))
+        .await;
+    fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Entity(
+            entity_candidate("repo:signal-mind", "signal-mind repository", Vec::new()),
+        )))
+        .await;
+    fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Relation(
+            signal_mind::KnowledgeRelationCandidate {
+                kind: KnowledgeRelationKind::Defines,
+                source: KnowledgeEndpointSelector::StableKey(knowledge_key("repo:signal-mind")),
+                target: KnowledgeEndpointSelector::StableKey(knowledge_key(
+                    "contract:signal-mind:ordinary",
+                )),
+                note: None,
+            },
+        )))
+        .await;
+
+    let component_domain = knowledge_list(
+        &fixture
+            .submit(knowledge_query(KnowledgeQuery::ListByDomain(
+                KnowledgeDomainSelector::Direct(domain_key("domain:component")),
+                CurrentView::CurrentOnly,
+            )))
+            .await,
+    );
+    assert!(
+        component_domain
+            .records
+            .iter()
+            .any(|record| stable_key_of(record) == Some(&knowledge_key("component:mind")))
+    );
+
+    let defines_relations = knowledge_list(
+        &fixture
+            .submit(knowledge_query(KnowledgeQuery::ListRelations(
+                RelationSelector {
+                    kind: Some(KnowledgeRelationKind::Defines),
+                    source: None,
+                    target: None,
+                    limit: QueryLimit::new(10),
+                },
+                CurrentView::IncludeSuperseded,
+            )))
+            .await,
+    );
+    assert_eq!(defines_relations.records.len(), 1);
+
+    let count_before_rejection = knowledge_list(
+        &fixture
+            .submit(knowledge_query(KnowledgeQuery::ListByDomain(
+                KnowledgeDomainSelector::Any,
+                CurrentView::IncludeSuperseded,
+            )))
+            .await,
+    )
+    .records
+    .len();
+    let rejection = fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Statement(
+            statement_candidate("statement:not-knowledge", "please do the task", Vec::new()),
+        )))
+        .await;
+    assert!(matches!(
+        rejection.reply().expect("semantic rejection reply exists"),
+        MindReply::KnowledgeRejected(rejection)
+            if matches!(rejection.reason, KnowledgeRejectionReason::NotKnowledge)
+    ));
+    assert_eq!(
+        knowledge_list(
+            &fixture
+                .submit(knowledge_query(KnowledgeQuery::ListByDomain(
+                    KnowledgeDomainSelector::Any,
+                    CurrentView::IncludeSuperseded,
+                )))
+                .await,
+        )
+        .records
+        .len(),
+        count_before_rejection
+    );
+
+    let calls_before_preflight = judge.calls();
+    let missing_endpoint = fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Relation(
+            signal_mind::KnowledgeRelationCandidate {
+                kind: KnowledgeRelationKind::DependsOn,
+                source: KnowledgeEndpointSelector::StableKey(knowledge_key("component:mind")),
+                target: KnowledgeEndpointSelector::StableKey(knowledge_key("component:missing")),
+                note: None,
+            },
+        )))
+        .await;
+    assert!(matches!(
+        missing_endpoint.reply().expect("preflight reply exists"),
+        MindReply::KnowledgeRejected(rejection)
+            if matches!(
+                rejection.reason,
+                KnowledgeRejectionReason::StructuralPreflightFailed(_)
+            )
+    ));
+    assert_eq!(judge.calls(), calls_before_preflight);
+
+    assert_eq!(
+        count_knowledge_kind(
+            &fixture,
+            KnowledgeRecordKind::Source,
+            CurrentView::IncludeSuperseded
+        )
+        .await,
+        0
+    );
+    fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Statement(
+            statement_candidate(
+                "statement:architecture:old",
+                "Mind owns accepted knowledge.",
+                vec!["domain:component"],
+            ),
+        )))
+        .await;
+    assert_eq!(
+        count_knowledge_kind(
+            &fixture,
+            KnowledgeRecordKind::Source,
+            CurrentView::IncludeSuperseded
+        )
+        .await,
+        1
+    );
+
+    fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Statement(
+            statement_candidate(
+                "statement:architecture:new",
+                "Mind owns accepted knowledge through the accepted-knowledge store.",
+                vec!["domain:component"],
+            ),
+        )))
+        .await;
+    assert_eq!(
+        count_knowledge_kind(
+            &fixture,
+            KnowledgeRecordKind::Statement,
+            CurrentView::CurrentOnly
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count_knowledge_kind(
+            &fixture,
+            KnowledgeRecordKind::Statement,
+            CurrentView::IncludeSuperseded,
+        )
+        .await,
+        2
+    );
+
+    let before_conflict = count_knowledge_kind(
+        &fixture,
+        KnowledgeRecordKind::Statement,
+        CurrentView::IncludeSuperseded,
+    )
+    .await;
+    let conflict = fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Statement(
+            statement_candidate(
+                "statement:architecture:conflict",
+                "Mind does not own accepted knowledge.",
+                vec!["domain:component"],
+            ),
+        )))
+        .await;
+    assert!(matches!(
+        conflict.reply().expect("conflict reply exists"),
+        MindReply::KnowledgeRejected(rejection)
+            if matches!(
+                rejection.reason,
+                KnowledgeRejectionReason::ConflictsAcceptedKnowledge(_)
+            )
+    ));
+    assert_eq!(
+        count_knowledge_kind(
+            &fixture,
+            KnowledgeRecordKind::Statement,
+            CurrentView::IncludeSuperseded,
+        )
+        .await,
+        before_conflict
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() {
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![
+        accept(
+            vec![KnowledgeRecordDraft::Domain(domain_candidate(
+                "domain:component",
+                "Component",
+            ))],
+            Vec::new(),
+        )
+        .to_nota(),
+    ]);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
+
+    let reply = fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Domain(
+            domain_candidate("domain:component", "Component"),
+        )))
+        .await;
+    assert_eq!(accepted_records(&reply).len(), 1);
+
+    let prompts = fake_agent.captured_prompts();
+    assert_eq!(prompts.len(), 1);
+    assert!(prompts[0].contains("Mind's accepted-knowledge judge"));
+    assert!(prompts[0].contains("KnowledgeJudgePacket under judgment"));
+    assert!(prompts[0].contains("Return exactly one KnowledgeJudgeVerdict"));
+    assert!(prompts[0].contains("Reject tasks, logs, receipts"));
+    assert!(prompts[0].contains("domain:component"));
+
+    fixture.stop().await;
+    fake_agent.join();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_knowledge_judge_malformed_verdict_rejects_and_stores_nothing() {
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec!["not a verdict".to_owned()]);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
+
+    let reply = fixture
+        .submit(knowledge_submission(KnowledgeCandidate::Domain(
+            domain_candidate("domain:component", "Component"),
+        )))
+        .await;
+    let MindReply::KnowledgeRejected(rejection) = reply.reply().expect("knowledge reply exists")
+    else {
+        panic!("expected malformed model output to reject");
+    };
+    assert_eq!(rejection.reason, KnowledgeRejectionReason::MeaningUnclear);
+    assert!(
+        rejection
+            .candidate_summary
+            .summary
+            .as_str()
+            .contains("malformed verdict")
+    );
+    assert_eq!(
+        count_knowledge_kind(
+            &fixture,
+            KnowledgeRecordKind::Domain,
+            CurrentView::IncludeSuperseded
+        )
+        .await,
+        0,
+        "malformed model verdict must not store accepted knowledge"
+    );
+
+    fixture.stop().await;
+    fake_agent.join();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

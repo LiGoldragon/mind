@@ -325,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "mind"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "kameo",
  "meta-signal-mind",
@@ -335,6 +335,7 @@ dependencies = [
  "rkyv",
  "schema-rust-next",
  "sema-engine",
+ "signal-agent",
  "signal-frame",
  "signal-mind",
  "signal-persona",
@@ -377,7 +378,7 @@ dependencies = [
 [[package]]
 name = "nota"
 version = "0.5.1"
-source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#96e64bcdbe531eb33a900eb3abbc58a095e01f76"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#bea7e2840ac2cf3e384f07b5c10eeb0890cead25"
 dependencies = [
  "nota-derive",
  "rkyv",
@@ -386,7 +387,7 @@ dependencies = [
 [[package]]
 name = "nota-derive"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#96e64bcdbe531eb33a900eb3abbc58a095e01f76"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#bea7e2840ac2cf3e384f07b5c10eeb0890cead25"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -557,7 +558,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 [[package]]
 name = "schema"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#dea9b555d76a37f099db2477ead1c758a7517f37"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#e4f7382cde7ef21d0c5047c633e25f0c418d2ed7"
 dependencies = [
  "blake3",
  "nota",
@@ -569,7 +570,7 @@ dependencies = [
 [[package]]
 name = "schema-cc"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#dea9b555d76a37f099db2477ead1c758a7517f37"
+source = "git+https://github.com/LiGoldragon/schema-next.git?branch=main#e4f7382cde7ef21d0c5047c633e25f0c418d2ed7"
 dependencies = [
  "nota",
  "prettyplease",
@@ -607,7 +608,7 @@ dependencies = [
 [[package]]
 name = "schema-rust"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#abd31f48197c7e4db1da4b04a1c75cafd7276d3a"
+source = "git+https://github.com/LiGoldragon/schema-rust-next.git?branch=main#d0d2472c3cc602614f613788e9b1198d2307931a"
 dependencies = [
  "nota",
  "prettyplease",
@@ -692,6 +693,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "signal-agent"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/signal-agent.git?branch=main#1e507476ccc5001f068827fb8d0770deb6c81a67"
+dependencies = [
+ "nota",
+ "rkyv",
+ "schema-rust",
+ "signal-frame",
+ "thiserror",
+]
+
+[[package]]
 name = "signal-frame"
 version = "0.3.0"
 source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#b78c80775c7fb7f80dee7ea3a8a30cc14dfac442"
@@ -715,8 +728,8 @@ dependencies = [
 
 [[package]]
 name = "signal-mind"
-version = "0.5.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=main#eb2e0025e60a07901a096178a26e214fb5d40ba1"
+version = "0.5.1"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?rev=025e2116092f48fba0b2886f300efb4d936df298#025e2116092f48fba0b2886f300efb4d936df298"
 dependencies = [
  "nota",
  "rkyv",
@@ -740,7 +753,7 @@ dependencies = [
 [[package]]
 name = "signal-persona"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#7de74911dd17cbce6e5bc367612d85469d530f48"
+source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=main#8b2ac102bc8aebe00220c1ba7896456f1ef2e1e6"
 dependencies = [
  "nota",
  "rkyv",

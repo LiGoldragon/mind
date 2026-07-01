@@ -21,6 +21,7 @@ pub struct MindDaemonConfiguration {
     pub store_path: WirePath,
     pub socket_path: WirePath,
     pub meta_socket_path: WirePath,
+    pub knowledge_judge: MindKnowledgeJudgeConfiguration,
 }
 
 impl MindDaemonConfiguration {
@@ -29,7 +30,16 @@ impl MindDaemonConfiguration {
             store_path,
             socket_path,
             meta_socket_path,
+            knowledge_judge: MindKnowledgeJudgeConfiguration::Fixture,
         }
+    }
+
+    pub fn with_agent_knowledge_judge(
+        mut self,
+        knowledge_judge: MindKnowledgeJudgeAgentConfiguration,
+    ) -> Self {
+        self.knowledge_judge = MindKnowledgeJudgeConfiguration::Agent(knowledge_judge);
+        self
     }
 
     /// Encode the configuration to the binary rkyv form the daemon accepts as
@@ -77,6 +87,54 @@ impl BindingSurface for MindDaemonConfiguration {
 
     fn database_path(&self) -> &Path {
         Path::new(self.store_path.as_str())
+    }
+}
+
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum MindKnowledgeJudgeConfiguration {
+    Fixture,
+    Agent(MindKnowledgeJudgeAgentConfiguration),
+}
+
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct MindKnowledgeJudgeAgentConfiguration {
+    pub agent_socket_path: WirePath,
+    pub provider_name: Option<String>,
+    pub model_name: Option<String>,
+    pub timeout_milliseconds: u64,
+    pub maximum_output_tokens: Option<u64>,
+}
+
+impl MindKnowledgeJudgeAgentConfiguration {
+    pub const DEEPSEEK_PROVIDER: &'static str = "deepseek";
+    pub const DEEPSEEK_FLASH_MODEL: &'static str = "deepseek-v4-flash";
+    pub const DEFAULT_TIMEOUT_MILLISECONDS: u64 = 180_000;
+    pub const DEFAULT_MAXIMUM_OUTPUT_TOKENS: u64 = 2048;
+
+    pub fn new(
+        agent_socket_path: WirePath,
+        provider_name: Option<String>,
+        model_name: Option<String>,
+        timeout_milliseconds: u64,
+        maximum_output_tokens: Option<u64>,
+    ) -> Self {
+        Self {
+            agent_socket_path,
+            provider_name,
+            model_name,
+            timeout_milliseconds,
+            maximum_output_tokens,
+        }
+    }
+
+    pub fn deepseek_flash(agent_socket_path: WirePath) -> Self {
+        Self::new(
+            agent_socket_path,
+            Some(Self::DEEPSEEK_PROVIDER.to_owned()),
+            Some(Self::DEEPSEEK_FLASH_MODEL.to_owned()),
+            Self::DEFAULT_TIMEOUT_MILLISECONDS,
+            Some(Self::DEFAULT_MAXIMUM_OUTPUT_TOKENS),
+        )
     }
 }
 

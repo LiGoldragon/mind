@@ -43,6 +43,11 @@ pub struct QueryTechnicalRelations {
     pub trace: ActorTrace,
 }
 
+pub struct QueryKnowledge {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
 pub struct SubscribeThoughts {
     pub envelope: MindEnvelope,
     pub trace: ActorTrace,
@@ -166,6 +171,27 @@ impl ViewPhase {
         let mut reply = self
             .store
             .ask(store::QueryTechnicalRelations { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))?;
+        reply
+            .trace
+            .record(TraceNode::QUERY_RESULT_SHAPER, TraceAction::MessageReceived);
+        Ok(reply)
+    }
+
+    async fn query_knowledge(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> CrateResult<PipelineReply> {
+        trace.record(TraceNode::VIEW_PHASE, TraceAction::MessageReceived);
+        trace.record(TraceNode::QUERY_SUPERVISOR, TraceAction::MessageReceived);
+        trace.record(TraceNode::QUERY_PLANNER, TraceAction::MessageReceived);
+        trace.record(TraceNode::THOUGHT_QUERY, TraceAction::MessageReceived);
+
+        let mut reply = self
+            .store
+            .ask(store::QueryKnowledge { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))?;
         reply
@@ -326,6 +352,21 @@ impl Message<QueryTechnicalRelations> for ViewPhase {
             .query_technical_relations(message.envelope, message.trace)
             .await
         {
+            Ok(reply) => reply,
+            Err(_error) => PipelineReply::new(None, ActorTrace::new()),
+        }
+    }
+}
+
+impl Message<QueryKnowledge> for ViewPhase {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: QueryKnowledge,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        match self.query_knowledge(message.envelope, message.trace).await {
             Ok(reply) => reply,
             Err(_error) => PipelineReply::new(None, ActorTrace::new()),
         }

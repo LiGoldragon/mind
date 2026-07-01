@@ -9,7 +9,7 @@ use kameo::error::ActorStopReason;
 use kameo::message::{Context, Message};
 
 use crate::tables::RuntimeSubscriptionRegistration;
-use crate::{MindEnvelope, StoreLocation};
+use crate::{KnowledgeJudgePort, MindEnvelope, StoreLocation};
 
 use super::pipeline::PipelineReply;
 use super::trace::{ActorTrace, TraceAction, TraceNode};
@@ -22,6 +22,7 @@ use persistence::PersistenceRejection;
 pub(super) struct Arguments {
     pub(super) store: StoreLocation,
     pub(super) subscription: ActorRef<super::subscription::SubscriptionSupervisor>,
+    pub(super) knowledge_judge: KnowledgeJudgePort,
 }
 
 pub(super) struct StoreSupervisor {
@@ -60,6 +61,11 @@ pub struct SubmitTechnicalRelation {
     pub trace: ActorTrace,
 }
 
+pub struct SubmitKnowledge {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
 pub struct QueryThoughts {
     pub envelope: MindEnvelope,
     pub trace: ActorTrace,
@@ -76,6 +82,11 @@ pub struct QueryTechnicalNodes {
 }
 
 pub struct QueryTechnicalRelations {
+    pub envelope: MindEnvelope,
+    pub trace: ActorTrace,
+}
+
+pub struct QueryKnowledge {
     pub envelope: MindEnvelope,
     pub trace: ActorTrace,
 }
@@ -215,6 +226,18 @@ impl StoreSupervisor {
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
 
+    async fn submit_knowledge(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> crate::Result<PipelineReply> {
+        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
+        self.graph
+            .ask(graph::SubmitKnowledge { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
     async fn query_thoughts(
         &self,
         envelope: MindEnvelope,
@@ -259,6 +282,18 @@ impl StoreSupervisor {
         trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
         self.graph
             .ask(graph::QueryRelations { envelope, trace })
+            .await
+            .map_err(|error| crate::Error::ActorCall(error.to_string()))
+    }
+
+    async fn query_knowledge(
+        &self,
+        envelope: MindEnvelope,
+        mut trace: ActorTrace,
+    ) -> crate::Result<PipelineReply> {
+        trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
+        self.graph
+            .ask(graph::QueryKnowledge { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
@@ -366,6 +401,7 @@ impl Actor for StoreSupervisor {
             kernel::Arguments {
                 store: arguments.store.clone(),
                 subscription: arguments.subscription.clone(),
+                knowledge_judge: arguments.knowledge_judge.clone(),
             },
         )
         .spawn()
@@ -547,6 +583,20 @@ impl Message<SubmitTechnicalRelation> for StoreSupervisor {
     }
 }
 
+impl Message<SubmitKnowledge> for StoreSupervisor {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: SubmitKnowledge,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.submit_knowledge(message.envelope, message.trace)
+            .await
+            .unwrap_or_else(PersistenceRejection::pipeline)
+    }
+}
+
 impl Message<QueryThoughts> for StoreSupervisor {
     type Reply = PipelineReply;
 
@@ -598,6 +648,20 @@ impl Message<QueryTechnicalRelations> for StoreSupervisor {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.query_technical_relations(message.envelope, message.trace)
+            .await
+            .unwrap_or_else(PersistenceRejection::pipeline)
+    }
+}
+
+impl Message<QueryKnowledge> for StoreSupervisor {
+    type Reply = PipelineReply;
+
+    async fn handle(
+        &mut self,
+        message: QueryKnowledge,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.query_knowledge(message.envelope, message.trace)
             .await
             .unwrap_or_else(PersistenceRejection::pipeline)
     }

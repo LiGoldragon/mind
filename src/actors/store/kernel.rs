@@ -3,20 +3,23 @@ use kameo::message::{Context, Message};
 use signal_mind::MindReply;
 
 use crate::graph::MindGraphLedger;
+use crate::knowledge::AcceptedKnowledgeLedger;
 use crate::tables::{GraphSubscriptionPublisher, RuntimeSubscriptionRegistration};
-use crate::{MemoryGraph, MindEnvelope, MindTables, StoreLocation};
+use crate::{KnowledgeJudgePort, MemoryGraph, MindEnvelope, MindTables, StoreLocation};
 
 use super::GraphRecords;
 use super::persistence::PersistenceRejection;
 
 pub(super) struct StoreKernel {
     tables: Option<MindTables>,
+    knowledge_judge: KnowledgeJudgePort,
 }
 
 #[derive(Clone)]
 pub(super) struct Arguments {
     pub(super) store: StoreLocation,
     pub(super) subscription: ActorRef<crate::actors::subscription::SubscriptionSupervisor>,
+    pub(super) knowledge_judge: KnowledgeJudgePort,
 }
 
 pub(super) struct CommitMemoryGraph {
@@ -41,6 +44,10 @@ pub(super) struct WriteTechnicalRelation {
     envelope: MindEnvelope,
 }
 
+pub(super) struct WriteKnowledge {
+    envelope: MindEnvelope,
+}
+
 pub(super) struct ReadThoughts {
     envelope: MindEnvelope,
 }
@@ -54,6 +61,10 @@ pub(super) struct ReadTechnicalNodes {
 }
 
 pub(super) struct ReadTechnicalRelations {
+    envelope: MindEnvelope,
+}
+
+pub(super) struct ReadKnowledge {
     envelope: MindEnvelope,
 }
 
@@ -149,6 +160,12 @@ impl WriteTechnicalRelation {
     }
 }
 
+impl WriteKnowledge {
+    pub(super) fn new(envelope: MindEnvelope) -> Self {
+        Self { envelope }
+    }
+}
+
 impl ReadThoughts {
     pub(super) fn new(envelope: MindEnvelope) -> Self {
         Self { envelope }
@@ -168,6 +185,12 @@ impl ReadTechnicalNodes {
 }
 
 impl ReadTechnicalRelations {
+    pub(super) fn new(envelope: MindEnvelope) -> Self {
+        Self { envelope }
+    }
+}
+
+impl ReadKnowledge {
     pub(super) fn new(envelope: MindEnvelope) -> Self {
         Self { envelope }
     }
@@ -210,6 +233,7 @@ impl StoreKernel {
                 &arguments.store,
                 GraphSubscriptionPublisher::actor(arguments.subscription),
             )?),
+            knowledge_judge: arguments.knowledge_judge,
         })
     }
 
@@ -276,6 +300,18 @@ impl StoreKernel {
         KernelReply::new(reply)
     }
 
+    fn write_knowledge(&self, envelope: MindEnvelope) -> KernelReply {
+        let reply = self
+            .tables()
+            .and_then(|tables| {
+                AcceptedKnowledgeLedger::new(tables, self.knowledge_judge.clone()).submit(envelope)
+            })
+            .map(Some)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+
+        KernelReply::new(reply)
+    }
+
     fn read_thoughts(&self, envelope: MindEnvelope) -> KernelReply {
         let reply = self
             .tables()
@@ -310,6 +346,18 @@ impl StoreKernel {
         let reply = self
             .tables()
             .and_then(|tables| MindGraphLedger::new(tables).query_relations(envelope))
+            .map(Some)
+            .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
+
+        KernelReply::new(reply)
+    }
+
+    fn read_knowledge(&self, envelope: MindEnvelope) -> KernelReply {
+        let reply = self
+            .tables()
+            .and_then(|tables| {
+                AcceptedKnowledgeLedger::new(tables, self.knowledge_judge.clone()).query(envelope)
+            })
             .map(Some)
             .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
 
@@ -462,6 +510,18 @@ impl Message<WriteTechnicalRelation> for StoreKernel {
     }
 }
 
+impl Message<WriteKnowledge> for StoreKernel {
+    type Reply = KernelReply;
+
+    async fn handle(
+        &mut self,
+        message: WriteKnowledge,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.write_knowledge(message.envelope)
+    }
+}
+
 impl Message<ReadThoughts> for StoreKernel {
     type Reply = KernelReply;
 
@@ -507,6 +567,18 @@ impl Message<ReadTechnicalRelations> for StoreKernel {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.read_technical_relations(message.envelope)
+    }
+}
+
+impl Message<ReadKnowledge> for StoreKernel {
+    type Reply = KernelReply;
+
+    async fn handle(
+        &mut self,
+        message: ReadKnowledge,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.read_knowledge(message.envelope)
     }
 }
 
