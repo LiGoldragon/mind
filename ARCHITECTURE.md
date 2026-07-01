@@ -4,7 +4,8 @@
 command-line mind.*
 
 > Status: the crate has a real Kameo runtime, mind-local Sema tables for
-> the work graph plus typed Thought/Relation records. Typed graph records use
+> the work graph, typed Thought/Relation records, and fixture-guarded
+> accepted-knowledge records. Typed graph records use
 > `sema-engine` for Assert/Match, operation-log snapshots, subscription
 > registration, reusable payload-bearing version replay, and post-commit
 > subscription delta delivery into `SubscriptionSupervisor`. Older work
@@ -19,8 +20,7 @@ command-line mind.*
 > storage kernel). The eventual `Sema` is
 > broader (universal medium for meaning); today's mind is a
 > realization step on the eventually-self-hosting stack, built rightly
-> for the scope it serves now. See `~/primary/ESSENCE.md` §"Today and
-> eventually — different things, different names".
+> for the scope it serves now. See `~/primary/ARCHITECTURE.md` §"Workspace vision and intent".
 
 ## 0 · TL;DR
 
@@ -274,11 +274,11 @@ Current implementation:
   `store_kernel_supervised_thread_restart_reopens_same_database`: a first
   `MindRoot` commits to `mind.sema`, stops, and a second `MindRoot` immediately
   reopens the same database and reads the committed state.
-- `MindTables` schema v10 registers every durable mind table as a
+- `MindTables` schema v11 registers every durable mind table as a
   `sema-engine` record family with typed family identity: the
   `memory_graph` snapshot, the typed Thought/Relation graph records,
-  typed TechnicalNode/TechnicalRelation records, and the graph plus
-  technical subscription registrations. There are no
+  typed TechnicalNode/TechnicalRelation records, accepted knowledge records,
+  and the graph plus technical subscription registrations. There are no
   component-local storage-kernel tables left; every durable write goes
   through the engine's logged choke points.
 - `MemoryStore` owns the private `MemoryState` reducer and commits accepted
@@ -290,6 +290,12 @@ Current implementation:
   queries, registers subscriptions through `sema-engine` Subscribe, and stores
   only Persona-specific subscription filters through the storage-kernel handle
   exposed by `sema-engine`.
+- Accepted knowledge routes `SubmitKnowledge` and `QueryKnowledge` through the
+  same actor/store lane. The store persists only accepted
+  `AcceptedKnowledge` records in the `accepted_knowledge` family. Deterministic
+  preflight rejects missing relation endpoints and relation domain/range
+  violations before the typed judge port is called; semantic rejections and
+  accepted admission receipts are not stored.
 - `SubscriptionSupervisor` receives post-commit graph deltas from
   `sema-engine` subscription sinks and publishes typed
   `signal-mind::SubscriptionEvent` records for matching durable
@@ -372,6 +378,7 @@ Recommended tables:
 | `memory_graph` | Current typed graph snapshot for the first durable implementation wave. |
 | `thoughts` | `sema-engine` registered family for append-only typed `Thought` records; IDs are compact three-letter values minted from the engine snapshot sequence. |
 | `relations` | `sema-engine` registered family for append-only typed `Relation` records between thoughts; relation IDs use the same compact sequence policy but stay a distinct `RelationIdentifier` type. |
+| `accepted_knowledge` | `sema-engine` registered family for accepted entities, statements, relations, domains, and sources admitted through the typed knowledge judge port. |
 | `thought_subscriptions` | Durable Persona-specific `SubscribeThoughts` filters keyed by IDs minted from `sema-engine` subscription handles. |
 | `relation_subscriptions` | Durable Persona-specific `SubscribeRelations` filters keyed by IDs minted from `sema-engine` subscription handles. |
 | `items` | Work/memory/decision/question records. |
@@ -646,6 +653,28 @@ This repo does not own:
 - Technical corrections append a newer technical fact and a `Supersedes`
   relation to the old fact. Mind does not mutate or upsert the old technical
   fact as the correction mechanism.
+- Accepted-knowledge semantic judgment goes through the `KnowledgeJudge` port.
+  Deterministic code owns structural preflight, endpoint lookup,
+  relation-domain validation, verdict application, and query projection; it
+  does not implement semantic duplicate, contradiction, truth, or source
+  requirements through keyword or regex rules.
+- The default `KnowledgeJudge` is the empty fixture judge, so an unconfigured
+  daemon rejects semantic accepted-knowledge submissions safely. A daemon
+  startup archive can explicitly select `AgentKnowledgeJudge`, which calls the
+  local `agent` daemon over `signal-agent::Input::Call` and parses one
+  `KnowledgeJudgeVerdict` from the completion.
+- The current AI-backed accepted-knowledge demo/test model selection is the
+  existing DeepSeek Flash provider/model pair: provider `deepseek`, model
+  `deepseek-v4-flash`. Mind does not call DeepSeek directly; the `agent`
+  daemon owns provider endpoint and secret-source resolution.
+- Accepted-knowledge semantic rejections store nothing.
+- Accepted-knowledge structural preflight rejections store nothing and do not
+  call the judge.
+- Accepted admission replies and receipts are not persisted as knowledge.
+- `KnowledgeSource` is stored only when an accepted draft explicitly includes a
+  source record or source relation.
+- Current accepted-knowledge queries exclude records targeted by accepted
+  `Supersedes` relations; historical queries can include them.
 - `Authored` relations must point from an identity Reference Thought to the
   authored Thought; file/document/URL references cannot author graph records.
 - `Supersedes` relations must point from a newer Thought to an older Thought
@@ -787,13 +816,14 @@ src/actors/subscription.rs post-commit graph subscription event actor
 src/actors/manifest.rs     actor topology manifest
 src/actors/trace.rs        actor trace witness types
 src/graph.rs               typed Thought/Relation ledger, filters, and subscription snapshots
+src/knowledge.rs           accepted-knowledge fixture/agent judge ports, prompt assembly, verdict parsing, admission, verdict application, and query projection
 src/memory.rs              memory/work graph reducer
 src/tables.rs              mind-local Sema schema, `sema-engine` graph families, and work tables
 src/text.rs                NOTA work-graph projection for mind CLI
 src/transport.rs           `MindFrame` client + working-tier codec (`serve_request`) and in-process test daemon harness
 src/supervision.rs         engine-management (supervision) codec (`serve_connection`) + in-process supervision test harness
 src/daemon.rs              `ComponentDaemon` hooks: `MindEngine` wraps the `MindRoot` actor tree; component-decoded working + meta hooks
-src/configuration.rs       binary rkyv `MindDaemonConfiguration` (single startup argument; daemons never parse NOTA)
+src/configuration.rs       binary rkyv `MindDaemonConfiguration`, including fixture/agent knowledge-judge selection (single startup argument; daemons never parse NOTA)
 src/schema/daemon.rs       @generated daemon shell: argv -> binary config -> multi-listener accept/lifecycle/exit spine
 build.rs                   schema-rust-next generation driver (component-decoded `NexusDaemonShape` + meta tier)
 src/main.rs                `mind` CLI (client-only): one NOTA request -> daemon -> printed reply
