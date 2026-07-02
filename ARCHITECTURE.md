@@ -655,14 +655,18 @@ This repo does not own:
   fact as the correction mechanism.
 - Accepted-knowledge semantic judgment goes through the `KnowledgeJudge` port.
   Deterministic code owns structural preflight, endpoint lookup,
-  relation-domain validation, verdict application, and query projection; it
-  does not implement semantic duplicate, contradiction, truth, or source
-  requirements through keyword or regex rules.
+  relation-domain validation, verdict application, candidate materialization,
+  and query projection; it does not implement semantic duplicate,
+  contradiction, truth, or source requirements through keyword or regex rules.
 - The default `KnowledgeJudge` is the empty fixture judge, so an unconfigured
   daemon rejects semantic accepted-knowledge submissions safely. A daemon
   startup archive can explicitly select `AgentKnowledgeJudge`, which calls the
   local `agent` daemon over `signal-agent::Input::Call` and parses one
   `KnowledgeJudgeVerdict` from the completion.
+- `KnowledgeJudgeVerdict::Accept` is a decision over the submitted candidate,
+  not a payload containing replacement records. Mind materializes and stores
+  the submitted candidate on accept; old-style or malformed accepted-draft
+  payloads reject and store nothing.
 - The current AI-backed accepted-knowledge demo/test model selection is the
   existing DeepSeek Flash provider/model pair: provider `deepseek`, model
   `deepseek-v4-flash`. Mind does not call DeepSeek directly; the `agent`
@@ -671,8 +675,9 @@ This repo does not own:
 - Accepted-knowledge structural preflight rejections store nothing and do not
   call the judge.
 - Accepted admission replies and receipts are not persisted as knowledge.
-- `KnowledgeSource` is stored only when an accepted draft explicitly includes a
-  source record or source relation.
+- `KnowledgeSource` is stored only when the submitted accepted candidate is a
+  source record. Source/support relations are separate submitted relation
+  candidates.
 - Current accepted-knowledge queries exclude records targeted by accepted
   `Supersedes` relations; historical queries can include them.
 - `Authored` relations must point from an identity Reference Thought to the

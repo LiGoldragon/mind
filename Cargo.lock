@@ -728,8 +728,8 @@ dependencies = [
 
 [[package]]
 name = "signal-mind"
-version = "0.5.1"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?rev=025e2116092f48fba0b2886f300efb4d936df298#025e2116092f48fba0b2886f300efb4d936df298"
+version = "0.6.0"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?rev=12c9e94edd1d42566bbda9806c8820ee75045c3d#12c9e94edd1d42566bbda9806c8820ee75045c3d"
 dependencies = [
  "nota",
  "rkyv",

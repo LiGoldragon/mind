@@ -13,15 +13,16 @@ use signal_agent::{
     ReasoningEffort, SystemText, TemperatureMilli, ThinkingMode,
 };
 use signal_mind::{
-    AcceptedKnowledge, AcceptedKnowledgeDraft, AcceptedKnowledgeView, ActorName, CandidateSummary,
-    CurrentView, KnowledgeAccepted, KnowledgeCandidate, KnowledgeDomain, KnowledgeDomainCandidate,
-    KnowledgeDomainKey, KnowledgeDomainSelector, KnowledgeEndpointSelector, KnowledgeEntity,
-    KnowledgeFixturePolicy, KnowledgeIdentifier, KnowledgeJudgePacket, KnowledgeJudgeVerdict,
-    KnowledgeList, KnowledgeQuery, KnowledgeRecordDraft, KnowledgeRecordHeader, KnowledgeRejection,
-    KnowledgeRejectionReason, KnowledgeRelation, KnowledgeRelationDraft, KnowledgeRelationEndpoint,
-    KnowledgeRelationKind, KnowledgeRelationRule, KnowledgeSource, KnowledgeStableKey,
-    KnowledgeStatement, MindReply, MindRequest, QueryLimit, RelationSelector, RetryHint,
-    StructuralRejection, StructuralRejectionReason, TextBody,
+    AcceptedKnowledge, AcceptedKnowledgeView, ActorName, CandidateSummary, CurrentView,
+    KnowledgeAccepted, KnowledgeCandidate, KnowledgeDomain, KnowledgeDomainSelector,
+    KnowledgeEndpointSelector, KnowledgeEntity, KnowledgeEntityCandidate, KnowledgeFixturePolicy,
+    KnowledgeIdentifier, KnowledgeIdentity, KnowledgeIdentitySlot, KnowledgeJudgePacket,
+    KnowledgeJudgeVerdict, KnowledgeList, KnowledgeQuery, KnowledgeRecordHeader,
+    KnowledgeRejection, KnowledgeRejectionReason, KnowledgeRelation, KnowledgeRelationCandidate,
+    KnowledgeRelationEndpoint, KnowledgeRelationKind, KnowledgeRelationRule, KnowledgeSource,
+    KnowledgeSourceCandidate, KnowledgeStatement, KnowledgeStatementCandidate, KnowledgeSubject,
+    MindReply, MindRequest, QueryLimit, RelationSelector, RetryHint, StructuralRejection,
+    StructuralRejectionReason, TextBody,
 };
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
@@ -255,9 +256,12 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
              in-domain, private or unauthorized, duplicate, conflicting, superseding, supported, or \
              better represented as another accepted-knowledge shape.\n\n\
              Deterministic code already handles typed structure, endpoint preflight, relation \
-             domain/range validation, storage, and query views. Do not ask for source or \
-             provenance unless the candidate itself makes source part of the knowledge. Source is \
-             stored only as accepted knowledge when it appears in your accepted draft. The \
+             domain/range validation, storage, and query views. Accept means the submitted \
+             candidate should be stored as submitted; do not return replacement records, examples, \
+             rewrites, or adjunct source records. If the submitted candidate needs another shape, \
+             reject with NeedsMoreSpecificShape. Do not ask for source or provenance unless the \
+             candidate itself makes source part of the knowledge. Source is stored only when the \
+             submitted candidate is a source. The \
              packet's `FixtureOnly` field is a legacy contract field; when this prompt reaches \
              you through AgentKnowledgeJudge, do not reject solely because that field says \
              FixtureOnly.\n\n\
@@ -300,16 +304,7 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
     }
 
     fn accept_example() -> String {
-        KnowledgeJudgeVerdict::Accept(AcceptedKnowledgeDraft {
-            records: vec![KnowledgeRecordDraft::Domain(KnowledgeDomainCandidate {
-                domain_key: KnowledgeDomainKey::from_canonical("domain:component")
-                    .expect("example domain key is valid"),
-                name: TextBody::new("Component"),
-                description: None,
-            })],
-            relations: Vec::new(),
-        })
-        .to_nota()
+        KnowledgeJudgeVerdict::Accept.to_nota()
     }
 
     fn reject_example() -> String {
@@ -406,7 +401,7 @@ impl<'tables> KnowledgeAdmission<'tables> {
         };
 
         match judge.judge(packet) {
-            KnowledgeJudgeVerdict::Accept(draft) => self.apply_draft(draft),
+            KnowledgeJudgeVerdict::Accept => self.apply_acceptance(),
             KnowledgeJudgeVerdict::Reject(rejection) => MindReply::KnowledgeRejected(rejection),
         }
     }
@@ -448,8 +443,14 @@ impl<'tables> KnowledgeAdmission<'tables> {
         }
     }
 
-    fn apply_draft(&self, draft: AcceptedKnowledgeDraft) -> MindReply {
-        match KnowledgeDraftApplication::new(self.tables, self.actor.clone(), draft).accepted() {
+    fn apply_acceptance(&self) -> MindReply {
+        match KnowledgeAcceptanceApplication::new(
+            self.tables,
+            self.actor.clone(),
+            self.candidate.clone(),
+        )
+        .accepted()
+        {
             Ok(records) => MindReply::KnowledgeAccepted(KnowledgeAccepted {
                 accepted: AcceptedKnowledgeView { records },
             }),
@@ -462,29 +463,22 @@ impl<'tables> KnowledgeAdmission<'tables> {
     }
 }
 
-struct KnowledgeDraftApplication<'tables> {
+struct KnowledgeAcceptanceApplication<'tables> {
     tables: &'tables MindTables,
     actor: ActorName,
-    draft: AcceptedKnowledgeDraft,
+    candidate: KnowledgeCandidate,
 }
 
-impl<'tables> KnowledgeDraftApplication<'tables> {
-    fn new(tables: &'tables MindTables, actor: ActorName, draft: AcceptedKnowledgeDraft) -> Self {
+impl<'tables> KnowledgeAcceptanceApplication<'tables> {
+    fn new(tables: &'tables MindTables, actor: ActorName, candidate: KnowledgeCandidate) -> Self {
         Self {
             tables,
             actor,
-            draft,
+            candidate,
         }
     }
 
     fn accepted(self) -> std::result::Result<Vec<AcceptedKnowledge>, KnowledgeRejection> {
-        if self.draft.records.is_empty() && self.draft.relations.is_empty() {
-            return Err(KnowledgeRejection::new_structural(
-                StructuralRejectionReason::EmptyAcceptedDraft,
-                "empty accepted knowledge draft",
-            ));
-        }
-
         let existing = self.tables.accepted_knowledge_records().map_err(|_| {
             KnowledgeRejection::new_structural(
                 StructuralRejectionReason::PersistenceRejected,
@@ -492,37 +486,38 @@ impl<'tables> KnowledgeDraftApplication<'tables> {
             )
         })?;
         let mut records = KnowledgeRecords::new(existing);
-        let mut accepted = Vec::new();
         let mut minted = KnowledgeIdentifierMint::new(records.records.len() as u64);
-
-        for draft in self.draft.records {
-            let record = KnowledgeRecordMaterializer::new(self.actor.clone(), &mut minted)
-                .materialize(draft)
-                .map_err(|reason| {
-                    KnowledgeRejection::new_structural(reason, "accepted knowledge draft")
-                })?;
-            if record
-                .stable_key()
-                .is_some_and(|stable_key| records.contains_stable_key(stable_key))
-            {
-                return Err(KnowledgeRejection::new_structural(
-                    StructuralRejectionReason::PersistenceRejected,
-                    "duplicate accepted knowledge stable key",
-                ));
+        let accepted = match self.candidate {
+            KnowledgeCandidate::Relation(candidate) => {
+                vec![
+                    KnowledgeRelationMaterializer::new(self.actor.clone(), &mut minted)
+                        .materialize(&records, candidate)
+                        .map_err(|reason| {
+                            KnowledgeRejection::new_structural(
+                                reason,
+                                "accepted knowledge relation candidate",
+                            )
+                        })?,
+                ]
             }
-            records.push(record.clone());
-            accepted.push(record);
-        }
-
-        for draft in self.draft.relations {
-            let relation = KnowledgeRelationMaterializer::new(self.actor.clone(), &mut minted)
-                .materialize(&records, draft)
-                .map_err(|reason| {
-                    KnowledgeRejection::new_structural(reason, "accepted knowledge relation draft")
-                })?;
-            records.push(relation.clone());
-            accepted.push(relation);
-        }
+            candidate => {
+                let record = KnowledgeRecordMaterializer::new(self.actor.clone(), &mut minted)
+                    .materialize(candidate)
+                    .map_err(|reason| {
+                        KnowledgeRejection::new_structural(reason, "accepted knowledge candidate")
+                    })?;
+                if let Some(identity) = record.identity()
+                    && records.contains_identity(identity)
+                {
+                    return Err(KnowledgeRejection::new_structural(
+                        StructuralRejectionReason::DuplicateIdentity(identity.clone()),
+                        "duplicate accepted knowledge identity",
+                    ));
+                }
+                records.push(record.clone());
+                vec![record]
+            }
+        };
 
         for record in accepted.iter().cloned() {
             self.tables.assert_accepted_knowledge(record).map_err(|_| {
@@ -549,56 +544,62 @@ impl<'mint> KnowledgeRecordMaterializer<'mint> {
 
     fn materialize(
         &mut self,
-        draft: KnowledgeRecordDraft,
+        candidate: KnowledgeCandidate,
     ) -> std::result::Result<AcceptedKnowledge, StructuralRejectionReason> {
-        match draft {
-            KnowledgeRecordDraft::Entity(candidate) => {
-                let header = self.header(candidate.stable_key.clone())?;
+        match candidate {
+            KnowledgeCandidate::Entity(candidate) => {
+                let (identity, name, description, domains) = candidate.into_parts();
+                let header = self.header(identity)?;
                 Ok(AcceptedKnowledge::Entity(KnowledgeEntity {
                     header,
-                    name: candidate.name,
-                    description: candidate.description,
-                    domains: candidate.domains,
+                    name,
+                    description,
+                    domains,
                 }))
             }
-            KnowledgeRecordDraft::Statement(candidate) => {
-                let header = self.header(candidate.stable_key.clone())?;
+            KnowledgeCandidate::Statement(candidate) => {
+                let (identity, body, about, domains) = candidate.into_parts();
+                let header = self.header(identity)?;
                 Ok(AcceptedKnowledge::Statement(KnowledgeStatement {
                     header,
-                    body: candidate.body,
-                    about: candidate.about,
-                    domains: candidate.domains,
+                    body,
+                    about,
+                    domains,
                 }))
             }
-            KnowledgeRecordDraft::Domain(candidate) => {
-                let stable_key = KnowledgeStableKey::from_canonical(candidate.domain_key.as_str())
-                    .map_err(StructuralRejectionReason::InvalidStableKey)?;
-                let header = self.header(Some(stable_key))?;
+            KnowledgeCandidate::Domain(candidate) => {
+                let header = self.header(KnowledgeIdentitySlot::Keyed(
+                    KnowledgeIdentity::Domain(candidate.subject),
+                ))?;
                 Ok(AcceptedKnowledge::Domain(KnowledgeDomain {
                     header,
-                    domain_key: candidate.domain_key,
+                    subject: candidate.subject,
                     name: candidate.name,
                     description: candidate.description,
                 }))
             }
-            KnowledgeRecordDraft::Source(candidate) => {
-                let header = self.header(candidate.stable_key.clone())?;
+            KnowledgeCandidate::Source(candidate) => {
+                let (identity, locator, description) = candidate.into_parts();
+                let header = self.header(identity)?;
                 Ok(AcceptedKnowledge::Source(KnowledgeSource {
                     header,
-                    locator: candidate.locator,
-                    description: candidate.description,
+                    locator,
+                    description,
                 }))
+            }
+            KnowledgeCandidate::Relation(_) => {
+                unreachable!("relations use KnowledgeRelationMaterializer")
             }
         }
     }
 
     fn header(
         &mut self,
-        stable_key: Option<KnowledgeStableKey>,
+        identity: KnowledgeIdentitySlot,
     ) -> std::result::Result<KnowledgeRecordHeader, StructuralRejectionReason> {
         Ok(KnowledgeRecordHeader {
             identifier: self.mint.next_identifier()?,
-            stable_key,
+            identity,
             accepted_by: self.actor.clone(),
             accepted_at: self.mint.timestamp()?,
         })
@@ -618,15 +619,15 @@ impl<'mint> KnowledgeRelationMaterializer<'mint> {
     fn materialize(
         &mut self,
         records: &KnowledgeRecords,
-        draft: KnowledgeRelationDraft,
+        candidate: KnowledgeRelationCandidate,
     ) -> std::result::Result<AcceptedKnowledge, StructuralRejectionReason> {
         let source = records
-            .resolve(&draft.source)
-            .ok_or_else(|| StructuralRejectionReason::MissingEndpoint(draft.source.clone()))?;
+            .resolve(&candidate.source)
+            .ok_or_else(|| StructuralRejectionReason::MissingEndpoint(candidate.source.clone()))?;
         let target = records
-            .resolve(&draft.target)
-            .ok_or_else(|| StructuralRejectionReason::MissingEndpoint(draft.target.clone()))?;
-        draft
+            .resolve(&candidate.target)
+            .ok_or_else(|| StructuralRejectionReason::MissingEndpoint(candidate.target.clone()))?;
+        candidate
             .kind
             .validate_endpoints(&source.endpoint, &target.endpoint)
             .map_err(StructuralRejectionReason::RelationDomainRangeViolation)?;
@@ -634,14 +635,14 @@ impl<'mint> KnowledgeRelationMaterializer<'mint> {
         Ok(AcceptedKnowledge::Relation(KnowledgeRelation {
             header: KnowledgeRecordHeader {
                 identifier: self.mint.next_identifier()?,
-                stable_key: None,
+                identity: KnowledgeIdentitySlot::Unkeyed,
                 accepted_by: self.actor.clone(),
                 accepted_at: self.mint.timestamp()?,
             },
-            kind: draft.kind,
+            kind: candidate.kind,
             source: source.endpoint,
             target: target.endpoint,
-            note: draft.note,
+            note: candidate.note,
         }))
     }
 }
@@ -693,17 +694,17 @@ impl KnowledgeRecords {
                 KnowledgeEndpointSelector::Identifier(identifier) => {
                     record.identifier() == identifier
                 }
-                KnowledgeEndpointSelector::StableKey(stable_key) => {
-                    record.stable_key() == Some(stable_key)
+                KnowledgeEndpointSelector::Identity(identity) => {
+                    record.identity() == Some(identity)
                 }
             })
             .map(KnowledgeResolvedEndpoint::new)
     }
 
-    fn contains_stable_key(&self, stable_key: &KnowledgeStableKey) -> bool {
+    fn contains_identity(&self, identity: &KnowledgeIdentity) -> bool {
         self.records
             .iter()
-            .any(|record| record.stable_key() == Some(stable_key))
+            .any(|record| record.identity() == Some(identity))
     }
 
     fn superseded_identifiers(&self) -> HashSet<KnowledgeIdentifier> {
@@ -746,12 +747,12 @@ impl KnowledgeRecords {
 
     fn insert_domain_identifier(
         &self,
-        domain_key: &KnowledgeDomainKey,
+        domain_key: &KnowledgeSubject,
         domains: &mut HashSet<KnowledgeIdentifier>,
     ) {
         for record in &self.records {
             if let AcceptedKnowledge::Domain(domain) = record
-                && &domain.domain_key == domain_key
+                && &domain.subject == domain_key
             {
                 domains.insert(domain.header.identifier.clone());
             }
@@ -760,7 +761,7 @@ impl KnowledgeRecords {
 
     fn insert_descendant_domain_identifiers(
         &self,
-        domain_key: &KnowledgeDomainKey,
+        domain_key: &KnowledgeSubject,
         domains: &mut HashSet<KnowledgeIdentifier>,
     ) {
         let mut changed = true;
@@ -811,14 +812,14 @@ impl KnowledgeRecords {
     fn domain_keys_for_identifiers(
         &self,
         domains: &HashSet<KnowledgeIdentifier>,
-    ) -> HashSet<KnowledgeDomainKey> {
+    ) -> HashSet<KnowledgeSubject> {
         self.records
             .iter()
             .filter_map(|record| match record {
                 AcceptedKnowledge::Domain(domain)
                     if domains.contains(&domain.header.identifier) =>
                 {
-                    Some(domain.domain_key.clone())
+                    Some(domain.subject)
                 }
                 _ => None,
             })
@@ -835,7 +836,11 @@ impl KnowledgeResolvedEndpoint {
         Self {
             endpoint: KnowledgeRelationEndpoint {
                 identifier: record.identifier().clone(),
-                stable_key: record.stable_key().cloned(),
+                identity: record
+                    .identity()
+                    .cloned()
+                    .map(KnowledgeIdentitySlot::Keyed)
+                    .unwrap_or(KnowledgeIdentitySlot::Unkeyed),
                 kind: record.kind(),
             },
         }
@@ -861,11 +866,11 @@ impl KnowledgeQueryEngine {
                     .iter()
                     .filter(|record| record.identifier() == &identifier),
             ),
-            KnowledgeQuery::GetByStableKey(stable_key) => self.list(
+            KnowledgeQuery::GetByIdentity(identity) => self.list(
                 self.records
                     .records
                     .iter()
-                    .filter(|record| record.stable_key() == Some(&stable_key)),
+                    .filter(|record| record.identity() == Some(&identity)),
             ),
             KnowledgeQuery::ListByKind(kind, current_view) => {
                 let superseded = self.records.superseded_identifiers();
@@ -910,7 +915,7 @@ impl KnowledgeQueryEngine {
         }
 
         let domain_identifiers = self.records.domain_identifiers(selector.clone());
-        let domain_keys = self
+        let domain_subjects = self
             .records
             .domain_keys_for_identifiers(&domain_identifiers);
         let classified = self
@@ -919,9 +924,9 @@ impl KnowledgeQueryEngine {
         self.list(self.records.records.iter().filter(|record| {
             current.accepts(record)
                 && (record
-                    .domain_keys()
+                    .domain_subjects()
                     .iter()
-                    .any(|domain| domain_keys.contains(*domain))
+                    .any(|domain| domain_subjects.contains(*domain))
                     || classified.contains(record.identifier()))
         }))
     }
@@ -1018,8 +1023,8 @@ impl KnowledgeRelationRules {
 
 trait AcceptedKnowledgeAccess {
     fn identifier(&self) -> &KnowledgeIdentifier;
-    fn stable_key(&self) -> Option<&KnowledgeStableKey>;
-    fn domain_keys(&self) -> Vec<&KnowledgeDomainKey>;
+    fn identity(&self) -> Option<&KnowledgeIdentity>;
+    fn domain_subjects(&self) -> Vec<&KnowledgeSubject>;
 }
 
 impl AcceptedKnowledgeAccess for AcceptedKnowledge {
@@ -1033,22 +1038,104 @@ impl AcceptedKnowledgeAccess for AcceptedKnowledge {
         }
     }
 
-    fn stable_key(&self) -> Option<&KnowledgeStableKey> {
+    fn identity(&self) -> Option<&KnowledgeIdentity> {
         match self {
-            Self::Entity(record) => record.header.stable_key.as_ref(),
-            Self::Statement(record) => record.header.stable_key.as_ref(),
-            Self::Relation(record) => record.header.stable_key.as_ref(),
-            Self::Domain(record) => record.header.stable_key.as_ref(),
-            Self::Source(record) => record.header.stable_key.as_ref(),
+            Self::Entity(record) => record.header.identity.as_identity(),
+            Self::Statement(record) => record.header.identity.as_identity(),
+            Self::Relation(record) => record.header.identity.as_identity(),
+            Self::Domain(record) => record.header.identity.as_identity(),
+            Self::Source(record) => record.header.identity.as_identity(),
         }
     }
 
-    fn domain_keys(&self) -> Vec<&KnowledgeDomainKey> {
+    fn domain_subjects(&self) -> Vec<&KnowledgeSubject> {
         match self {
             Self::Entity(record) => record.domains.iter().collect(),
             Self::Statement(record) => record.domains.iter().collect(),
-            Self::Domain(record) => vec![&record.domain_key],
+            Self::Domain(record) => vec![&record.subject],
             Self::Relation(_) | Self::Source(_) => Vec::new(),
+        }
+    }
+}
+
+trait KnowledgeEntityCandidateParts {
+    fn into_parts(
+        self,
+    ) -> (
+        KnowledgeIdentitySlot,
+        TextBody,
+        Vec<TextBody>,
+        Vec<KnowledgeSubject>,
+    );
+}
+
+impl KnowledgeEntityCandidateParts for KnowledgeEntityCandidate {
+    fn into_parts(
+        self,
+    ) -> (
+        KnowledgeIdentitySlot,
+        TextBody,
+        Vec<TextBody>,
+        Vec<KnowledgeSubject>,
+    ) {
+        match self {
+            Self::Keyed(identity, name, description, domains) => (
+                KnowledgeIdentitySlot::Keyed(identity),
+                name,
+                description,
+                domains,
+            ),
+            Self::Unkeyed(name, description, domains) => {
+                (KnowledgeIdentitySlot::Unkeyed, name, description, domains)
+            }
+        }
+    }
+}
+
+trait KnowledgeStatementCandidateParts {
+    fn into_parts(
+        self,
+    ) -> (
+        KnowledgeIdentitySlot,
+        TextBody,
+        Vec<KnowledgeIdentifier>,
+        Vec<KnowledgeSubject>,
+    );
+}
+
+impl KnowledgeStatementCandidateParts for KnowledgeStatementCandidate {
+    fn into_parts(
+        self,
+    ) -> (
+        KnowledgeIdentitySlot,
+        TextBody,
+        Vec<KnowledgeIdentifier>,
+        Vec<KnowledgeSubject>,
+    ) {
+        match self {
+            Self::Keyed(identity, body, about, domains) => {
+                (KnowledgeIdentitySlot::Keyed(identity), body, about, domains)
+            }
+            Self::Unkeyed(body, about, domains) => {
+                (KnowledgeIdentitySlot::Unkeyed, body, about, domains)
+            }
+        }
+    }
+}
+
+trait KnowledgeSourceCandidateParts {
+    fn into_parts(self) -> (KnowledgeIdentitySlot, TextBody, Vec<TextBody>);
+}
+
+impl KnowledgeSourceCandidateParts for KnowledgeSourceCandidate {
+    fn into_parts(self) -> (KnowledgeIdentitySlot, TextBody, Vec<TextBody>) {
+        match self {
+            Self::Keyed(identity, locator, description) => {
+                (KnowledgeIdentitySlot::Keyed(identity), locator, description)
+            }
+            Self::Unkeyed(locator, description) => {
+                (KnowledgeIdentitySlot::Unkeyed, locator, description)
+            }
         }
     }
 }
@@ -1060,11 +1147,20 @@ trait KnowledgeCandidateSummary {
 impl KnowledgeCandidateSummary for KnowledgeCandidate {
     fn summary(&self) -> String {
         match self {
-            Self::Entity(candidate) => format!("entity {}", candidate.name.as_str()),
-            Self::Statement(candidate) => format!("statement {}", candidate.body.as_str()),
+            Self::Entity(candidate) => {
+                let (_, name, _, _) = candidate.clone().into_parts();
+                format!("entity {}", name.as_str())
+            }
+            Self::Statement(candidate) => {
+                let (_, body, _, _) = candidate.clone().into_parts();
+                format!("statement {}", body.as_str())
+            }
             Self::Relation(candidate) => format!("relation {:?}", candidate.kind),
-            Self::Domain(candidate) => format!("domain {}", candidate.domain_key.as_str()),
-            Self::Source(candidate) => format!("source {}", candidate.locator.as_str()),
+            Self::Domain(candidate) => format!("domain {:?}", candidate.subject),
+            Self::Source(candidate) => {
+                let (_, locator, _) = candidate.clone().into_parts();
+                format!("source {}", locator.as_str())
+            }
         }
     }
 }
