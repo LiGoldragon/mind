@@ -35,7 +35,7 @@ pub use actors::root::{
 pub use command::{MindCommand, MindCommandEnvironment};
 pub use configuration::{
     ConfigurationError, MindDaemonConfiguration, MindKnowledgeJudgeAgentConfiguration,
-    MindKnowledgeJudgeConfiguration,
+    MindKnowledgeJudgeConfiguration, MindKnowledgeJudgeTrainingSource,
 };
 pub use daemon::{MindDaemonError, MindEngine, MindProcessDaemon};
 pub use envelope::MindEnvelope;

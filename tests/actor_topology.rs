@@ -9,8 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mind::actors::{ActorManifest, ActorResidency, ReadSubscriptionEvents, TraceAction, TraceNode};
 use mind::{
     ActorRef, AgentKnowledgeJudge, FixtureKnowledgeJudge, KnowledgeJudgePort, MindEnvelope,
-    MindKnowledgeJudgeAgentConfiguration, MindRoot, MindRootArguments, MindRootReply,
-    StoreLocation, SubmitEnvelope, TechnicalSeedDataset,
+    MindKnowledgeJudgeAgentConfiguration, MindKnowledgeJudgeTrainingSource, MindRoot,
+    MindRootArguments, MindRootReply, StoreLocation, SubmitEnvelope, TechnicalSeedDataset,
 };
 use nota_next::NotaEncode;
 use signal_agent::{
@@ -40,6 +40,8 @@ use signal_persona::ComponentName;
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
 static ACTOR_FIXTURE_LOCK: Mutex<()> = Mutex::new(());
+const DEFAULT_ACCEPTED_KNOWLEDGE_JUDGE_TRAINING: &str =
+    include_str!("../src/knowledge-judge-prompts/accepted-knowledge.md");
 
 fn technical_key(value: &str) -> TechnicalNodeKey {
     TechnicalNodeKey::from_canonical(value).expect("test technical key is canonical")
@@ -386,12 +388,22 @@ impl FakeKnowledgeAgent {
     }
 
     fn knowledge_judge(&self) -> AgentKnowledgeJudge {
-        AgentKnowledgeJudge::new(MindKnowledgeJudgeAgentConfiguration::deepseek_flash(
-            signal_mind::WirePath::from_absolute_path(
-                self.socket_path.to_string_lossy().into_owned(),
+        self.knowledge_judge_with_training_source(MindKnowledgeJudgeTrainingSource::CompiledDefault)
+    }
+
+    fn knowledge_judge_with_training_source(
+        &self,
+        training_source: MindKnowledgeJudgeTrainingSource,
+    ) -> AgentKnowledgeJudge {
+        AgentKnowledgeJudge::new(
+            MindKnowledgeJudgeAgentConfiguration::deepseek_flash(
+                signal_mind::WirePath::from_absolute_path(
+                    self.socket_path.to_string_lossy().into_owned(),
+                )
+                .expect("fake agent socket path is absolute"),
             )
-            .expect("fake agent socket path is absolute"),
-        ))
+            .with_training_source(training_source),
+        )
     }
 
     fn captured_prompts(&self) -> Vec<String> {
@@ -622,12 +634,62 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
     let prompts = fake_agent.captured_prompts();
     assert_eq!(prompts.len(), 1);
     assert!(prompts[0].contains("Mind's accepted-knowledge judge"));
+    assert!(
+        DEFAULT_ACCEPTED_KNOWLEDGE_JUDGE_TRAINING
+            .contains("# Mind accepted-knowledge judge training")
+    );
+    assert!(prompts[0].contains("# Mind accepted-knowledge judge training"));
     assert!(prompts[0].contains("KnowledgeJudgePacket under judgment"));
     assert!(prompts[0].contains("Return exactly one KnowledgeJudgeVerdict"));
     assert!(prompts[0].contains("Reject imperatives, tasks, instructions, requests"));
+    assert!(prompts[0].contains(&accept().to_nota()));
+    assert!(prompts[0].contains(&reject(KnowledgeRejectionReason::NotKnowledge).to_nota()));
+    assert!(
+        prompts[0].contains(
+            &reject(KnowledgeRejectionReason::SemanticDuplicate(
+                KnowledgeIdentity::new("abcd")
+            ))
+            .to_nota()
+        )
+    );
+    assert!(
+        prompts[0].contains(
+            &reject(KnowledgeRejectionReason::ConflictsAcceptedKnowledge(vec![
+                KnowledgeIdentity::new("abcd")
+            ]))
+            .to_nota()
+        )
+    );
     assert!(prompts[0].contains("Component"));
     assert!(!prompts[0].contains("Keyed"));
     assert!(!prompts[0].contains("Unkeyed"));
+
+    fixture.stop().await;
+    fake_agent.join();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_knowledge_judge_override_training_reaches_prompt() {
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![accept().to_nota()]);
+    let judge = fake_agent.knowledge_judge_with_training_source(
+        MindKnowledgeJudgeTrainingSource::OverrideText(
+            "Override accepted-knowledge judge training marker.".to_owned(),
+        ),
+    );
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(judge)).await;
+
+    fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind can load override judge training from startup configuration.",
+        ))
+        .await;
+
+    let prompts = fake_agent.captured_prompts();
+    assert_eq!(prompts.len(), 1);
+    assert!(prompts[0].contains("Override accepted-knowledge judge training marker."));
+    assert!(!prompts[0].contains("# Mind accepted-knowledge judge training"));
+    assert!(prompts[0].contains(&accept().to_nota()));
 
     fixture.stop().await;
     fake_agent.join();

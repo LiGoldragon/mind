@@ -18,12 +18,17 @@ use signal_mind::{
 };
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
-use crate::{MindEnvelope, MindKnowledgeJudgeAgentConfiguration, MindTables, Result};
+use crate::{
+    MindEnvelope, MindKnowledgeJudgeAgentConfiguration, MindKnowledgeJudgeTrainingSource,
+    MindTables, Result,
+};
 
 const KNOWLEDGE_IDENTITY_MINIMUM_CODE_LENGTH: usize = 4;
 const KNOWLEDGE_IDENTITY_MAXIMUM_CODE_LENGTH: usize = 7;
 const KNOWLEDGE_IDENTITY_CODE_RADIX: u64 = 36;
 const RANDOM_IDENTITY_ATTEMPTS_PER_LENGTH: usize = 128;
+const ACCEPTED_KNOWLEDGE_JUDGE_TRAINING: &str =
+    include_str!("knowledge-judge-prompts/accepted-knowledge.md");
 
 pub trait KnowledgeJudge: Send + Sync {
     fn judge(&self, packet: KnowledgeJudgePacket) -> KnowledgeJudgeVerdict;
@@ -88,6 +93,7 @@ struct AgentKnowledgeJudgeConfiguration {
     model_name: Option<String>,
     timeout: Duration,
     maximum_output_tokens: Option<u64>,
+    training_source: MindKnowledgeJudgeTrainingSource,
 }
 
 #[derive(Clone, Debug)]
@@ -96,6 +102,7 @@ struct KnowledgeJudgePrompt<'packet> {
     provider_name: Option<&'packet str>,
     model_name: Option<&'packet str>,
     maximum_output_tokens: Option<u64>,
+    training_source: &'packet MindKnowledgeJudgeTrainingSource,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -174,6 +181,7 @@ impl KnowledgeJudge for AgentKnowledgeJudge {
             self.configuration.provider_name.as_deref(),
             self.configuration.model_name.as_deref(),
             self.configuration.maximum_output_tokens,
+            self.configuration.training_source(),
         )
         .into_agent_prompt();
         let output = match self.call_agent(prompt) {
@@ -200,11 +208,25 @@ impl AgentKnowledgeJudgeConfiguration {
             model_name: configuration.model_name,
             timeout: Duration::from_millis(configuration.timeout_milliseconds),
             maximum_output_tokens: configuration.maximum_output_tokens,
+            training_source: configuration.training_source,
         }
     }
 
     fn socket_path(&self) -> &Path {
         &self.socket_path
+    }
+
+    fn training_source(&self) -> &MindKnowledgeJudgeTrainingSource {
+        &self.training_source
+    }
+}
+
+impl MindKnowledgeJudgeTrainingSource {
+    fn prompt_text(&self) -> &str {
+        match self {
+            Self::CompiledDefault => ACCEPTED_KNOWLEDGE_JUDGE_TRAINING,
+            Self::OverrideText(text) => text.as_str(),
+        }
     }
 }
 
@@ -214,12 +236,14 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
         provider_name: Option<&'packet str>,
         model_name: Option<&'packet str>,
         maximum_output_tokens: Option<u64>,
+        training_source: &'packet MindKnowledgeJudgeTrainingSource,
     ) -> Self {
         Self {
             packet,
             provider_name,
             model_name,
             maximum_output_tokens,
+            training_source,
         }
     }
 
@@ -233,31 +257,12 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
 
     fn system_prompt(&self) -> String {
         format!(
-            "You are Mind's accepted-knowledge judge.\n\n\
-             Judge whether one submitted subject and statement belongs in Mind's \
-             accepted-knowledge store. Mind accepts non-Spirit knowledge here; Spirit remains \
-             for psyche intent. Semantic judgment belongs to you: whether the statement is \
-             stable non-private non-intent knowledge, meaningful, true enough, in the declared \
-             subject/domain, duplicate, conflicting, unsupported, or better handled outside \
-             accepted knowledge.\n\n\
-             Deterministic code already handles the generated identity, storage, and lookup. \
-             Accept means the submitted subject and statement should be stored exactly as \
-             submitted under a Mind-generated identity. Do not return replacement records, \
-             examples, rewrites, source records, or alternate identities.\n\n\
-             Use the declared subject as the expected subject. Accept only when the statement \
-             agrees with that subject/domain. Reject subject or domain mismatch as \
-             WrongSubject(expected_subject). Reject exact or semantic duplicates of an accepted \
-             neighbor as SemanticDuplicate(neighbor_identity). Reject contradictions or conflicts \
-             with accepted neighbors as ConflictsAcceptedKnowledge([neighbor_identity ...]). \
-             Reject imperatives, tasks, instructions, requests, logs, receipts, admission \
-             receipts, and process chatter as NotKnowledge. Reject vague, unstable, \
-             time-sensitive, or no-stable-subject claims as NeedsMoreSpecificShape. Reject \
-             private or unauthorized material, unsupported or false content, and source-required \
-             claims with the matching KnowledgeRejectionReason.\n\n\
+            "{training}\n\n\
              Return exactly one KnowledgeJudgeVerdict NOTA value and nothing else: no markdown, no \
              prose around it, no JSON, no code fence. A valid accept is shaped like {accept}. A \
              valid reject is shaped like {reject}. Duplicate, conflict, vague, and wrong-subject \
              rejects are shaped like {duplicate}, {conflict}, {vague}, and {wrong_subject}.",
+            training = self.training_source.prompt_text().trim(),
             accept = Self::accept_example(),
             reject = Self::reject_example(),
             duplicate = Self::duplicate_example(),
@@ -270,9 +275,6 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
     fn user_prompt(&self) -> String {
         format!(
             "KnowledgeJudgePacket under judgment:\n{}\n\n\
-             Relevant neighbors are accepted records with identities. They are the only records \
-             you may use for duplicate and conflict decisions; cite those identities in \
-             SemanticDuplicate or ConflictsAcceptedKnowledge rejects.\n\n\
              Return one KnowledgeJudgeVerdict.",
             self.packet.to_nota(),
         )

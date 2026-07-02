@@ -39,11 +39,15 @@
             let
               pathString = toString path;
               schemaRoot = "${toString ./.}/schema";
+              promptFilter =
+                (type == "regular" || type == "directory")
+                && (builtins.match ".*/knowledge-judge-prompts(/.*)?" pathString != null);
             in
             type == "directory"
             || craneLib.filterCargoSources path type
             || pathString == schemaRoot
-            || pkgs.lib.hasPrefix "${schemaRoot}/" pathString;
+            || pkgs.lib.hasPrefix "${schemaRoot}/" pathString
+            || promptFilter;
           name = "source";
         };
         commonArgs = {

@@ -666,6 +666,18 @@ This repo does not own:
   startup archive can explicitly select `AgentKnowledgeJudge`, which calls the
   local `agent` daemon over `signal-agent::Input::Call` and parses one
   `KnowledgeJudgeVerdict` from the completion.
+- `AgentKnowledgeJudge` training prose has a packaged default under
+  `src/knowledge-judge-prompts/accepted-knowledge.md`, compiled into the daemon
+  with `include_str!`. Prompt assembly still inserts the submitted
+  `KnowledgeJudgePacket` and renders exact verdict/reason examples from
+  `KnowledgeJudgeVerdict` and `KnowledgeRejectionReason` values so examples
+  cannot drift away from parseable output.
+- The startup configuration can explicitly override judge training by having
+  `mind-write-configuration` read a `(JudgeTrainingFile <path>)` and store the
+  file text in the binary daemon archive. Omitting the training source, or using
+  `(DefaultJudgeTraining)`, selects the compiled default. The daemon reads only
+  the binary archive at runtime; large prompt text is not passed through daemon
+  command-line arguments.
 - `KnowledgeJudgeVerdict::Accept` is a decision over the submitted
   subject/statement pair, not a payload containing replacement records or an
   identity. Mind materializes and stores the submission under a generated
@@ -679,6 +691,10 @@ This repo does not own:
 - Accepted admission replies and receipts are not persisted as knowledge.
 - Current accepted-knowledge reads are `Get(identity)` and return
   `Found(record)` or bare `NotFound`.
+- Fake-agent accepted-knowledge tests are plumbing and safety witnesses only:
+  prompt assembly, configuration parsing, malformed verdict handling, and
+  storage consequences. They are not evidence of live judgment quality; quality
+  gates require separate live model evaluation.
 - `Authored` relations must point from an identity Reference Thought to the
   authored Thought; file/document/URL references cannot author graph records.
 - `Supersedes` relations must point from a newer Thought to an older Thought

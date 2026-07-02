@@ -103,6 +103,13 @@ pub struct MindKnowledgeJudgeAgentConfiguration {
     pub model_name: Option<String>,
     pub timeout_milliseconds: u64,
     pub maximum_output_tokens: Option<u64>,
+    pub training_source: MindKnowledgeJudgeTrainingSource,
+}
+
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum MindKnowledgeJudgeTrainingSource {
+    CompiledDefault,
+    OverrideText(String),
 }
 
 impl MindKnowledgeJudgeAgentConfiguration {
@@ -124,7 +131,16 @@ impl MindKnowledgeJudgeAgentConfiguration {
             model_name,
             timeout_milliseconds,
             maximum_output_tokens,
+            training_source: MindKnowledgeJudgeTrainingSource::CompiledDefault,
         }
+    }
+
+    pub fn with_training_source(
+        mut self,
+        training_source: MindKnowledgeJudgeTrainingSource,
+    ) -> Self {
+        self.training_source = training_source;
+        self
     }
 
     pub fn deepseek_flash(agent_socket_path: WirePath) -> Self {

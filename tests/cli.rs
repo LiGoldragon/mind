@@ -1,6 +1,12 @@
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use mind::{MindCommand, MindCommandEnvironment, MindDaemon, MindDaemonEndpoint, StoreLocation};
+use mind::{
+    MindCommand, MindCommandEnvironment, MindDaemon, MindDaemonConfiguration, MindDaemonEndpoint,
+    MindKnowledgeJudgeConfiguration, MindKnowledgeJudgeTrainingSource, StoreLocation,
+};
 use nota_next::NotaEncode;
 use signal_mind::{
     GoalBody, GoalScope, MindRequest, SubmitThought, TextBody, ThoughtBody, ThoughtKind,
@@ -43,6 +49,113 @@ impl CliFixture {
     }
 }
 
+struct ConfigurationWriterFixture {
+    root: PathBuf,
+    socket_path: PathBuf,
+    meta_socket_path: PathBuf,
+    store_path: PathBuf,
+    output_path: PathBuf,
+    agent_socket_path: PathBuf,
+}
+
+impl ConfigurationWriterFixture {
+    fn new(test_name: &str) -> Self {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "mind-configuration-writer-{test_name}-{}-{stamp}",
+            std::process::id()
+        ));
+        Self {
+            socket_path: root.with_extension("sock"),
+            meta_socket_path: root.with_extension("meta.sock"),
+            store_path: root.with_extension("sema"),
+            output_path: root.with_extension("rkyv"),
+            agent_socket_path: root.with_extension("agent.sock"),
+            root,
+        }
+    }
+
+    fn old_agent_judge_request(&self) -> String {
+        format!(
+            "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} deepseek deepseek-v4-flash 180000 2048))",
+            self.socket_path.display(),
+            self.meta_socket_path.display(),
+            self.store_path.display(),
+            self.output_path.display(),
+            self.agent_socket_path.display(),
+        )
+    }
+
+    fn explicit_default_agent_judge_request(&self) -> String {
+        format!(
+            "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} deepseek deepseek-v4-flash 180000 2048 (DefaultJudgeTraining)))",
+            self.socket_path.display(),
+            self.meta_socket_path.display(),
+            self.store_path.display(),
+            self.output_path.display(),
+            self.agent_socket_path.display(),
+        )
+    }
+
+    fn override_agent_judge_request(&self, training_path: &std::path::Path) -> String {
+        format!(
+            "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} deepseek deepseek-v4-flash 180000 2048 (JudgeTrainingFile {})))",
+            self.socket_path.display(),
+            self.meta_socket_path.display(),
+            self.store_path.display(),
+            self.output_path.display(),
+            self.agent_socket_path.display(),
+            training_path.display(),
+        )
+    }
+
+    fn request_path(&self) -> PathBuf {
+        self.root.with_extension("nota")
+    }
+
+    fn training_path(&self) -> PathBuf {
+        self.root.with_extension("training.md")
+    }
+
+    fn read_configuration(&self) -> MindDaemonConfiguration {
+        MindDaemonConfiguration::from_signal_file(&self.output_path)
+            .expect("written configuration decodes")
+    }
+}
+
+impl Drop for ConfigurationWriterFixture {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.output_path);
+        let _ = fs::remove_file(self.request_path());
+        let _ = fs::remove_file(self.training_path());
+    }
+}
+
+fn run_configuration_writer(argument: impl AsRef<std::ffi::OsStr>) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_mind-write-configuration"))
+        .arg(argument)
+        .output()
+        .expect("configuration writer process runs");
+    assert!(
+        output.status.success(),
+        "configuration writer should succeed; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("configuration writer stdout utf8")
+}
+
+fn assert_agent_training_source(
+    configuration: &MindDaemonConfiguration,
+) -> &MindKnowledgeJudgeTrainingSource {
+    let MindKnowledgeJudgeConfiguration::Agent(agent) = &configuration.knowledge_judge else {
+        panic!("expected agent knowledge judge configuration");
+    };
+    &agent.training_source
+}
+
 #[test]
 fn nota_opening_text_maps_to_signal_request() {
     let request = mind::MindTextRequest::from_nota("(Opening Task High [Open work] body)")
@@ -56,6 +169,60 @@ fn nota_opening_text_maps_to_signal_request() {
 
     assert_eq!(opening.kind, signal_mind::ItemKind::Task);
     assert_eq!(opening.priority, signal_mind::Magnitude::High);
+}
+
+#[test]
+fn configuration_writer_preserves_old_agent_judge_default_training_shape() {
+    let fixture = ConfigurationWriterFixture::new("old-agent-default");
+    let stdout = run_configuration_writer(fixture.old_agent_judge_request());
+    assert!(stdout.contains("(ConfigurationWritten"));
+
+    let configuration = fixture.read_configuration();
+    assert_eq!(
+        assert_agent_training_source(&configuration),
+        &MindKnowledgeJudgeTrainingSource::CompiledDefault
+    );
+}
+
+#[test]
+fn configuration_writer_accepts_explicit_default_training_shape() {
+    let fixture = ConfigurationWriterFixture::new("explicit-agent-default");
+    let stdout = run_configuration_writer(fixture.explicit_default_agent_judge_request());
+    assert!(stdout.contains("(ConfigurationWritten"));
+
+    let configuration = fixture.read_configuration();
+    assert_eq!(
+        assert_agent_training_source(&configuration),
+        &MindKnowledgeJudgeTrainingSource::CompiledDefault
+    );
+}
+
+#[test]
+fn configuration_writer_reads_override_training_file_into_archive() {
+    let fixture = ConfigurationWriterFixture::new("override-training");
+    let training_path = fixture.training_path();
+    fs::write(
+        &training_path,
+        "Override writer training marker reaches binary configuration.\n",
+    )
+    .expect("write training override fixture");
+    let request_path = fixture.request_path();
+    fs::write(
+        &request_path,
+        fixture.override_agent_judge_request(&training_path),
+    )
+    .expect("write configuration writer request file");
+
+    let stdout = run_configuration_writer(&request_path);
+    assert!(stdout.contains("(ConfigurationWritten"));
+
+    let configuration = fixture.read_configuration();
+    assert_eq!(
+        assert_agent_training_source(&configuration),
+        &MindKnowledgeJudgeTrainingSource::OverrideText(
+            "Override writer training marker reaches binary configuration.\n".to_owned()
+        )
+    );
 }
 
 #[test]

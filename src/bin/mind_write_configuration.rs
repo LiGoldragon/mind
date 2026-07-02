@@ -3,7 +3,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use mind::{ConfigurationError, MindDaemonConfiguration, MindKnowledgeJudgeAgentConfiguration};
+use mind::{
+    ConfigurationError, MindDaemonConfiguration, MindKnowledgeJudgeAgentConfiguration,
+    MindKnowledgeJudgeTrainingSource,
+};
 #[allow(unused_extern_crates)]
 extern crate nota_next as nota;
 
@@ -52,6 +55,13 @@ struct ConfigurationWriterAgentKnowledgeJudge {
     model_name: ConfigurationWriterModelName,
     timeout_milliseconds: ConfigurationWriterTimeoutMilliseconds,
     maximum_output_tokens: ConfigurationWriterMaximumOutputTokens,
+    training_source: ConfigurationWriterJudgeTrainingSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ConfigurationWriterJudgeTrainingSource {
+    DefaultJudgeTraining,
+    JudgeTrainingFile(ConfigurationWriterPath),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, NotaDecode, NotaEncode)]
@@ -219,8 +229,8 @@ impl ConfigurationWriterKnowledgeJudge {
         }
         match objects[0].demote_to_string() {
             Some("FixtureKnowledgeJudge") if objects.len() == 1 => Ok(Self::FixtureKnowledgeJudge),
-            Some("AgentKnowledgeJudge") if objects.len() == 6 => Ok(Self::AgentKnowledgeJudge(
-                ConfigurationWriterAgentKnowledgeJudge {
+            Some("AgentKnowledgeJudge") if matches!(objects.len(), 6 | 7) => Ok(
+                Self::AgentKnowledgeJudge(ConfigurationWriterAgentKnowledgeJudge {
                     agent_socket_path: ConfigurationWriterPath::from_nota_block(&objects[1])?,
                     provider_name: ConfigurationWriterProviderName::from_nota_block(&objects[2])?,
                     model_name: ConfigurationWriterModelName::from_nota_block(&objects[3])?,
@@ -230,8 +240,13 @@ impl ConfigurationWriterKnowledgeJudge {
                     maximum_output_tokens: ConfigurationWriterMaximumOutputTokens::from_nota_block(
                         &objects[5],
                     )?,
-                },
-            )),
+                    training_source: if let Some(block) = objects.get(6) {
+                        ConfigurationWriterJudgeTrainingSource::from_nota_block(block)?
+                    } else {
+                        ConfigurationWriterJudgeTrainingSource::DefaultJudgeTraining
+                    },
+                }),
+            ),
             Some(variant) => Err(NotaDecodeError::UnknownVariant {
                 enum_name: "KnowledgeJudge",
                 variant: variant.to_owned(),
@@ -253,7 +268,61 @@ impl ConfigurationWriterAgentKnowledgeJudge {
             Some(self.model_name.0),
             self.timeout_milliseconds.0,
             Some(self.maximum_output_tokens.0),
-        ))
+        )
+        .with_training_source(self.training_source.into_runtime()?))
+    }
+}
+
+impl ConfigurationWriterJudgeTrainingSource {
+    fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        let body =
+            NotaBlock::new(block).expect_body(Delimiter::Parenthesis, "JudgeTrainingSource")?;
+        let objects = body.root_objects();
+        if objects.is_empty() {
+            return Err(NotaDecodeError::ExpectedRootCount {
+                type_name: "JudgeTrainingSource",
+                expected: 1,
+                found: 0,
+            });
+        }
+        match objects[0].demote_to_string() {
+            Some("DefaultJudgeTraining") if objects.len() == 1 => Ok(Self::DefaultJudgeTraining),
+            Some("JudgeTrainingFile") if objects.len() == 2 => Ok(Self::JudgeTrainingFile(
+                ConfigurationWriterPath::from_nota_block(&objects[1])?,
+            )),
+            Some(variant) => Err(NotaDecodeError::UnknownVariant {
+                enum_name: "JudgeTrainingSource",
+                variant: variant.to_owned(),
+            }),
+            None => Err(NotaDecodeError::ExpectedAtom {
+                type_name: "JudgeTrainingSource",
+            }),
+        }
+    }
+
+    fn into_runtime(self) -> Result<MindKnowledgeJudgeTrainingSource, ConfigurationWriterError> {
+        match self {
+            Self::DefaultJudgeTraining => Ok(MindKnowledgeJudgeTrainingSource::CompiledDefault),
+            Self::JudgeTrainingFile(path) => path.into_training_source(),
+        }
+    }
+}
+
+impl ConfigurationWriterPath {
+    fn into_training_source(
+        self,
+    ) -> Result<MindKnowledgeJudgeTrainingSource, ConfigurationWriterError> {
+        let path = self.path_buf();
+        let text = fs::read_to_string(&path).map_err(|source| {
+            ConfigurationWriterError::ReadTrainingFile {
+                path: path.clone(),
+                source,
+            }
+        })?;
+        if text.trim().is_empty() {
+            return Err(ConfigurationWriterError::EmptyTrainingFile { path });
+        }
+        Ok(MindKnowledgeJudgeTrainingSource::OverrideText(text))
     }
 }
 
@@ -270,6 +339,15 @@ enum ConfigurationWriterError {
 
     #[error("signal-encoded configuration writer input is unsupported: {}", path.display())]
     SignalInput { path: PathBuf },
+
+    #[error("read judge training file {}: {source}", path.display())]
+    ReadTrainingFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("judge training file is empty: {}", path.display())]
+    EmptyTrainingFile { path: PathBuf },
 
     #[error("write binary archive {}: {source}", path.display())]
     WriteArchive {
