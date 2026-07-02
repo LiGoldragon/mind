@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use nota_next::{NotaEncode, NotaSource};
+use serde_json::json;
+use sha2::{Digest, Sha256};
 use signal_agent::{
     ChatMessage, ChatTranscript, CompletionText, Input as AgentInput, MaximumOutputTokens,
     ModelName, Output as AgentOutput, OutputMode, Prompt, PromptOptions, ProviderName,
@@ -29,6 +31,8 @@ const KNOWLEDGE_IDENTITY_CODE_RADIX: u64 = 36;
 const RANDOM_IDENTITY_ATTEMPTS_PER_LENGTH: usize = 128;
 const ACCEPTED_KNOWLEDGE_JUDGE_TRAINING: &str =
     include_str!("knowledge-judge-prompts/accepted-knowledge.md");
+const JUDGE_DIAGNOSTIC_PATH_ENVIRONMENT: &str = "MIND_JUDGE_DIAGNOSTIC_PATH";
+const JUDGE_DIAGNOSTIC_TEXT_ENVIRONMENT: &str = "MIND_JUDGE_DIAGNOSTIC_TEXT";
 
 pub trait KnowledgeJudge: Send + Sync {
     fn judge(&self, packet: KnowledgeJudgePacket) -> KnowledgeJudgeVerdict;
@@ -184,6 +188,8 @@ impl KnowledgeJudge for AgentKnowledgeJudge {
             self.configuration.training_source(),
         )
         .into_agent_prompt();
+        JudgeDiagnostic::from_environment(&packet, &prompt, self.configuration.training_source())
+            .write();
         let output = match self.call_agent(prompt) {
             Ok(output) => output,
             Err(error) => return Self::unavailable_verdict(error),
@@ -328,6 +334,160 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
     }
 }
 
+struct JudgeDiagnostic<'packet> {
+    packet: &'packet KnowledgeJudgePacket,
+    prompt: &'packet Prompt,
+    training_source: &'packet MindKnowledgeJudgeTrainingSource,
+    path: Option<PathBuf>,
+    text_mode: JudgeDiagnosticTextMode,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum JudgeDiagnosticTextMode {
+    HashesOnly,
+    RedactedStructure,
+}
+
+impl<'packet> JudgeDiagnostic<'packet> {
+    fn from_environment(
+        packet: &'packet KnowledgeJudgePacket,
+        prompt: &'packet Prompt,
+        training_source: &'packet MindKnowledgeJudgeTrainingSource,
+    ) -> Self {
+        let path = std::env::var_os(JUDGE_DIAGNOSTIC_PATH_ENVIRONMENT).map(PathBuf::from);
+        let text_mode = JudgeDiagnosticTextMode::from_environment();
+        Self {
+            packet,
+            prompt,
+            training_source,
+            path,
+            text_mode,
+        }
+    }
+
+    fn write(&self) {
+        let Some(path) = &self.path else {
+            return;
+        };
+        let mut record = json!({
+            "packet_sha256": Sha256Text::new(&self.packet.to_nota()).hex(),
+            "prompt_sha256": Sha256Text::new(&self.prompt_text()).hex(),
+            "training_sha256": Sha256Text::new(self.training_source.prompt_text()).hex(),
+            "diagnostic_text_mode": self.text_mode.as_str(),
+        });
+        if self.text_mode == JudgeDiagnosticTextMode::RedactedStructure {
+            record["packet_redacted_structure"] =
+                json!(RedactedKnowledgeJudgePacket::new(self.packet).to_text());
+        }
+        let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        else {
+            return;
+        };
+        let _ = writeln!(file, "{record}");
+    }
+
+    fn prompt_text(&self) -> String {
+        let system = self
+            .prompt
+            .system()
+            .map(|system| system.payload().as_str())
+            .unwrap_or("");
+        let transcript = self
+            .prompt
+            .chat_transcript()
+            .payload()
+            .iter()
+            .map(|message| message.text.payload().as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("{system}\n{transcript}")
+    }
+}
+
+impl JudgeDiagnosticTextMode {
+    fn from_environment() -> Self {
+        match std::env::var(JUDGE_DIAGNOSTIC_TEXT_ENVIRONMENT).as_deref() {
+            Ok("redacted") => Self::RedactedStructure,
+            _ => Self::HashesOnly,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::HashesOnly => "hashes_only",
+            Self::RedactedStructure => "redacted_structure",
+        }
+    }
+}
+
+struct RedactedKnowledgeJudgePacket<'packet> {
+    packet: &'packet KnowledgeJudgePacket,
+}
+
+impl<'packet> RedactedKnowledgeJudgePacket<'packet> {
+    fn new(packet: &'packet KnowledgeJudgePacket) -> Self {
+        Self { packet }
+    }
+
+    fn to_text(&self) -> String {
+        let neighbors = self
+            .packet
+            .relevant_neighbors
+            .iter()
+            .map(RedactedAcceptedKnowledge::new)
+            .map(|neighbor| neighbor.to_text())
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!(
+            "({:?} [redacted statement sha256:{}] [{}])",
+            self.packet.subject,
+            Sha256Text::new(self.packet.statement.as_str()).hex(),
+            neighbors
+        )
+    }
+}
+
+struct RedactedAcceptedKnowledge<'record> {
+    record: &'record AcceptedKnowledge,
+}
+
+impl<'record> RedactedAcceptedKnowledge<'record> {
+    fn new(record: &'record AcceptedKnowledge) -> Self {
+        Self { record }
+    }
+
+    fn to_text(&self) -> String {
+        format!(
+            "({} {:?} [redacted statement sha256:{}] {} {})",
+            self.record.identity.as_str(),
+            self.record.subject,
+            Sha256Text::new(self.record.statement.as_str()).hex(),
+            self.record.accepted_by.as_str(),
+            self.record.accepted_at.value()
+        )
+    }
+}
+
+struct Sha256Text<'text> {
+    text: &'text str,
+}
+
+impl<'text> Sha256Text<'text> {
+    fn new(text: &'text str) -> Self {
+        Self { text }
+    }
+
+    fn hex(&self) -> String {
+        Sha256::digest(self.text.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+}
+
 pub(crate) struct AcceptedKnowledgeLedger<'tables> {
     tables: &'tables MindTables,
     judge: KnowledgeJudgePort,
@@ -384,10 +544,21 @@ impl<'tables> KnowledgeAdmission<'tables> {
     }
 
     fn reply_from_judge(&self, judge: &dyn KnowledgeJudge) -> MindReply {
+        let accepted = match self.tables.accepted_knowledge_records() {
+            Ok(records) => records,
+            Err(_) => {
+                return MindReply::Rejected(KnowledgeRejectionReason::PersistenceRejected);
+            }
+        };
+        if let Some(identity) =
+            ExactKnowledgeDuplicate::new(&self.submission, &accepted).accepted_identity()
+        {
+            return MindReply::Rejected(KnowledgeRejectionReason::SemanticDuplicate(identity));
+        }
         let packet = KnowledgeJudgePacket {
             subject: self.submission.subject,
             statement: self.submission.statement.clone(),
-            relevant_neighbors: self.tables.accepted_knowledge_records().unwrap_or_default(),
+            relevant_neighbors: accepted,
         };
 
         match judge.judge(packet) {
@@ -407,6 +578,33 @@ impl<'tables> KnowledgeAdmission<'tables> {
             Ok(identity) => MindReply::Accepted(identity),
             Err(reason) => MindReply::Rejected(reason),
         }
+    }
+}
+
+struct ExactKnowledgeDuplicate<'submission, 'records> {
+    submission: &'submission KnowledgeSubmission,
+    records: &'records [AcceptedKnowledge],
+}
+
+impl<'submission, 'records> ExactKnowledgeDuplicate<'submission, 'records> {
+    fn new(
+        submission: &'submission KnowledgeSubmission,
+        records: &'records [AcceptedKnowledge],
+    ) -> Self {
+        Self {
+            submission,
+            records,
+        }
+    }
+
+    fn accepted_identity(&self) -> Option<KnowledgeIdentity> {
+        self.records
+            .iter()
+            .find(|record| {
+                record.subject == self.submission.subject
+                    && record.statement == self.submission.statement
+            })
+            .map(|record| record.identity.clone())
     }
 }
 

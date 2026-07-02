@@ -658,9 +658,9 @@ This repo does not own:
   fact as the correction mechanism.
 - Accepted-knowledge semantic judgment goes through the `KnowledgeJudge` port.
   Deterministic code owns generated identity minting, verdict application,
-  record materialization, persistence, and `Get` lookup; it does not implement
-  semantic duplicate, contradiction, truth, or source requirements through
-  keyword or regex rules.
+  record materialization, persistence, exact structural duplicate rejection,
+  and `Get` lookup; it does not implement paraphrase duplicate,
+  contradiction, truth, or source requirements through keyword or regex rules.
 - The default `KnowledgeJudge` is the empty fixture judge, so an unconfigured
   daemon rejects semantic accepted-knowledge submissions safely. A daemon
   startup archive can explicitly select `AgentKnowledgeJudge`, which calls the
@@ -695,6 +695,15 @@ This repo does not own:
   prompt assembly, configuration parsing, malformed verdict handling, and
   storage consequences. They are not evidence of live judgment quality; quality
   gates require separate live model evaluation.
+- Live accepted-knowledge evals run through the Rust
+  `mind-live-knowledge-judge-eval` binary. The deprecated Python script is only
+  a compatibility launcher and does not parse replies. The Rust runner parses
+  daemon replies as `signal_mind::MindReply` through `nota_next`, records
+  `submit_calls` and `judge_attempts`, leaves provider HTTP call count marked
+  unavailable unless agent-daemon exports telemetry, and supports `--mode
+  stateful` plus `--mode isolated-categories` for reset-by-category
+  diagnostics. Judge packet diagnostics are hash-only by default; redacted
+  structural text is opt-in.
 - `Authored` relations must point from an identity Reference Thought to the
   authored Thought; file/document/URL references cannot author graph records.
 - `Supersedes` relations must point from a newer Thought to an older Thought

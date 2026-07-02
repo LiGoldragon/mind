@@ -568,6 +568,59 @@ async fn accepted_knowledge_submit_mints_identity_and_get_finds_record() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn exact_accepted_knowledge_duplicate_rejects_before_judge_and_stores_nothing_new() {
+    let accepted_statement = "Mind exact duplicate submissions are deterministic mechanism.";
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![accept().to_nota(), accept().to_nota()]);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
+
+    let accepted = fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            accepted_statement,
+        ))
+        .await;
+    let accepted_identity = accepted_identity(&accepted);
+
+    let duplicate = fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            accepted_statement,
+        ))
+        .await;
+    assert_eq!(
+        rejected_reason(&duplicate),
+        KnowledgeRejectionReason::SemanticDuplicate(accepted_identity.clone())
+    );
+    assert_eq!(
+        fake_agent.captured_prompts().len(),
+        1,
+        "exact duplicate rejection must not call the judge"
+    );
+
+    fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind still calls the judge for a distinct accepted-knowledge statement.",
+        ))
+        .await;
+    let prompts = fake_agent.captured_prompts();
+    assert_eq!(
+        prompts.len(),
+        2,
+        "only the first and distinct submissions should reach the judge"
+    );
+    assert_eq!(
+        prompts[1].matches(accepted_statement).count(),
+        1,
+        "the exact duplicate must not be stored as an additional accepted neighbor: {}",
+        prompts[1]
+    );
+
+    fixture.stop().await;
+    fake_agent.join();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn semantic_rejection_stores_nothing_before_next_judgment() {
     let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![
         reject(KnowledgeRejectionReason::NotKnowledge).to_nota(),
