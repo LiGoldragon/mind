@@ -337,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "mind"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "getrandom",
  "kameo",
@@ -726,7 +726,7 @@ dependencies = [
 [[package]]
 name = "signal-frame"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#075b0d992dab071c5021842fb7fdfe0b98bfcd76"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#0027ea3cef353b1c168ca6862e40c6077a853642"
 dependencies = [
  "nota",
  "paste",
@@ -738,7 +738,7 @@ dependencies = [
 [[package]]
 name = "signal-frame-macros"
 version = "0.1.1"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#075b0d992dab071c5021842fb7fdfe0b98bfcd76"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#0027ea3cef353b1c168ca6862e40c6077a853642"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -747,8 +747,8 @@ dependencies = [
 
 [[package]]
 name = "signal-mind"
-version = "0.6.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?rev=095925c84fe349962d821e900efecaa7ca3ea077#095925c84fe349962d821e900efecaa7ca3ea077"
+version = "0.7.0"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?rev=16a70dfd7f696b3e51080dbc2d086726fdaa8c75#16a70dfd7f696b3e51080dbc2d086726fdaa8c75"
 dependencies = [
  "nota",
  "rkyv",

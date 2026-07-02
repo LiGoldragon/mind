@@ -1311,7 +1311,7 @@ impl MindTextReply {
             | contract::MindReply::Accepted(_)
             | contract::MindReply::Rejected(_)
             | contract::MindReply::Found(_)
-            | contract::MindReply::NotFound(_)
+            | contract::MindReply::NotFound
             | contract::MindReply::SubscriptionAccepted(_)
             | contract::MindReply::SubscriptionRetracted(_)
             | contract::MindReply::SubscriptionDemandAccepted(_)

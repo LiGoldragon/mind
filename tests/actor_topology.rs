@@ -18,20 +18,20 @@ use signal_agent::{
     TokenUsage,
 };
 use signal_mind::{
-    AboutTechnicalNode, AcceptedKnowledge, AcceptedSubscriptionStream, ActiveClaim, ActorName,
-    ByRelationKind, ByTechnicalNodeStableKey, ByTechnicalRelationSource, ByThoughtKind,
-    ClaimActivity, ClaimBody, ClaimScope, FileReference, GoalBody, GoalScope, ItemKind,
-    KnowledgeFound, KnowledgeIdentity, KnowledgeJudgeVerdict, KnowledgeRejectionReason,
-    KnowledgeSubject, KnowledgeSubmission, Magnitude, MindReply, MindRequest, Opening,
-    PathClaimScope, Query, QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes,
-    QueryTechnicalRelations, QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter,
-    RelationKind, RoleName, SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation,
-    SubmitThought, SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations,
-    SubscribeThoughts, SubscriptionCursor, SubscriptionDemand, SubscriptionDemandCredit,
-    SubscriptionStreamEvent, SubscriptionStreamKind, TaskToken, TechnicalDependencyClosureQuery,
-    TechnicalNodeBody, TechnicalNodeFilter, TechnicalNodeKey, TechnicalNodeKind,
-    TechnicalNodeQuery, TechnicalNodeRejectionReason, TechnicalProvenanceChainQuery,
-    TechnicalRelationFilter, TechnicalRelationKind, TechnicalRelationNeighborhoodDirection,
+    AboutTechnicalNode, AcceptedSubscriptionStream, ActiveClaim, ActorName, ByRelationKind,
+    ByTechnicalNodeStableKey, ByTechnicalRelationSource, ByThoughtKind, ClaimActivity, ClaimBody,
+    ClaimScope, FileReference, GoalBody, GoalScope, ItemKind, KnowledgeIdentity,
+    KnowledgeJudgeVerdict, KnowledgeRecord, KnowledgeRejectionReason, KnowledgeSubject,
+    KnowledgeSubmission, Magnitude, MindReply, MindRequest, Opening, PathClaimScope, Query,
+    QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes, QueryTechnicalRelations,
+    QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter, RelationKind, RoleName,
+    SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation, SubmitThought,
+    SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations, SubscribeThoughts,
+    SubscriptionCursor, SubscriptionDemand, SubscriptionDemandCredit, SubscriptionStreamEvent,
+    SubscriptionStreamKind, TaskToken, TechnicalDependencyClosureQuery, TechnicalNodeBody,
+    TechnicalNodeFilter, TechnicalNodeKey, TechnicalNodeKind, TechnicalNodeQuery,
+    TechnicalNodeRejectionReason, TechnicalProvenanceChainQuery, TechnicalRelationFilter,
+    TechnicalRelationKind, TechnicalRelationNeighborhoodDirection,
     TechnicalRelationNeighborhoodQuery, TechnicalRelationRejectionReason, TechnicalSourceLocator,
     TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos, Title, WirePath,
     WorkspaceGoal,
@@ -421,13 +421,11 @@ fn accepted_identity(reply: &MindRootReply) -> KnowledgeIdentity {
     let MindReply::Accepted(accepted) = reply.reply().expect("knowledge reply exists") else {
         panic!("expected accepted knowledge reply");
     };
-    accepted.identity.clone()
+    accepted.clone()
 }
 
-fn found_record(reply: &MindRootReply) -> AcceptedKnowledge {
-    let MindReply::Found(KnowledgeFound { record }) =
-        reply.reply().expect("knowledge reply exists")
-    else {
+fn found_record(reply: &MindRootReply) -> KnowledgeRecord {
+    let MindReply::Found(record) = reply.reply().expect("knowledge reply exists") else {
         panic!("expected found knowledge reply");
     };
     record.clone()
@@ -506,7 +504,7 @@ async fn accepted_knowledge_submit_mints_identity_and_get_finds_record() {
         .await;
     assert!(matches!(
         missing.reply().expect("missing reply exists"),
-        MindReply::NotFound(not_found) if not_found.identity.as_str() == "zzzz"
+        MindReply::NotFound
     ));
 
     fixture.stop().await;

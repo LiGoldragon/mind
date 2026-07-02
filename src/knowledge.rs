@@ -13,9 +13,8 @@ use signal_agent::{
     ReasoningEffort, SystemText, TemperatureMilli, ThinkingMode,
 };
 use signal_mind::{
-    AcceptedKnowledge, ActorName, KnowledgeAccepted, KnowledgeFound, KnowledgeIdentity,
-    KnowledgeJudgePacket, KnowledgeJudgeVerdict, KnowledgeNotFound, KnowledgeRejectionReason,
-    KnowledgeSubmission, MindReply, MindRequest,
+    AcceptedKnowledge, ActorName, KnowledgeIdentity, KnowledgeJudgePacket, KnowledgeJudgeVerdict,
+    KnowledgeRejectionReason, KnowledgeSubmission, MindReply, MindRequest,
 };
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
@@ -363,7 +362,7 @@ impl<'tables> KnowledgeAdmission<'tables> {
         )
         .accepted()
         {
-            Ok(identity) => MindReply::Accepted(KnowledgeAccepted { identity }),
+            Ok(identity) => MindReply::Accepted(identity),
             Err(reason) => MindReply::Rejected(reason),
         }
     }
@@ -527,8 +526,8 @@ impl KnowledgeQueryEngine {
         self.records
             .iter()
             .find(|record| record.identity == identity)
-            .cloned()
-            .map(|record| MindReply::Found(KnowledgeFound { record }))
-            .unwrap_or(MindReply::NotFound(KnowledgeNotFound { identity }))
+            .map(AcceptedKnowledge::public_record)
+            .map(MindReply::Found)
+            .unwrap_or(MindReply::NotFound)
     }
 }
