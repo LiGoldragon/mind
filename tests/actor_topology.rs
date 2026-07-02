@@ -20,16 +20,12 @@ use signal_agent::{
 use signal_mind::{
     AboutTechnicalNode, AcceptedKnowledge, AcceptedSubscriptionStream, ActiveClaim, ActorName,
     ByRelationKind, ByTechnicalNodeStableKey, ByTechnicalRelationSource, ByThoughtKind,
-    CandidateSummary, ClaimActivity, ClaimBody, ClaimScope, CurrentView, FileReference, GoalBody,
-    GoalScope, ItemKind, KnowledgeCandidate, KnowledgeDomainCandidate, KnowledgeDomainSelector,
-    KnowledgeEndpointSelector, KnowledgeEntityCandidate, KnowledgeFixturePolicy,
-    KnowledgeIdentifier, KnowledgeIdentity, KnowledgeJudgeVerdict, KnowledgeList, KnowledgeName,
-    KnowledgeQuery, KnowledgeRecordKind, KnowledgeRejection, KnowledgeRejectionReason,
-    KnowledgeRelationKind, KnowledgeSourceCandidate, KnowledgeStatementCandidate, KnowledgeSubject,
-    KnowledgeSubmission, Magnitude, MindReply, MindRequest, Opening, PathClaimScope, Query,
-    QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes, QueryTechnicalRelations,
-    QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter, RelationKind, RelationSelector,
-    RetryHint, RoleName, SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation,
+    ClaimActivity, ClaimBody, ClaimScope, FileReference, GoalBody, GoalScope, ItemKind,
+    KnowledgeFound, KnowledgeIdentity, KnowledgeJudgeVerdict, KnowledgeRejectionReason,
+    KnowledgeSubject, KnowledgeSubmission, Magnitude, MindReply, MindRequest, Opening,
+    PathClaimScope, Query, QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes,
+    QueryTechnicalRelations, QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter,
+    RelationKind, RoleName, SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation,
     SubmitThought, SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations,
     SubscribeThoughts, SubscriptionCursor, SubscriptionDemand, SubscriptionDemandCredit,
     SubscriptionStreamEvent, SubscriptionStreamKind, TaskToken, TechnicalDependencyClosureQuery,
@@ -402,209 +398,39 @@ impl FakeKnowledgeAgent {
     }
 }
 
-fn knowledge_name(value: &str) -> KnowledgeName {
-    KnowledgeName::new(value)
-}
-
-fn component_identity(value: &str) -> KnowledgeIdentity {
-    KnowledgeIdentity::Component(ComponentName::new(value))
-}
-
-fn repository_identity(value: &str) -> KnowledgeIdentity {
-    KnowledgeIdentity::Repository(knowledge_name(value))
-}
-
-fn contract_identity(value: &str) -> KnowledgeIdentity {
-    KnowledgeIdentity::Contract(
-        knowledge_name(value),
-        signal_mind::ContractSurface::Ordinary,
-    )
-}
-
-fn statement_identity(value: &str) -> KnowledgeIdentity {
-    KnowledgeIdentity::Statement(knowledge_name(value))
-}
-
-fn source_identity(value: &str) -> KnowledgeIdentity {
-    KnowledgeIdentity::Source(knowledge_name(value))
-}
-
-fn domain_identity(subject: KnowledgeSubject) -> KnowledgeIdentity {
-    KnowledgeIdentity::Domain(subject)
-}
-
-fn knowledge_subject(value: &str) -> KnowledgeSubject {
-    match value {
-        "component" => KnowledgeSubject::Component,
-        "contract" => KnowledgeSubject::Contract,
-        "repository" => KnowledgeSubject::Repository,
-        "architecture" => KnowledgeSubject::Architecture,
-        "interface" => KnowledgeSubject::Interface,
-        "storage" => KnowledgeSubject::Storage,
-        "source" => KnowledgeSubject::Source,
-        other => panic!("unknown test knowledge subject {other}"),
-    }
-}
-
-fn legacy_identity(value: &str) -> KnowledgeIdentity {
-    match value.split(':').collect::<Vec<_>>().as_slice() {
-        ["component", name] => component_identity(name),
-        ["repo", name] => repository_identity(name),
-        ["contract", name, "ordinary"] => contract_identity(name),
-        ["statement", name] => statement_identity(name),
-        ["statement", group, name] => statement_identity(&format!("{group}-{name}")),
-        ["source", name] => source_identity(name),
-        ["source", group, name] => source_identity(&format!("{group}-{name}")),
-        ["domain", subject] => domain_identity(knowledge_subject(subject)),
-        _ => panic!("unknown legacy identity {value}"),
-    }
-}
-
-fn knowledge_submission(candidate: KnowledgeCandidate) -> MindRequest {
-    MindRequest::SubmitKnowledge(KnowledgeSubmission {
-        candidate,
-        fixture_policy: KnowledgeFixturePolicy::FixtureOnly,
-        requester_context: signal_mind::KnowledgeRequesterContext {
-            summaries: Vec::new(),
-        },
+fn knowledge_submission(subject: KnowledgeSubject, statement: &str) -> MindRequest {
+    MindRequest::Submit(KnowledgeSubmission {
+        subject,
+        statement: TextBody::new(statement),
     })
 }
 
-fn knowledge_query(query: KnowledgeQuery) -> MindRequest {
-    MindRequest::QueryKnowledge(query)
+fn knowledge_get(identity: KnowledgeIdentity) -> MindRequest {
+    MindRequest::Get(identity)
 }
 
 fn accept() -> KnowledgeJudgeVerdict {
     KnowledgeJudgeVerdict::Accept
 }
 
-fn reject(reason: KnowledgeRejectionReason, summary: &str) -> KnowledgeJudgeVerdict {
-    KnowledgeJudgeVerdict::Reject(KnowledgeRejection {
-        reason,
-        candidate_summary: CandidateSummary {
-            summary: TextBody::new(summary),
-        },
-        retry_hint: Some(RetryHint {
-            hint: TextBody::new("fixture rejection"),
-        }),
-    })
+fn reject(reason: KnowledgeRejectionReason) -> KnowledgeJudgeVerdict {
+    KnowledgeJudgeVerdict::Reject(reason)
 }
 
-fn entity_candidate(stable_key: &str, name: &str, domains: Vec<&str>) -> KnowledgeEntityCandidate {
-    KnowledgeEntityCandidate::Keyed(
-        legacy_identity(stable_key),
-        TextBody::new(name),
-        Vec::new(),
-        domains
-            .into_iter()
-            .map(legacy_identity)
-            .map(|identity| match identity {
-                KnowledgeIdentity::Domain(subject) => subject,
-                _ => panic!("test domain argument must be a domain identity"),
-            })
-            .collect(),
-    )
-}
-
-fn statement_candidate(
-    stable_key: &str,
-    body: &str,
-    domains: Vec<&str>,
-) -> KnowledgeStatementCandidate {
-    KnowledgeStatementCandidate::Keyed(
-        legacy_identity(stable_key),
-        TextBody::new(body),
-        Vec::new(),
-        domains
-            .into_iter()
-            .map(legacy_identity)
-            .map(|identity| match identity {
-                KnowledgeIdentity::Domain(subject) => subject,
-                _ => panic!("test domain argument must be a domain identity"),
-            })
-            .collect(),
-    )
-}
-
-fn source_candidate(stable_key: &str, locator: &str) -> KnowledgeSourceCandidate {
-    KnowledgeSourceCandidate::Keyed(
-        legacy_identity(stable_key),
-        TextBody::new(locator),
-        Vec::new(),
-    )
-}
-
-fn domain_candidate(stable_key: &str, name: &str) -> KnowledgeDomainCandidate {
-    KnowledgeDomainCandidate {
-        subject: match legacy_identity(stable_key) {
-            KnowledgeIdentity::Domain(subject) => subject,
-            _ => panic!("test domain candidate requires a domain identity"),
-        },
-        name: TextBody::new(name),
-        description: Vec::new(),
-    }
-}
-
-fn relation_candidate(
-    kind: KnowledgeRelationKind,
-    source: &str,
-    target: &str,
-) -> signal_mind::KnowledgeRelationCandidate {
-    signal_mind::KnowledgeRelationCandidate {
-        kind,
-        source: KnowledgeEndpointSelector::Identity(legacy_identity(source)),
-        target: KnowledgeEndpointSelector::Identity(legacy_identity(target)),
-        note: Vec::new(),
-    }
-}
-
-fn accepted_records(reply: &MindRootReply) -> Vec<AcceptedKnowledge> {
-    let MindReply::KnowledgeAccepted(accepted) = reply.reply().expect("knowledge reply exists")
-    else {
+fn accepted_identity(reply: &MindRootReply) -> KnowledgeIdentity {
+    let MindReply::Accepted(accepted) = reply.reply().expect("knowledge reply exists") else {
         panic!("expected accepted knowledge reply");
     };
-    accepted.accepted.records.clone()
+    accepted.identity.clone()
 }
 
-fn knowledge_list(reply: &MindRootReply) -> KnowledgeList {
-    let MindReply::KnowledgeList(list) = reply.reply().expect("knowledge list reply exists") else {
-        panic!("expected knowledge list");
+fn found_record(reply: &MindRootReply) -> AcceptedKnowledge {
+    let MindReply::Found(KnowledgeFound { record }) =
+        reply.reply().expect("knowledge reply exists")
+    else {
+        panic!("expected found knowledge reply");
     };
-    list.clone()
-}
-
-fn identity_of(record: &AcceptedKnowledge) -> Option<&KnowledgeIdentity> {
-    match record {
-        AcceptedKnowledge::Entity(record) => record.header.identity.as_identity(),
-        AcceptedKnowledge::Statement(record) => record.header.identity.as_identity(),
-        AcceptedKnowledge::Relation(record) => record.header.identity.as_identity(),
-        AcceptedKnowledge::Domain(record) => record.header.identity.as_identity(),
-        AcceptedKnowledge::Source(record) => record.header.identity.as_identity(),
-    }
-}
-
-fn identifier_of(record: &AcceptedKnowledge) -> &KnowledgeIdentifier {
-    match record {
-        AcceptedKnowledge::Entity(record) => &record.header.identifier,
-        AcceptedKnowledge::Statement(record) => &record.header.identifier,
-        AcceptedKnowledge::Relation(record) => &record.header.identifier,
-        AcceptedKnowledge::Domain(record) => &record.header.identifier,
-        AcceptedKnowledge::Source(record) => &record.header.identifier,
-    }
-}
-
-async fn count_knowledge_kind(
-    fixture: &ActorFixture,
-    kind: KnowledgeRecordKind,
-    view: CurrentView,
-) -> usize {
-    knowledge_list(
-        &fixture
-            .submit(knowledge_query(KnowledgeQuery::ListByKind(kind, view)))
-            .await,
-    )
-    .records
-    .len()
+    record.clone()
 }
 
 #[test]
@@ -642,330 +468,94 @@ fn topology_manifest_names_required_actor_planes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn accepted_knowledge_fixture_slice_admits_queries_and_preserves_rejection_boundaries() {
-    let verdicts = vec![
-        accept(),
-        accept(),
-        accept(),
-        accept(),
-        accept(),
-        accept(),
-        reject(
-            KnowledgeRejectionReason::NotKnowledge,
-            "valid text is not knowledge",
-        ),
-        accept(),
-        accept(),
-        accept(),
-        accept(),
-        accept(),
-        reject(
-            KnowledgeRejectionReason::ConflictsAcceptedKnowledge(Vec::new()),
-            "contradicts accepted knowledge",
-        ),
-    ];
-    let judge = Arc::new(FixtureKnowledgeJudge::new(verdicts));
-    let fixture = ActorFixture::with_knowledge_judge(judge.clone()).await;
+async fn accepted_knowledge_submit_mints_identity_and_get_finds_record() {
+    let fixture =
+        ActorFixture::with_knowledge_judge(Arc::new(FixtureKnowledgeJudge::new(vec![accept()])))
+            .await;
 
-    fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Domain(
-            domain_candidate("domain:component", "Component"),
-        )))
+    let accepted = fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind stores accepted knowledge.",
+        ))
         .await;
-    assert_eq!(
-        count_knowledge_kind(
-            &fixture,
-            KnowledgeRecordKind::Domain,
-            CurrentView::IncludeSuperseded
-        )
-        .await,
-        1
-    );
-
-    fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Domain(
-            domain_candidate("domain:contract", "Contract"),
-        )))
-        .await;
-    assert_eq!(
-        count_knowledge_kind(
-            &fixture,
-            KnowledgeRecordKind::Domain,
-            CurrentView::IncludeSuperseded
-        )
-        .await,
-        2
-    );
-
-    let mind_entity = accepted_records(
-        &fixture
-            .submit(knowledge_submission(KnowledgeCandidate::Entity(
-                entity_candidate("component:mind", "mind", vec!["domain:component"]),
-            )))
-            .await,
-    )
-    .into_iter()
-    .find(|record| matches!(record, AcceptedKnowledge::Entity(_)))
-    .expect("mind entity accepted");
-    let mind_identifier = identifier_of(&mind_entity).clone();
-
-    assert_eq!(
-        knowledge_list(
-            &fixture
-                .submit(knowledge_query(KnowledgeQuery::GetByIdentifier(
-                    mind_identifier
-                )))
-                .await,
-        )
-        .records
-        .len(),
-        1
-    );
-    assert_eq!(
-        knowledge_list(
-            &fixture
-                .submit(knowledge_query(KnowledgeQuery::GetByIdentity(
-                    component_identity("mind"),
-                )))
-                .await,
-        )
-        .records
-        .len(),
-        1
-    );
-
-    fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Entity(
-            entity_candidate(
-                "contract:signal-mind:ordinary",
-                "signal-mind ordinary contract",
-                vec!["domain:contract"],
-            ),
-        )))
-        .await;
-    fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Entity(
-            entity_candidate("repo:signal-mind", "signal-mind repository", Vec::new()),
-        )))
-        .await;
-    fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Relation(
-            relation_candidate(
-                KnowledgeRelationKind::Defines,
-                "repo:signal-mind",
-                "contract:signal-mind:ordinary",
-            ),
-        )))
-        .await;
-
-    let component_domain = knowledge_list(
-        &fixture
-            .submit(knowledge_query(KnowledgeQuery::ListByDomain(
-                KnowledgeDomainSelector::Direct(KnowledgeSubject::Component),
-                CurrentView::CurrentOnly,
-            )))
-            .await,
+    let identity = accepted_identity(&accepted);
+    assert_ne!(identity.as_str(), "caller-chosen");
+    assert!(
+        (4..=7).contains(&identity.as_str().len()),
+        "Mind identity should be Spirit-style short base36, got {}",
+        identity.as_str()
     );
     assert!(
-        component_domain
-            .records
-            .iter()
-            .any(|record| identity_of(record) == Some(&component_identity("mind")))
+        identity
+            .as_str()
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit()),
+        "Mind identity should be base36, got {}",
+        identity.as_str()
     );
 
-    let defines_relations = knowledge_list(
-        &fixture
-            .submit(knowledge_query(KnowledgeQuery::ListRelations(
-                RelationSelector {
-                    kind: Some(KnowledgeRelationKind::Defines),
-                    source: None,
-                    target: None,
-                    limit: QueryLimit::new(10),
-                },
-                CurrentView::IncludeSuperseded,
-            )))
-            .await,
-    );
-    assert_eq!(defines_relations.records.len(), 1);
+    let found = fixture.submit(knowledge_get(identity.clone())).await;
+    let record = found_record(&found);
+    assert_eq!(record.identity, identity);
+    assert_eq!(record.subject, KnowledgeSubject::Component);
+    assert_eq!(record.statement.as_str(), "Mind stores accepted knowledge.");
 
-    let count_before_rejection = knowledge_list(
-        &fixture
-            .submit(knowledge_query(KnowledgeQuery::ListByDomain(
-                KnowledgeDomainSelector::Any,
-                CurrentView::IncludeSuperseded,
-            )))
-            .await,
-    )
-    .records
-    .len();
+    let missing = fixture
+        .submit(knowledge_get(KnowledgeIdentity::new("zzzz")))
+        .await;
+    assert!(matches!(
+        missing.reply().expect("missing reply exists"),
+        MindReply::NotFound(not_found) if not_found.identity.as_str() == "zzzz"
+    ));
+
+    fixture.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn semantic_rejection_stores_nothing_before_next_judgment() {
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![
+        reject(KnowledgeRejectionReason::NotKnowledge).to_nota(),
+        accept().to_nota(),
+    ]);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
+
     let rejection = fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Statement(
-            statement_candidate("statement:not-knowledge", "please do the task", Vec::new()),
-        )))
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "please do the task",
+        ))
         .await;
     assert!(matches!(
         rejection.reply().expect("semantic rejection reply exists"),
-        MindReply::KnowledgeRejected(rejection)
-            if matches!(rejection.reason, KnowledgeRejectionReason::NotKnowledge)
+        MindReply::Rejected(KnowledgeRejectionReason::NotKnowledge)
     ));
-    assert_eq!(
-        knowledge_list(
-            &fixture
-                .submit(knowledge_query(KnowledgeQuery::ListByDomain(
-                    KnowledgeDomainSelector::Any,
-                    CurrentView::IncludeSuperseded,
-                )))
-                .await,
-        )
-        .records
-        .len(),
-        count_before_rejection
-    );
 
-    let calls_before_preflight = judge.calls();
-    let missing_endpoint = fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Relation(
-            relation_candidate(
-                KnowledgeRelationKind::DependsOn,
-                "component:mind",
-                "component:missing",
-            ),
-        )))
+    let accepted = fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind stores accepted knowledge after rejection.",
+        ))
         .await;
+    let identity = accepted_identity(&accepted);
+    let prompts = fake_agent.captured_prompts();
+    assert_eq!(prompts.len(), 2);
+    assert!(
+        prompts[1].contains("(Component [Mind stores accepted knowledge after rejection.] [])"),
+        "rejected submission must not appear as a relevant neighbor: {}",
+        prompts[1]
+    );
     assert!(matches!(
-        missing_endpoint.reply().expect("preflight reply exists"),
-        MindReply::KnowledgeRejected(rejection)
-            if matches!(
-                rejection.reason,
-                KnowledgeRejectionReason::StructuralPreflightFailed(_)
-            )
+        fixture
+            .submit(knowledge_get(identity))
+            .await
+            .reply()
+            .expect("found reply exists"),
+        MindReply::Found(_)
     ));
-    assert_eq!(judge.calls(), calls_before_preflight);
 
-    assert_eq!(
-        count_knowledge_kind(
-            &fixture,
-            KnowledgeRecordKind::Source,
-            CurrentView::IncludeSuperseded
-        )
-        .await,
-        0
-    );
-    fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Statement(
-            statement_candidate(
-                "statement:architecture:old",
-                "Mind owns accepted knowledge.",
-                vec!["domain:component"],
-            ),
-        )))
-        .await;
-    assert_eq!(
-        count_knowledge_kind(
-            &fixture,
-            KnowledgeRecordKind::Source,
-            CurrentView::IncludeSuperseded
-        )
-        .await,
-        0,
-        "accepting a statement must not add substitute source records"
-    );
-    fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Source(
-            source_candidate(
-                "source:mind-architecture",
-                "/git/github.com/LiGoldragon/mind/ARCHITECTURE.md",
-            ),
-        )))
-        .await;
-    assert_eq!(
-        count_knowledge_kind(
-            &fixture,
-            KnowledgeRecordKind::Source,
-            CurrentView::IncludeSuperseded
-        )
-        .await,
-        1
-    );
-    fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Relation(
-            relation_candidate(
-                KnowledgeRelationKind::SupportedBy,
-                "statement:architecture:old",
-                "source:mind-architecture",
-            ),
-        )))
-        .await;
-
-    fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Statement(
-            statement_candidate(
-                "statement:architecture:new",
-                "Mind owns accepted knowledge through the accepted-knowledge store.",
-                vec!["domain:component"],
-            ),
-        )))
-        .await;
-    fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Relation(
-            relation_candidate(
-                KnowledgeRelationKind::Supersedes,
-                "statement:architecture:new",
-                "statement:architecture:old",
-            ),
-        )))
-        .await;
-    assert_eq!(
-        count_knowledge_kind(
-            &fixture,
-            KnowledgeRecordKind::Statement,
-            CurrentView::CurrentOnly
-        )
-        .await,
-        1
-    );
-    assert_eq!(
-        count_knowledge_kind(
-            &fixture,
-            KnowledgeRecordKind::Statement,
-            CurrentView::IncludeSuperseded,
-        )
-        .await,
-        2
-    );
-
-    let before_conflict = count_knowledge_kind(
-        &fixture,
-        KnowledgeRecordKind::Statement,
-        CurrentView::IncludeSuperseded,
-    )
-    .await;
-    let conflict = fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Statement(
-            statement_candidate(
-                "statement:architecture:conflict",
-                "Mind does not own accepted knowledge.",
-                vec!["domain:component"],
-            ),
-        )))
-        .await;
-    assert!(matches!(
-        conflict.reply().expect("conflict reply exists"),
-        MindReply::KnowledgeRejected(rejection)
-            if matches!(
-                rejection.reason,
-                KnowledgeRejectionReason::ConflictsAcceptedKnowledge(_)
-            )
-    ));
-    assert_eq!(
-        count_knowledge_kind(
-            &fixture,
-            KnowledgeRecordKind::Statement,
-            CurrentView::IncludeSuperseded,
-        )
-        .await,
-        before_conflict
-    );
+    fixture.stop().await;
+    fake_agent.join();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -974,24 +564,17 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
     let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
 
     let reply = fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Statement(
-            statement_candidate(
-                "statement:accepted-knowledge-store",
-                "Mind stores the submitted accepted-knowledge candidate.",
-                vec!["domain:component"],
-            ),
-        )))
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind stores the submitted accepted-knowledge statement.",
+        ))
         .await;
-    let records = accepted_records(&reply);
-    assert_eq!(records.len(), 1);
-    assert!(matches!(
-        &records[0],
-        AcceptedKnowledge::Statement(statement)
-            if statement.body.as_str()
-                == "Mind stores the submitted accepted-knowledge candidate."
-            && statement.header.identity.as_identity()
-                == Some(&statement_identity("accepted-knowledge-store"))
-    ));
+    let identity = accepted_identity(&reply);
+    let record = found_record(&fixture.submit(knowledge_get(identity)).await);
+    assert_eq!(
+        record.statement.as_str(),
+        "Mind stores the submitted accepted-knowledge statement."
+    );
 
     let prompts = fake_agent.captured_prompts();
     assert_eq!(prompts.len(), 1);
@@ -1000,7 +583,8 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
     assert!(prompts[0].contains("Return exactly one KnowledgeJudgeVerdict"));
     assert!(prompts[0].contains("Reject tasks, logs, receipts"));
     assert!(prompts[0].contains("Component"));
-    assert!(!prompts[0].contains("domain:component"));
+    assert!(!prompts[0].contains("Keyed"));
+    assert!(!prompts[0].contains("Unkeyed"));
 
     fixture.stop().await;
     fake_agent.join();
@@ -1010,42 +594,35 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
 async fn agent_knowledge_judge_old_substitute_accept_payload_rejects_and_stores_nothing() {
     let old_substitute_payload =
         "(Accept (([(Domain (domain:component [Component] None))]) []))".to_owned();
-    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![old_substitute_payload]);
+    let fake_agent =
+        FakeKnowledgeAgent::spawn_texts(vec![old_substitute_payload, accept().to_nota()]);
     let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
 
     let reply = fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Statement(
-            statement_candidate(
-                "statement:accepted-knowledge-store",
-                "Mind stores the submitted accepted-knowledge candidate.",
-                vec!["domain:component"],
-            ),
-        )))
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind stores the submitted accepted-knowledge statement.",
+        ))
         .await;
-    let MindReply::KnowledgeRejected(rejection) = reply.reply().expect("knowledge reply exists")
-    else {
-        panic!("expected old substitute accept payload to reject");
-    };
-    assert_eq!(rejection.reason, KnowledgeRejectionReason::MeaningUnclear);
-    assert_eq!(
-        count_knowledge_kind(
-            &fixture,
-            KnowledgeRecordKind::Statement,
-            CurrentView::IncludeSuperseded
-        )
-        .await,
-        0,
-        "old accepted-draft payload must not store substitute or submitted records"
-    );
-    assert_eq!(
-        count_knowledge_kind(
-            &fixture,
-            KnowledgeRecordKind::Domain,
-            CurrentView::IncludeSuperseded
-        )
-        .await,
-        0,
-        "old prompt-example domain must not be stored"
+    assert!(matches!(
+        reply.reply().expect("knowledge reply exists"),
+        MindReply::Rejected(KnowledgeRejectionReason::MeaningUnclear)
+    ));
+
+    fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind stores accepted knowledge after old substitute verdict.",
+        ))
+        .await;
+    let prompts = fake_agent.captured_prompts();
+    assert_eq!(prompts.len(), 2);
+    assert!(
+        prompts[1].contains(
+            "(Component [Mind stores accepted knowledge after old substitute verdict.] [])"
+        ),
+        "old substitute accept payload must not store substitute or submitted records: {}",
+        prompts[1]
     );
 
     fixture.stop().await;
@@ -1054,35 +631,34 @@ async fn agent_knowledge_judge_old_substitute_accept_payload_rejects_and_stores_
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_knowledge_judge_malformed_verdict_rejects_and_stores_nothing() {
-    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec!["not a verdict".to_owned()]);
+    let fake_agent =
+        FakeKnowledgeAgent::spawn_texts(vec!["not a verdict".to_owned(), accept().to_nota()]);
     let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
 
     let reply = fixture
-        .submit(knowledge_submission(KnowledgeCandidate::Domain(
-            domain_candidate("domain:component", "Component"),
-        )))
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind stores accepted knowledge after malformed verdict.",
+        ))
         .await;
-    let MindReply::KnowledgeRejected(rejection) = reply.reply().expect("knowledge reply exists")
-    else {
-        panic!("expected malformed model output to reject");
-    };
-    assert_eq!(rejection.reason, KnowledgeRejectionReason::MeaningUnclear);
+    assert!(matches!(
+        reply.reply().expect("knowledge reply exists"),
+        MindReply::Rejected(KnowledgeRejectionReason::MeaningUnclear)
+    ));
+
+    fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind stores accepted knowledge after malformed retry.",
+        ))
+        .await;
+    let prompts = fake_agent.captured_prompts();
+    assert_eq!(prompts.len(), 2);
     assert!(
-        rejection
-            .candidate_summary
-            .summary
-            .as_str()
-            .contains("malformed verdict")
-    );
-    assert_eq!(
-        count_knowledge_kind(
-            &fixture,
-            KnowledgeRecordKind::Domain,
-            CurrentView::IncludeSuperseded
-        )
-        .await,
-        0,
-        "malformed model verdict must not store accepted knowledge"
+        prompts[1]
+            .contains("(Component [Mind stores accepted knowledge after malformed retry.] [])"),
+        "malformed verdict must not store accepted knowledge: {}",
+        prompts[1]
     );
 
     fixture.stop().await;

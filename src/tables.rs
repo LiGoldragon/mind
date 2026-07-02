@@ -10,7 +10,7 @@ use sema_engine::{
     TableReference, VersionedStoreName, VersioningPolicy,
 };
 use signal_mind::{
-    AcceptedKnowledge, ActorName, KnowledgeIdentifier, RecordIdentifier, Relation,
+    AcceptedKnowledge, ActorName, KnowledgeIdentity, RecordIdentifier, Relation,
     RelationIdentifier, SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation,
     SubmitThought, SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations,
     SubscribeThoughts, SubscriptionCursor, SubscriptionDemandCredit, SubscriptionIdentifier,
@@ -270,14 +270,8 @@ impl StoredAcceptedKnowledge {
         Self { record }
     }
 
-    fn identifier(&self) -> &KnowledgeIdentifier {
-        match &self.record {
-            AcceptedKnowledge::Entity(record) => &record.header.identifier,
-            AcceptedKnowledge::Statement(record) => &record.header.identifier,
-            AcceptedKnowledge::Relation(record) => &record.header.identifier,
-            AcceptedKnowledge::Domain(record) => &record.header.identifier,
-            AcceptedKnowledge::Source(record) => &record.header.identifier,
-        }
+    fn identifier(&self) -> &KnowledgeIdentity {
+        &self.record.identity
     }
 
     fn into_record(self) -> AcceptedKnowledge {

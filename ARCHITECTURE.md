@@ -290,11 +290,11 @@ Current implementation:
   queries, registers subscriptions through `sema-engine` Subscribe, and stores
   only Persona-specific subscription filters through the storage-kernel handle
   exposed by `sema-engine`.
-- Accepted knowledge routes `SubmitKnowledge` and `QueryKnowledge` through the
-  same actor/store lane. The store persists only accepted
-  `AcceptedKnowledge` records in the `accepted_knowledge` family. Deterministic
-  preflight rejects missing relation endpoints and relation domain/range
-  violations before the typed judge port is called; semantic rejections and
+- Accepted knowledge routes `Submit` and `Get` through the same actor/store
+  lane. Submitters provide only `KnowledgeSubject` plus statement text. The
+  store mints the short `KnowledgeIdentity` after the typed judge accepts,
+  persists the resulting `AcceptedKnowledge` record in the `accepted_knowledge`
+  family, and replies with `Accepted(identity)`. Semantic rejections and
   accepted admission receipts are not stored.
 - `SubscriptionSupervisor` receives post-commit graph deltas from
   `sema-engine` subscription sinks and publishes typed
@@ -654,32 +654,28 @@ This repo does not own:
   relation to the old fact. Mind does not mutate or upsert the old technical
   fact as the correction mechanism.
 - Accepted-knowledge semantic judgment goes through the `KnowledgeJudge` port.
-  Deterministic code owns structural preflight, endpoint lookup,
-  relation-domain validation, verdict application, candidate materialization,
-  and query projection; it does not implement semantic duplicate,
-  contradiction, truth, or source requirements through keyword or regex rules.
+  Deterministic code owns generated identity minting, verdict application,
+  record materialization, persistence, and `Get` lookup; it does not implement
+  semantic duplicate, contradiction, truth, or source requirements through
+  keyword or regex rules.
 - The default `KnowledgeJudge` is the empty fixture judge, so an unconfigured
   daemon rejects semantic accepted-knowledge submissions safely. A daemon
   startup archive can explicitly select `AgentKnowledgeJudge`, which calls the
   local `agent` daemon over `signal-agent::Input::Call` and parses one
   `KnowledgeJudgeVerdict` from the completion.
-- `KnowledgeJudgeVerdict::Accept` is a decision over the submitted candidate,
-  not a payload containing replacement records. Mind materializes and stores
-  the submitted candidate on accept; old-style or malformed accepted-draft
-  payloads reject and store nothing.
+- `KnowledgeJudgeVerdict::Accept` is a decision over the submitted
+  subject/statement pair, not a payload containing replacement records or an
+  identity. Mind materializes and stores the submission under a generated
+  identity on accept; old-style or malformed accepted-draft payloads reject and
+  store nothing.
 - The current AI-backed accepted-knowledge demo/test model selection is the
   existing DeepSeek Flash provider/model pair: provider `deepseek`, model
   `deepseek-v4-flash`. Mind does not call DeepSeek directly; the `agent`
   daemon owns provider endpoint and secret-source resolution.
 - Accepted-knowledge semantic rejections store nothing.
-- Accepted-knowledge structural preflight rejections store nothing and do not
-  call the judge.
 - Accepted admission replies and receipts are not persisted as knowledge.
-- `KnowledgeSource` is stored only when the submitted accepted candidate is a
-  source record. Source/support relations are separate submitted relation
-  candidates.
-- Current accepted-knowledge queries exclude records targeted by accepted
-  `Supersedes` relations; historical queries can include them.
+- Current accepted-knowledge reads are `Get(identity)` and return `Found(record)`
+  or `NotFound(identity)`.
 - `Authored` relations must point from an identity Reference Thought to the
   authored Thought; file/document/URL references cannot author graph records.
 - `Supersedes` relations must point from a newer Thought to an older Thought

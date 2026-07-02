@@ -72,7 +72,7 @@ impl DispatchPhase {
                 trace.record(TraceNode::GRAPH_FLOW, TraceAction::MessageReceived);
                 self.submit_technical_relation(envelope, trace).await?
             }
-            MindRequest::SubmitKnowledge(_) => {
+            MindRequest::Submit(_) => {
                 trace.record(TraceNode::GRAPH_FLOW, TraceAction::MessageReceived);
                 self.submit_knowledge(envelope, trace).await?
             }
@@ -92,7 +92,7 @@ impl DispatchPhase {
                 trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
                 self.query_technical_relations(envelope, trace).await?
             }
-            MindRequest::QueryKnowledge(_) => {
+            MindRequest::Get(_) => {
                 trace.record(TraceNode::GRAPH_QUERY_FLOW, TraceAction::MessageReceived);
                 self.query_knowledge(envelope, trace).await?
             }
