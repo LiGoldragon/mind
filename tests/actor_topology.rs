@@ -295,6 +295,15 @@ struct FakeKnowledgeAgent {
 
 impl FakeKnowledgeAgent {
     fn spawn_texts(replies: Vec<String>) -> Self {
+        Self::spawn_reply_sources(
+            replies
+                .into_iter()
+                .map(|reply| Box::new(move || reply.clone()) as Box<dyn Fn() -> String + Send>)
+                .collect(),
+        )
+    }
+
+    fn spawn_reply_sources(reply_sources: Vec<Box<dyn Fn() -> String + Send>>) -> Self {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time")
@@ -307,9 +316,9 @@ impl FakeKnowledgeAgent {
         let captured_prompts = Arc::new(Mutex::new(Vec::new()));
         let thread_captured_prompts = Arc::clone(&captured_prompts);
         let thread = thread::spawn(move || {
-            for reply in replies {
+            for reply_source in reply_sources {
                 let (stream, _) = listener.accept().expect("accept fake knowledge agent call");
-                Self::answer(stream, reply, &thread_captured_prompts);
+                Self::answer(stream, reply_source(), &thread_captured_prompts);
             }
         });
         Self {
@@ -424,11 +433,47 @@ fn accepted_identity(reply: &MindRootReply) -> KnowledgeIdentity {
     accepted.clone()
 }
 
+fn shared_accepted_identity(identity: &Arc<Mutex<Option<KnowledgeIdentity>>>) -> KnowledgeIdentity {
+    identity
+        .lock()
+        .expect("accepted identity lock is not poisoned")
+        .clone()
+        .expect("accepted identity has been captured")
+}
+
 fn found_record(reply: &MindRootReply) -> KnowledgeRecord {
     let MindReply::Found(record) = reply.reply().expect("knowledge reply exists") else {
         panic!("expected found knowledge reply");
     };
     record.clone()
+}
+
+fn rejected_reason(reply: &MindRootReply) -> KnowledgeRejectionReason {
+    let MindReply::Rejected(reason) = reply.reply().expect("knowledge reply exists") else {
+        panic!("expected rejected knowledge reply");
+    };
+    reason.clone()
+}
+
+struct KnowledgeRejectionScenario {
+    name: &'static str,
+    subject: KnowledgeSubject,
+    statement: &'static str,
+    reason: KnowledgeRejectionReason,
+}
+
+impl KnowledgeRejectionScenario {
+    async fn assert_rejected_by(&self, fixture: &ActorFixture) {
+        let reply = fixture
+            .submit(knowledge_submission(self.subject, self.statement))
+            .await;
+        let reason = rejected_reason(&reply);
+        assert_eq!(
+            reason, self.reason,
+            "{} should apply the judge rejection reason",
+            self.name
+        );
+    }
 }
 
 #[test]
@@ -579,7 +624,7 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
     assert!(prompts[0].contains("Mind's accepted-knowledge judge"));
     assert!(prompts[0].contains("KnowledgeJudgePacket under judgment"));
     assert!(prompts[0].contains("Return exactly one KnowledgeJudgeVerdict"));
-    assert!(prompts[0].contains("Reject tasks, logs, receipts"));
+    assert!(prompts[0].contains("Reject imperatives, tasks, instructions, requests"));
     assert!(prompts[0].contains("Component"));
     assert!(!prompts[0].contains("Keyed"));
     assert!(!prompts[0].contains("Unkeyed"));
@@ -658,6 +703,129 @@ async fn agent_knowledge_judge_malformed_verdict_rejects_and_stores_nothing() {
         "malformed verdict must not store accepted knowledge: {}",
         prompts[1]
     );
+
+    fixture.stop().await;
+    fake_agent.join();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_knowledge_judge_prompt_and_verdicts_cover_first_rejection_batch() {
+    let accepted_statement = "Mind stores accepted knowledge in mind.sema.";
+    let shared_identity = Arc::new(Mutex::new(None));
+    let duplicate_identity = Arc::clone(&shared_identity);
+    let conflict_identity = Arc::clone(&shared_identity);
+    let fake_agent = FakeKnowledgeAgent::spawn_reply_sources(vec![
+        Box::new(|| accept().to_nota()),
+        Box::new(|| reject(KnowledgeRejectionReason::NotKnowledge).to_nota()),
+        Box::new(|| reject(KnowledgeRejectionReason::NeedsMoreSpecificShape).to_nota()),
+        Box::new(|| {
+            reject(KnowledgeRejectionReason::WrongSubject(
+                KnowledgeSubject::Component,
+            ))
+            .to_nota()
+        }),
+        Box::new(move || {
+            reject(KnowledgeRejectionReason::SemanticDuplicate(
+                shared_accepted_identity(&duplicate_identity),
+            ))
+            .to_nota()
+        }),
+        Box::new(move || {
+            reject(KnowledgeRejectionReason::ConflictsAcceptedKnowledge(vec![
+                shared_accepted_identity(&conflict_identity),
+            ]))
+            .to_nota()
+        }),
+    ]);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
+
+    let accepted = fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            accepted_statement,
+        ))
+        .await;
+    let accepted_identity = accepted_identity(&accepted);
+    *shared_identity
+        .lock()
+        .expect("accepted identity lock is not poisoned") = Some(accepted_identity.clone());
+    let scenarios = vec![
+        KnowledgeRejectionScenario {
+            name: "non-knowledge task or instruction",
+            subject: KnowledgeSubject::Component,
+            statement: "Please store this knowledge for later.",
+            reason: KnowledgeRejectionReason::NotKnowledge,
+        },
+        KnowledgeRejectionScenario {
+            name: "vague unstable claim with no stable subject",
+            subject: KnowledgeSubject::Component,
+            statement: "This is probably the best one right now.",
+            reason: KnowledgeRejectionReason::NeedsMoreSpecificShape,
+        },
+        KnowledgeRejectionScenario {
+            name: "submission does not agree with declared subject",
+            subject: KnowledgeSubject::Component,
+            statement: "The /git/github.com/LiGoldragon/mind checkout is a repository.",
+            reason: KnowledgeRejectionReason::WrongSubject(KnowledgeSubject::Component),
+        },
+        KnowledgeRejectionScenario {
+            name: "semantic duplicate",
+            subject: KnowledgeSubject::Component,
+            statement: "Mind persists accepted knowledge in mind.sema.",
+            reason: KnowledgeRejectionReason::SemanticDuplicate(accepted_identity.clone()),
+        },
+        KnowledgeRejectionScenario {
+            name: "contradiction to accepted knowledge",
+            subject: KnowledgeSubject::Component,
+            statement: "Mind does not store accepted knowledge in mind.sema.",
+            reason: KnowledgeRejectionReason::ConflictsAcceptedKnowledge(vec![
+                accepted_identity.clone(),
+            ]),
+        },
+    ];
+
+    for scenario in &scenarios {
+        scenario.assert_rejected_by(&fixture).await;
+    }
+
+    let prompts = fake_agent.captured_prompts();
+    assert_eq!(prompts.len(), scenarios.len() + 1);
+    for prompt in prompts.iter().skip(1) {
+        assert!(
+            prompt.contains(accepted_identity.as_str()),
+            "accepted neighbor identity must be available for duplicate/conflict judgment: {prompt}"
+        );
+        assert!(
+            prompt.contains(accepted_statement),
+            "accepted neighbor statement must be available for duplicate/conflict judgment: {prompt}"
+        );
+    }
+
+    for (scenario, prompt) in scenarios.iter().zip(prompts.iter().skip(1)) {
+        assert!(
+            prompt.contains(scenario.statement),
+            "{} prompt should include the submitted statement: {}",
+            scenario.name,
+            prompt
+        );
+    }
+
+    let trained_prompt = &prompts[1];
+    for instruction in [
+        "Mind accepts non-Spirit knowledge here; Spirit remains for psyche intent",
+        "Accept only when the statement agrees with that subject/domain",
+        "SemanticDuplicate(neighbor_identity)",
+        "ConflictsAcceptedKnowledge([neighbor_identity ...])",
+        "Reject imperatives, tasks, instructions, requests",
+        "NeedsMoreSpecificShape",
+        "WrongSubject(expected_subject)",
+        "accepted records with identities",
+    ] {
+        assert!(
+            trained_prompt.contains(instruction),
+            "judge prompt should train: {instruction}\n{trained_prompt}"
+        );
+    }
 
     fixture.stop().await;
     fake_agent.join();

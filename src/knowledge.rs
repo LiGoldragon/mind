@@ -14,7 +14,7 @@ use signal_agent::{
 };
 use signal_mind::{
     AcceptedKnowledge, ActorName, KnowledgeIdentity, KnowledgeJudgePacket, KnowledgeJudgeVerdict,
-    KnowledgeRejectionReason, KnowledgeSubmission, MindReply, MindRequest,
+    KnowledgeRejectionReason, KnowledgeSubject, KnowledgeSubmission, MindReply, MindRequest,
 };
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
@@ -235,29 +235,44 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
         format!(
             "You are Mind's accepted-knowledge judge.\n\n\
              Judge whether one submitted subject and statement belongs in Mind's \
-             accepted-knowledge store. Semantic judgment belongs to you: whether the statement \
-             is knowledge, meaningful, true enough, in-domain, private or unauthorized, duplicate, \
-             conflicting, unsupported, or better handled outside accepted knowledge.\n\n\
+             accepted-knowledge store. Mind accepts non-Spirit knowledge here; Spirit remains \
+             for psyche intent. Semantic judgment belongs to you: whether the statement is \
+             stable non-private non-intent knowledge, meaningful, true enough, in the declared \
+             subject/domain, duplicate, conflicting, unsupported, or better handled outside \
+             accepted knowledge.\n\n\
              Deterministic code already handles the generated identity, storage, and lookup. \
              Accept means the submitted subject and statement should be stored exactly as \
              submitted under a Mind-generated identity. Do not return replacement records, \
              examples, rewrites, source records, or alternate identities.\n\n\
-             Reject tasks, logs, receipts, admission receipts, process chatter, private or \
-             unauthorized material, vague prose, unsupported or false content, wrong-subject \
-             content, duplicates, and conflicts that should not be stored as new knowledge.\n\n\
+             Use the declared subject as the expected subject. Accept only when the statement \
+             agrees with that subject/domain. Reject subject or domain mismatch as \
+             WrongSubject(expected_subject). Reject exact or semantic duplicates of an accepted \
+             neighbor as SemanticDuplicate(neighbor_identity). Reject contradictions or conflicts \
+             with accepted neighbors as ConflictsAcceptedKnowledge([neighbor_identity ...]). \
+             Reject imperatives, tasks, instructions, requests, logs, receipts, admission \
+             receipts, and process chatter as NotKnowledge. Reject vague, unstable, \
+             time-sensitive, or no-stable-subject claims as NeedsMoreSpecificShape. Reject \
+             private or unauthorized material, unsupported or false content, and source-required \
+             claims with the matching KnowledgeRejectionReason.\n\n\
              Return exactly one KnowledgeJudgeVerdict NOTA value and nothing else: no markdown, no \
              prose around it, no JSON, no code fence. A valid accept is shaped like {accept}. A \
-             valid reject is shaped like {reject}.",
+             valid reject is shaped like {reject}. Duplicate, conflict, vague, and wrong-subject \
+             rejects are shaped like {duplicate}, {conflict}, {vague}, and {wrong_subject}.",
             accept = Self::accept_example(),
             reject = Self::reject_example(),
+            duplicate = Self::duplicate_example(),
+            conflict = Self::conflict_example(),
+            vague = Self::vague_example(),
+            wrong_subject = Self::wrong_subject_example(),
         )
     }
 
     fn user_prompt(&self) -> String {
         format!(
             "KnowledgeJudgePacket under judgment:\n{}\n\n\
-             Relevant neighbors are the only accepted records you may use for duplicate and \
-             conflict decisions.\n\n\
+             Relevant neighbors are accepted records with identities. They are the only records \
+             you may use for duplicate and conflict decisions; cite those identities in \
+             SemanticDuplicate or ConflictsAcceptedKnowledge rejects.\n\n\
              Return one KnowledgeJudgeVerdict.",
             self.packet.to_nota(),
         )
@@ -283,6 +298,31 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
 
     fn reject_example() -> String {
         KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::NotKnowledge).to_nota()
+    }
+
+    fn duplicate_example() -> String {
+        KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::SemanticDuplicate(
+            KnowledgeIdentity::new("abcd"),
+        ))
+        .to_nota()
+    }
+
+    fn conflict_example() -> String {
+        KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::ConflictsAcceptedKnowledge(vec![
+            KnowledgeIdentity::new("abcd"),
+        ]))
+        .to_nota()
+    }
+
+    fn vague_example() -> String {
+        KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::NeedsMoreSpecificShape).to_nota()
+    }
+
+    fn wrong_subject_example() -> String {
+        KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::WrongSubject(
+            KnowledgeSubject::Component,
+        ))
+        .to_nota()
     }
 }
 
