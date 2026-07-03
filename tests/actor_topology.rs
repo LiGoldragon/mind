@@ -9,8 +9,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mind::actors::{ActorManifest, ActorResidency, ReadSubscriptionEvents, TraceAction, TraceNode};
 use mind::{
     ActorRef, AgentKnowledgeJudge, FixtureKnowledgeJudge, KnowledgeJudgePort, MindEnvelope,
-    MindKnowledgeJudgeAgentConfiguration, MindKnowledgeJudgeTrainingSource, MindRoot,
-    MindRootArguments, MindRootReply, StoreLocation, SubmitEnvelope, TechnicalSeedDataset,
+    MindJudgeRequestResponseLog, MindKnowledgeJudgeAgentConfiguration,
+    MindKnowledgeJudgeTrainingSource, MindRoot, MindRootArguments, MindRootReply, StoreLocation,
+    SubmitEnvelope, TechnicalSeedDataset,
 };
 use nota_next::NotaEncode;
 use signal_agent::{
@@ -406,6 +407,21 @@ impl FakeKnowledgeAgent {
         )
     }
 
+    fn knowledge_judge_with_request_response_log(&self, log_path: &PathBuf) -> AgentKnowledgeJudge {
+        AgentKnowledgeJudge::new(
+            MindKnowledgeJudgeAgentConfiguration::deepseek_flash(
+                signal_mind::WirePath::from_absolute_path(
+                    self.socket_path.to_string_lossy().into_owned(),
+                )
+                .expect("fake agent socket path is absolute"),
+            )
+            .with_request_response_log(MindJudgeRequestResponseLog::JsonLines(
+                signal_mind::WirePath::from_absolute_path(log_path.to_string_lossy().into_owned())
+                    .expect("judge log path is absolute"),
+            )),
+        )
+    }
+
     fn captured_prompts(&self) -> Vec<String> {
         self.captured_prompts
             .lock()
@@ -465,6 +481,24 @@ fn rejected_reason(reply: &MindRootReply) -> KnowledgeRejectionReason {
         panic!("expected rejected knowledge reply");
     };
     reason.clone()
+}
+
+fn temporary_judge_log_path(test_name: &str) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time")
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "mind-judge-request-response-{test_name}-{}-{stamp}.jsonl",
+        std::process::id()
+    ))
+}
+
+fn read_judge_log(path: &PathBuf) -> Vec<serde_json::Value> {
+    let text = std::fs::read_to_string(path).expect("judge log should exist");
+    text.lines()
+        .map(|line| serde_json::from_str(line).expect("judge log line is json"))
+        .collect()
 }
 
 struct KnowledgeRejectionScenario {
@@ -719,6 +753,93 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
 
     fixture.stop().await;
     fake_agent.join();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_knowledge_judge_request_response_log_disabled_by_default_writes_nothing() {
+    let log_path = temporary_judge_log_path("disabled");
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![accept().to_nota()]);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
+
+    fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind default judge logging is disabled.",
+        ))
+        .await;
+
+    assert!(
+        !log_path.exists(),
+        "disabled judge logging must not create an unconfigured log path"
+    );
+
+    fixture.stop().await;
+    fake_agent.join();
+    let _ = std::fs::remove_file(log_path);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_knowledge_judge_request_response_log_records_valid_response() {
+    let log_path = temporary_judge_log_path("valid");
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![accept().to_nota()]);
+    let judge = fake_agent.knowledge_judge_with_request_response_log(&log_path);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(judge)).await;
+
+    fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind can log the accepted-knowledge judge request and response.",
+        ))
+        .await;
+
+    let records = read_judge_log(&log_path);
+    assert_eq!(records.len(), 1);
+    assert!(records[0]["timestamp_unix_millis"].is_number());
+    assert_eq!(records[0]["raw_response"], accept().to_nota());
+    let request = records[0]["request"].as_str().expect("request is string");
+    assert!(request.contains("(Submit"));
+    assert!(request.contains("Mind can log the accepted-knowledge judge request and response."));
+    assert!(
+        !request.contains("# Mind accepted-knowledge judge training"),
+        "request/response log must not include internal training prompt text"
+    );
+
+    fixture.stop().await;
+    fake_agent.join();
+    let _ = std::fs::remove_file(log_path);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_knowledge_judge_request_response_log_records_malformed_response() {
+    let log_path = temporary_judge_log_path("malformed");
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec!["not a verdict".to_owned()]);
+    let judge = fake_agent.knowledge_judge_with_request_response_log(&log_path);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(judge)).await;
+
+    let reply = fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind logs raw malformed judge responses.",
+        ))
+        .await;
+    assert!(matches!(
+        reply.reply().expect("knowledge reply exists"),
+        MindReply::Rejected(KnowledgeRejectionReason::MeaningUnclear)
+    ));
+
+    let records = read_judge_log(&log_path);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["raw_response"], "not a verdict");
+    assert!(
+        records[0]["request"]
+            .as_str()
+            .expect("request is string")
+            .contains("Mind logs raw malformed judge responses.")
+    );
+
+    fixture.stop().await;
+    fake_agent.join();
+    let _ = std::fs::remove_file(log_path);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -5,8 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use mind::{
     MindCommand, MindCommandEnvironment, MindDaemon, MindDaemonConfiguration, MindDaemonEndpoint,
-    MindKnowledgeJudgeAgentConfiguration, MindKnowledgeJudgeConfiguration,
-    MindKnowledgeJudgeTrainingSource, StoreLocation,
+    MindJudgeRequestResponseLog, MindKnowledgeJudgeAgentConfiguration,
+    MindKnowledgeJudgeConfiguration, MindKnowledgeJudgeTrainingSource, StoreLocation,
 };
 use nota_next::NotaEncode;
 use signal_mind::{
@@ -57,6 +57,7 @@ struct ConfigurationWriterFixture {
     store_path: PathBuf,
     output_path: PathBuf,
     agent_socket_path: PathBuf,
+    judge_log_path: PathBuf,
 }
 
 impl ConfigurationWriterFixture {
@@ -75,6 +76,7 @@ impl ConfigurationWriterFixture {
             store_path: root.with_extension("sema"),
             output_path: root.with_extension("rkyv"),
             agent_socket_path: root.with_extension("agent.sock"),
+            judge_log_path: root.with_extension("judge.jsonl"),
             root,
         }
     }
@@ -126,6 +128,30 @@ impl ConfigurationWriterFixture {
         )
     }
 
+    fn agent_judge_request_response_log_request(&self) -> String {
+        format!(
+            "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} deepseek deepseek-v4-flash 180000 2048 (DefaultJudgeTraining) (JudgeRequestResponseLog (JsonLines {}))))",
+            self.socket_path.display(),
+            self.meta_socket_path.display(),
+            self.store_path.display(),
+            self.output_path.display(),
+            self.agent_socket_path.display(),
+            self.judge_log_path.display(),
+        )
+    }
+
+    fn agent_judge_request_response_log_store_path_request(&self) -> String {
+        format!(
+            "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} deepseek deepseek-v4-flash 180000 2048 (JudgeRequestResponseLog (JsonLines {}))))",
+            self.socket_path.display(),
+            self.meta_socket_path.display(),
+            self.store_path.display(),
+            self.output_path.display(),
+            self.agent_socket_path.display(),
+            self.store_path.display(),
+        )
+    }
+
     fn request_path(&self) -> PathBuf {
         self.root.with_extension("nota")
     }
@@ -143,6 +169,7 @@ impl ConfigurationWriterFixture {
 impl Drop for ConfigurationWriterFixture {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.output_path);
+        let _ = fs::remove_file(&self.judge_log_path);
         let _ = fs::remove_file(self.request_path());
         let _ = fs::remove_file(self.training_path());
     }
@@ -161,6 +188,15 @@ fn run_configuration_writer(argument: impl AsRef<std::ffi::OsStr>) -> String {
     String::from_utf8(output.stdout).expect("configuration writer stdout utf8")
 }
 
+fn run_configuration_writer_failure(argument: impl AsRef<std::ffi::OsStr>) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_mind-write-configuration"))
+        .arg(argument)
+        .output()
+        .expect("configuration writer process runs");
+    assert!(!output.status.success(), "configuration writer should fail");
+    String::from_utf8(output.stderr).expect("configuration writer stderr utf8")
+}
+
 fn assert_agent_training_source(
     configuration: &MindDaemonConfiguration,
 ) -> &MindKnowledgeJudgeTrainingSource {
@@ -177,6 +213,12 @@ fn assert_agent_configuration(
         panic!("expected agent knowledge judge configuration");
     };
     agent
+}
+
+fn assert_agent_request_response_log(
+    configuration: &MindDaemonConfiguration,
+) -> &MindJudgeRequestResponseLog {
+    &assert_agent_configuration(configuration).request_response_log
 }
 
 #[test]
@@ -239,6 +281,34 @@ fn configuration_writer_accepts_local_openai_compatible_judge_shape() {
     assert_eq!(
         agent.training_source,
         MindKnowledgeJudgeTrainingSource::CompiledDefault
+    );
+}
+
+#[test]
+fn configuration_writer_accepts_judge_request_response_log_shape() {
+    let fixture = ConfigurationWriterFixture::new("judge-request-response-log");
+    let stdout = run_configuration_writer(fixture.agent_judge_request_response_log_request());
+    assert!(stdout.contains("(ConfigurationWritten"));
+
+    let configuration = fixture.read_configuration();
+    match assert_agent_request_response_log(&configuration) {
+        MindJudgeRequestResponseLog::JsonLines(path) => {
+            assert_eq!(path.as_str(), fixture.judge_log_path.display().to_string());
+            assert_ne!(path.as_str(), configuration.store_path.as_str());
+        }
+        other => panic!("expected judge request/response JSONL log, got {other:?}"),
+    }
+}
+
+#[test]
+fn configuration_writer_rejects_judge_request_response_log_at_store_path() {
+    let fixture = ConfigurationWriterFixture::new("judge-request-response-log-store-path");
+    let stderr = run_configuration_writer_failure(
+        fixture.agent_judge_request_response_log_store_path_request(),
+    );
+    assert!(
+        stderr.contains("judge request/response log path must differ from store path"),
+        "unexpected stderr: {stderr}"
     );
 }
 

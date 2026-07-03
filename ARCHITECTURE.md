@@ -678,6 +678,12 @@ This repo does not own:
   `(DefaultJudgeTraining)`, selects the compiled default. The daemon reads only
   the binary archive at runtime; large prompt text is not passed through daemon
   command-line arguments.
+- The startup configuration can explicitly enable a small judge
+  request/response JSONL log with
+  `(JudgeRequestResponseLog (JsonLines <absolute-log-path>))` as an
+  `AgentKnowledgeJudge` tail record. It is disabled by default, is rejected when
+  the log path equals `mind.sema`, and records only the client `MindRequest`
+  that caused the judge call plus the raw completed judge/model response text.
 - `KnowledgeJudgeVerdict::Accept` is a decision over the submitted
   subject/statement pair, not a payload containing replacement records or an
   identity. Mind materializes and stores the submission under a generated

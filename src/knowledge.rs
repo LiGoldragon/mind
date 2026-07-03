@@ -21,8 +21,8 @@ use signal_mind::{
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
 use crate::{
-    MindEnvelope, MindKnowledgeJudgeAgentConfiguration, MindKnowledgeJudgeTrainingSource,
-    MindTables, Result,
+    MindEnvelope, MindJudgeRequestResponseLog, MindKnowledgeJudgeAgentConfiguration,
+    MindKnowledgeJudgeTrainingSource, MindTables, Result,
 };
 
 const KNOWLEDGE_IDENTITY_MINIMUM_CODE_LENGTH: usize = 4;
@@ -35,10 +35,33 @@ const JUDGE_DIAGNOSTIC_PATH_ENVIRONMENT: &str = "MIND_JUDGE_DIAGNOSTIC_PATH";
 const JUDGE_DIAGNOSTIC_TEXT_ENVIRONMENT: &str = "MIND_JUDGE_DIAGNOSTIC_TEXT";
 
 pub trait KnowledgeJudge: Send + Sync {
-    fn judge(&self, packet: KnowledgeJudgePacket) -> KnowledgeJudgeVerdict;
+    fn judge(&self, request: KnowledgeJudgeRequest) -> KnowledgeJudgeVerdict;
 }
 
 pub type KnowledgeJudgePort = Arc<dyn KnowledgeJudge>;
+
+#[derive(Clone, Debug)]
+pub struct KnowledgeJudgeRequest {
+    client_request: MindRequest,
+    packet: KnowledgeJudgePacket,
+}
+
+impl KnowledgeJudgeRequest {
+    fn new(client_request: MindRequest, packet: KnowledgeJudgePacket) -> Self {
+        Self {
+            client_request,
+            packet,
+        }
+    }
+
+    fn client_request(&self) -> &MindRequest {
+        &self.client_request
+    }
+
+    fn packet(&self) -> &KnowledgeJudgePacket {
+        &self.packet
+    }
+}
 
 pub struct FixtureKnowledgeJudge {
     verdicts: Mutex<VecDeque<KnowledgeJudgeVerdict>>,
@@ -79,7 +102,7 @@ impl Default for FixtureKnowledgeJudge {
 }
 
 impl KnowledgeJudge for FixtureKnowledgeJudge {
-    fn judge(&self, _packet: KnowledgeJudgePacket) -> KnowledgeJudgeVerdict {
+    fn judge(&self, _request: KnowledgeJudgeRequest) -> KnowledgeJudgeVerdict {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.next_verdict()
     }
@@ -98,6 +121,7 @@ struct AgentKnowledgeJudgeConfiguration {
     timeout: Duration,
     maximum_output_tokens: Option<u64>,
     training_source: MindKnowledgeJudgeTrainingSource,
+    request_response_log: JudgeRequestResponseLog,
 }
 
 #[derive(Clone, Debug)]
@@ -179,17 +203,21 @@ impl AgentKnowledgeJudge {
 }
 
 impl KnowledgeJudge for AgentKnowledgeJudge {
-    fn judge(&self, packet: KnowledgeJudgePacket) -> KnowledgeJudgeVerdict {
+    fn judge(&self, request: KnowledgeJudgeRequest) -> KnowledgeJudgeVerdict {
         let prompt = KnowledgeJudgePrompt::new(
-            &packet,
+            request.packet(),
             self.configuration.provider_name.as_deref(),
             self.configuration.model_name.as_deref(),
             self.configuration.maximum_output_tokens,
             self.configuration.training_source(),
         )
         .into_agent_prompt();
-        JudgeDiagnostic::from_environment(&packet, &prompt, self.configuration.training_source())
-            .write();
+        JudgeDiagnostic::from_environment(
+            request.packet(),
+            &prompt,
+            self.configuration.training_source(),
+        )
+        .write();
         let output = match self.call_agent(prompt) {
             Ok(output) => output,
             Err(error) => return Self::unavailable_verdict(error),
@@ -199,6 +227,10 @@ impl KnowledgeJudge for AgentKnowledgeJudge {
                 "{output:?}"
             )));
         };
+        self.configuration.request_response_log.write(
+            request.client_request(),
+            completion.completion_text.payload(),
+        );
         match self.parse_verdict(&completion.completion_text) {
             Ok(verdict) => verdict,
             Err(error) => Self::unavailable_verdict(error),
@@ -215,6 +247,9 @@ impl AgentKnowledgeJudgeConfiguration {
             timeout: Duration::from_millis(configuration.timeout_milliseconds),
             maximum_output_tokens: configuration.maximum_output_tokens,
             training_source: configuration.training_source,
+            request_response_log: JudgeRequestResponseLog::from_contract(
+                configuration.request_response_log,
+            ),
         }
     }
 
@@ -224,6 +259,62 @@ impl AgentKnowledgeJudgeConfiguration {
 
     fn training_source(&self) -> &MindKnowledgeJudgeTrainingSource {
         &self.training_source
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct JudgeRequestResponseLog {
+    destination: JudgeRequestResponseLogDestination,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum JudgeRequestResponseLogDestination {
+    Disabled,
+    JsonLines(PathBuf),
+}
+
+impl JudgeRequestResponseLog {
+    fn from_contract(configuration: MindJudgeRequestResponseLog) -> Self {
+        match configuration {
+            MindJudgeRequestResponseLog::Disabled => Self {
+                destination: JudgeRequestResponseLogDestination::Disabled,
+            },
+            MindJudgeRequestResponseLog::JsonLines(path) => Self {
+                destination: JudgeRequestResponseLogDestination::JsonLines(PathBuf::from(
+                    path.as_str(),
+                )),
+            },
+        }
+    }
+
+    fn write(&self, client_request: &MindRequest, raw_response: &str) {
+        let JudgeRequestResponseLogDestination::JsonLines(path) = &self.destination else {
+            return;
+        };
+        let record = json!({
+            "timestamp_unix_millis": JudgeRequestResponseLogClock::now_unix_millis(),
+            "request": client_request.to_nota(),
+            "raw_response": raw_response,
+        });
+        let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        else {
+            return;
+        };
+        let _ = writeln!(file, "{record}");
+    }
+}
+
+struct JudgeRequestResponseLogClock;
+
+impl JudgeRequestResponseLogClock {
+    fn now_unix_millis() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default()
     }
 }
 
@@ -571,7 +662,9 @@ impl<'tables> KnowledgeAdmission<'tables> {
             relevant_neighbors: accepted,
         };
 
-        match judge.judge(packet) {
+        let request =
+            KnowledgeJudgeRequest::new(MindRequest::Submit(self.submission.clone()), packet);
+        match judge.judge(request) {
             KnowledgeJudgeVerdict::Accept => self.apply_acceptance(),
             KnowledgeJudgeVerdict::Reject(reason) => MindReply::Rejected(reason),
         }

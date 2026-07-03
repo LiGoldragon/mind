@@ -52,8 +52,10 @@ impl MindDaemonConfiguration {
 
     /// Decode the configuration from the binary rkyv startup bytes.
     pub fn from_signal_bytes(bytes: &[u8]) -> Result<Self, ConfigurationError> {
-        rkyv::from_bytes::<Self, rkyv::rancor::Error>(bytes)
-            .map_err(|_| ConfigurationError::ArchiveDecode)
+        let configuration = rkyv::from_bytes::<Self, rkyv::rancor::Error>(bytes)
+            .map_err(|_| ConfigurationError::ArchiveDecode)?;
+        configuration.validate()?;
+        Ok(configuration)
     }
 
     /// Read and decode the binary rkyv configuration from the daemon's single
@@ -61,6 +63,38 @@ impl MindDaemonConfiguration {
     pub fn from_signal_file(path: &Path) -> Result<Self, ConfigurationError> {
         let bytes = std::fs::read(path).map_err(ConfigurationError::Read)?;
         Self::from_signal_bytes(&bytes)
+    }
+
+    pub fn validate(&self) -> Result<(), ConfigurationError> {
+        if let MindKnowledgeJudgeConfiguration::Agent(judge) = &self.knowledge_judge {
+            if let MindJudgeRequestResponseLog::JsonLines(path) = &judge.request_response_log {
+                if self.judge_request_response_log_conflicts_with_store(path) {
+                    return Err(ConfigurationError::JudgeRequestResponseLogPathIsStore {
+                        path: path.as_str().to_owned(),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn judge_request_response_log_conflicts_with_store(&self, path: &WirePath) -> bool {
+        let store_path = Path::new(self.store_path.as_str());
+        let log_path = Path::new(path.as_str());
+        if store_path == log_path {
+            return true;
+        }
+        if log_path
+            .symlink_metadata()
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        match (store_path.canonicalize(), log_path.canonicalize()) {
+            (Ok(store), Ok(log)) => store == log,
+            _ => false,
+        }
     }
 }
 
@@ -104,12 +138,19 @@ pub struct MindKnowledgeJudgeAgentConfiguration {
     pub timeout_milliseconds: u64,
     pub maximum_output_tokens: Option<u64>,
     pub training_source: MindKnowledgeJudgeTrainingSource,
+    pub request_response_log: MindJudgeRequestResponseLog,
 }
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum MindKnowledgeJudgeTrainingSource {
     CompiledDefault,
     OverrideText(String),
+}
+
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
+pub enum MindJudgeRequestResponseLog {
+    Disabled,
+    JsonLines(WirePath),
 }
 
 impl MindKnowledgeJudgeAgentConfiguration {
@@ -135,6 +176,7 @@ impl MindKnowledgeJudgeAgentConfiguration {
             timeout_milliseconds,
             maximum_output_tokens,
             training_source: MindKnowledgeJudgeTrainingSource::CompiledDefault,
+            request_response_log: MindJudgeRequestResponseLog::Disabled,
         }
     }
 
@@ -143,6 +185,11 @@ impl MindKnowledgeJudgeAgentConfiguration {
         training_source: MindKnowledgeJudgeTrainingSource,
     ) -> Self {
         self.training_source = training_source;
+        self
+    }
+
+    pub fn with_request_response_log(mut self, log: MindJudgeRequestResponseLog) -> Self {
+        self.request_response_log = log;
         self
     }
 
@@ -177,4 +224,7 @@ pub enum ConfigurationError {
 
     #[error("daemon configuration rkyv decode failed")]
     ArchiveDecode,
+
+    #[error("judge request/response log path must differ from store path: {path}")]
+    JudgeRequestResponseLogPathIsStore { path: String },
 }

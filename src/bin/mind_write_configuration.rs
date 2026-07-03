@@ -4,8 +4,8 @@ use std::{
 };
 
 use mind::{
-    ConfigurationError, MindDaemonConfiguration, MindKnowledgeJudgeAgentConfiguration,
-    MindKnowledgeJudgeTrainingSource,
+    ConfigurationError, MindDaemonConfiguration, MindJudgeRequestResponseLog,
+    MindKnowledgeJudgeAgentConfiguration, MindKnowledgeJudgeTrainingSource,
 };
 #[allow(unused_extern_crates)]
 extern crate nota_next as nota;
@@ -56,12 +56,19 @@ struct ConfigurationWriterAgentKnowledgeJudge {
     timeout_milliseconds: ConfigurationWriterTimeoutMilliseconds,
     maximum_output_tokens: ConfigurationWriterMaximumOutputTokens,
     training_source: ConfigurationWriterJudgeTrainingSource,
+    request_response_log: ConfigurationWriterJudgeRequestResponseLog,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ConfigurationWriterJudgeTrainingSource {
     DefaultJudgeTraining,
     JudgeTrainingFile(ConfigurationWriterPath),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ConfigurationWriterJudgeRequestResponseLog {
+    Disabled,
+    JsonLines(ConfigurationWriterPath),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, NotaDecode, NotaEncode)]
@@ -139,17 +146,20 @@ impl ConfigurationWriteRequest {
     }
 
     fn configuration(self) -> Result<MindDaemonConfiguration, ConfigurationWriterError> {
+        let store_path = self.store_path.into_wire_path()?;
         let configuration = MindDaemonConfiguration::new(
-            self.store_path.into_wire_path()?,
+            store_path.clone(),
             self.socket_path.into_wire_path()?,
             self.meta_socket_path.into_wire_path()?,
         );
-        match self.knowledge_judge {
-            ConfigurationWriterKnowledgeJudge::FixtureKnowledgeJudge => Ok(configuration),
+        let configuration = match self.knowledge_judge {
+            ConfigurationWriterKnowledgeJudge::FixtureKnowledgeJudge => configuration,
             ConfigurationWriterKnowledgeJudge::AgentKnowledgeJudge(knowledge_judge) => {
-                Ok(configuration.with_agent_knowledge_judge(knowledge_judge.into_runtime()?))
+                configuration.with_agent_knowledge_judge(knowledge_judge.into_runtime(&store_path)?)
             }
-        }
+        };
+        configuration.validate()?;
+        Ok(configuration)
     }
 }
 
@@ -229,24 +239,36 @@ impl ConfigurationWriterKnowledgeJudge {
         }
         match objects[0].demote_to_string() {
             Some("FixtureKnowledgeJudge") if objects.len() == 1 => Ok(Self::FixtureKnowledgeJudge),
-            Some("AgentKnowledgeJudge") if matches!(objects.len(), 6 | 7) => Ok(
-                Self::AgentKnowledgeJudge(ConfigurationWriterAgentKnowledgeJudge {
-                    agent_socket_path: ConfigurationWriterPath::from_nota_block(&objects[1])?,
-                    provider_name: ConfigurationWriterProviderName::from_nota_block(&objects[2])?,
-                    model_name: ConfigurationWriterModelName::from_nota_block(&objects[3])?,
-                    timeout_milliseconds: ConfigurationWriterTimeoutMilliseconds::from_nota_block(
-                        &objects[4],
-                    )?,
-                    maximum_output_tokens: ConfigurationWriterMaximumOutputTokens::from_nota_block(
-                        &objects[5],
-                    )?,
-                    training_source: if let Some(block) = objects.get(6) {
-                        ConfigurationWriterJudgeTrainingSource::from_nota_block(block)?
-                    } else {
-                        ConfigurationWriterJudgeTrainingSource::DefaultJudgeTraining
+            Some("AgentKnowledgeJudge") if (6..=8).contains(&objects.len()) => {
+                let mut training_source =
+                    ConfigurationWriterJudgeTrainingSource::DefaultJudgeTraining;
+                let mut request_response_log = ConfigurationWriterJudgeRequestResponseLog::Disabled;
+                for tail in objects.iter().skip(6) {
+                    match ConfigurationWriterAgentKnowledgeJudgeTail::from_nota_block(tail)? {
+                        ConfigurationWriterAgentKnowledgeJudgeTail::TrainingSource(source) => {
+                            training_source = source;
+                        }
+                        ConfigurationWriterAgentKnowledgeJudgeTail::RequestResponseLog(log) => {
+                            request_response_log = log;
+                        }
+                    }
+                }
+                Ok(Self::AgentKnowledgeJudge(
+                    ConfigurationWriterAgentKnowledgeJudge {
+                        agent_socket_path: ConfigurationWriterPath::from_nota_block(&objects[1])?,
+                        provider_name: ConfigurationWriterProviderName::from_nota_block(
+                            &objects[2],
+                        )?,
+                        model_name: ConfigurationWriterModelName::from_nota_block(&objects[3])?,
+                        timeout_milliseconds:
+                            ConfigurationWriterTimeoutMilliseconds::from_nota_block(&objects[4])?,
+                        maximum_output_tokens:
+                            ConfigurationWriterMaximumOutputTokens::from_nota_block(&objects[5])?,
+                        training_source,
+                        request_response_log,
                     },
-                }),
-            ),
+                ))
+            }
             Some(variant) => Err(NotaDecodeError::UnknownVariant {
                 enum_name: "KnowledgeJudge",
                 variant: variant.to_owned(),
@@ -261,6 +283,7 @@ impl ConfigurationWriterKnowledgeJudge {
 impl ConfigurationWriterAgentKnowledgeJudge {
     fn into_runtime(
         self,
+        store_path: &WirePath,
     ) -> Result<MindKnowledgeJudgeAgentConfiguration, ConfigurationWriterError> {
         Ok(MindKnowledgeJudgeAgentConfiguration::new(
             self.agent_socket_path.into_wire_path()?,
@@ -269,7 +292,42 @@ impl ConfigurationWriterAgentKnowledgeJudge {
             self.timeout_milliseconds.0,
             Some(self.maximum_output_tokens.0),
         )
-        .with_training_source(self.training_source.into_runtime()?))
+        .with_training_source(self.training_source.into_runtime()?)
+        .with_request_response_log(self.request_response_log.into_runtime(store_path)?))
+    }
+}
+
+enum ConfigurationWriterAgentKnowledgeJudgeTail {
+    TrainingSource(ConfigurationWriterJudgeTrainingSource),
+    RequestResponseLog(ConfigurationWriterJudgeRequestResponseLog),
+}
+
+impl ConfigurationWriterAgentKnowledgeJudgeTail {
+    fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        let body = NotaBlock::new(block).expect_body(Delimiter::Parenthesis, "KnowledgeJudge")?;
+        let objects = body.root_objects();
+        if objects.is_empty() {
+            return Err(NotaDecodeError::ExpectedRootCount {
+                type_name: "KnowledgeJudge",
+                expected: 1,
+                found: 0,
+            });
+        }
+        match objects[0].demote_to_string() {
+            Some("DefaultJudgeTraining") | Some("JudgeTrainingFile") => Ok(Self::TrainingSource(
+                ConfigurationWriterJudgeTrainingSource::from_nota_block(block)?,
+            )),
+            Some("JudgeRequestResponseLog") => Ok(Self::RequestResponseLog(
+                ConfigurationWriterJudgeRequestResponseLog::from_nota_block(block)?,
+            )),
+            Some(variant) => Err(NotaDecodeError::UnknownVariant {
+                enum_name: "KnowledgeJudgeTail",
+                variant: variant.to_owned(),
+            }),
+            None => Err(NotaDecodeError::ExpectedAtom {
+                type_name: "KnowledgeJudgeTail",
+            }),
+        }
     }
 }
 
@@ -304,6 +362,74 @@ impl ConfigurationWriterJudgeTrainingSource {
         match self {
             Self::DefaultJudgeTraining => Ok(MindKnowledgeJudgeTrainingSource::CompiledDefault),
             Self::JudgeTrainingFile(path) => path.into_training_source(),
+        }
+    }
+}
+
+impl ConfigurationWriterJudgeRequestResponseLog {
+    fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        let body =
+            NotaBlock::new(block).expect_body(Delimiter::Parenthesis, "JudgeRequestResponseLog")?;
+        let objects = body.root_objects();
+        if objects.is_empty() {
+            return Err(NotaDecodeError::ExpectedRootCount {
+                type_name: "JudgeRequestResponseLog",
+                expected: 1,
+                found: 0,
+            });
+        }
+        match objects[0].demote_to_string() {
+            Some("JudgeRequestResponseLog") if objects.len() == 2 => {
+                Self::from_setting_block(&objects[1])
+            }
+            Some(variant) => Err(NotaDecodeError::UnknownVariant {
+                enum_name: "JudgeRequestResponseLog",
+                variant: variant.to_owned(),
+            }),
+            None => Err(NotaDecodeError::ExpectedAtom {
+                type_name: "JudgeRequestResponseLog",
+            }),
+        }
+    }
+
+    fn from_setting_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+        if matches!(block.demote_to_string(), Some("Disabled")) {
+            return Ok(Self::Disabled);
+        }
+        let body =
+            NotaBlock::new(block).expect_body(Delimiter::Parenthesis, "JudgeRequestResponseLog")?;
+        let objects = body.root_objects();
+        match objects.first().and_then(|object| object.demote_to_string()) {
+            Some("JsonLines") if objects.len() == 2 => Ok(Self::JsonLines(
+                ConfigurationWriterPath::from_nota_block(&objects[1])?,
+            )),
+            Some(variant) => Err(NotaDecodeError::UnknownVariant {
+                enum_name: "JudgeRequestResponseLogSetting",
+                variant: variant.to_owned(),
+            }),
+            None => Err(NotaDecodeError::ExpectedAtom {
+                type_name: "JudgeRequestResponseLogSetting",
+            }),
+        }
+    }
+
+    fn into_runtime(
+        self,
+        store_path: &WirePath,
+    ) -> Result<MindJudgeRequestResponseLog, ConfigurationWriterError> {
+        match self {
+            Self::Disabled => Ok(MindJudgeRequestResponseLog::Disabled),
+            Self::JsonLines(path) => {
+                let log_path = path.into_wire_path()?;
+                if log_path.as_str() == store_path.as_str() {
+                    return Err(
+                        ConfigurationWriterError::JudgeRequestResponseLogPathIsStore {
+                            path: log_path.as_str().to_owned(),
+                        },
+                    );
+                }
+                Ok(MindJudgeRequestResponseLog::JsonLines(log_path))
+            }
         }
     }
 }
@@ -348,6 +474,9 @@ enum ConfigurationWriterError {
 
     #[error("judge training file is empty: {}", path.display())]
     EmptyTrainingFile { path: PathBuf },
+
+    #[error("judge request/response log path must differ from store path: {path}")]
+    JudgeRequestResponseLogPathIsStore { path: String },
 
     #[error("write binary archive {}: {source}", path.display())]
     WriteArchive {
