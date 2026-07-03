@@ -287,6 +287,8 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
     }
 
     fn prompt_options(&self) -> PromptOptions {
+        let local_openai_compatible = self.provider_name
+            == Some(MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_PROVIDER);
         PromptOptions::new(
             self.model_name
                 .map(|model| ModelName::new(model.to_owned())),
@@ -295,8 +297,16 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
             Some(TemperatureMilli::new(0)),
             self.maximum_output_tokens.map(MaximumOutputTokens::new),
             OutputMode::Nota,
-            Some(ReasoningEffort::Low),
-            Some(ThinkingMode::Disabled),
+            if local_openai_compatible {
+                None
+            } else {
+                Some(ReasoningEffort::Low)
+            },
+            if local_openai_compatible {
+                None
+            } else {
+                Some(ThinkingMode::Disabled)
+            },
         )
     }
 

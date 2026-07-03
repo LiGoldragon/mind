@@ -5,7 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use mind::{
     MindCommand, MindCommandEnvironment, MindDaemon, MindDaemonConfiguration, MindDaemonEndpoint,
-    MindKnowledgeJudgeConfiguration, MindKnowledgeJudgeTrainingSource, StoreLocation,
+    MindKnowledgeJudgeAgentConfiguration, MindKnowledgeJudgeConfiguration,
+    MindKnowledgeJudgeTrainingSource, StoreLocation,
 };
 use nota_next::NotaEncode;
 use signal_mind::{
@@ -100,6 +101,19 @@ impl ConfigurationWriterFixture {
         )
     }
 
+    fn local_openai_agent_judge_request(&self) -> String {
+        format!(
+            "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} {} {} 180000 2048))",
+            self.socket_path.display(),
+            self.meta_socket_path.display(),
+            self.store_path.display(),
+            self.output_path.display(),
+            self.agent_socket_path.display(),
+            MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_PROVIDER,
+            MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_MODEL,
+        )
+    }
+
     fn override_agent_judge_request(&self, training_path: &std::path::Path) -> String {
         format!(
             "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} deepseek deepseek-v4-flash 180000 2048 (JudgeTrainingFile {})))",
@@ -156,6 +170,15 @@ fn assert_agent_training_source(
     &agent.training_source
 }
 
+fn assert_agent_configuration(
+    configuration: &MindDaemonConfiguration,
+) -> &MindKnowledgeJudgeAgentConfiguration {
+    let MindKnowledgeJudgeConfiguration::Agent(agent) = &configuration.knowledge_judge else {
+        panic!("expected agent knowledge judge configuration");
+    };
+    agent
+}
+
 #[test]
 fn nota_opening_text_maps_to_signal_request() {
     let request = mind::MindTextRequest::from_nota("(Opening Task High [Open work] body)")
@@ -194,6 +217,49 @@ fn configuration_writer_accepts_explicit_default_training_shape() {
     assert_eq!(
         assert_agent_training_source(&configuration),
         &MindKnowledgeJudgeTrainingSource::CompiledDefault
+    );
+}
+
+#[test]
+fn configuration_writer_accepts_local_openai_compatible_judge_shape() {
+    let fixture = ConfigurationWriterFixture::new("local-openai-agent");
+    let stdout = run_configuration_writer(fixture.local_openai_agent_judge_request());
+    assert!(stdout.contains("(ConfigurationWritten"));
+
+    let configuration = fixture.read_configuration();
+    let agent = assert_agent_configuration(&configuration);
+    assert_eq!(
+        agent.provider_name.as_deref(),
+        Some(MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_PROVIDER)
+    );
+    assert_eq!(
+        agent.model_name.as_deref(),
+        Some(MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_MODEL)
+    );
+    assert_eq!(
+        agent.training_source,
+        MindKnowledgeJudgeTrainingSource::CompiledDefault
+    );
+}
+
+#[test]
+fn local_openai_compatible_helper_uses_subscription_server_defaults() {
+    let agent_socket_path =
+        signal_mind::WirePath::from_absolute_path("/tmp/agent.sock").expect("absolute agent path");
+    let configuration =
+        MindKnowledgeJudgeAgentConfiguration::local_openai_compatible(agent_socket_path);
+
+    assert_eq!(
+        configuration.provider_name.as_deref(),
+        Some(MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_PROVIDER)
+    );
+    assert_eq!(
+        configuration.model_name.as_deref(),
+        Some(MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_MODEL)
+    );
+    assert_eq!(
+        MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_ENDPOINT,
+        "http://127.0.0.1:18080/v1"
     );
 }
 

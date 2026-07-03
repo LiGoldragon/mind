@@ -109,6 +109,7 @@ enum EvalError {
 impl EvalArguments {
     fn from_environment() -> Result<Self, EvalError> {
         let mut parser = ArgumentParser::new(std::env::args().skip(1).collect());
+        let local_openai_compatible = parser.boolean("local-openai-compatible", false)?;
         let agent_repository = PathBuf::from(
             parser
                 .string("agent-repository")?
@@ -123,7 +124,11 @@ impl EvalArguments {
                 .duration_since(UNIX_EPOCH)
                 .expect("system time is after epoch")
                 .as_secs();
-            format!("mind-live-judge-flash-{seconds}")
+            if local_openai_compatible {
+                format!("mind-live-judge-local-openai-{seconds}")
+            } else {
+                format!("mind-live-judge-flash-{seconds}")
+            }
         });
         let output_directory = parser
             .path("output-directory")?
@@ -132,23 +137,48 @@ impl EvalArguments {
             let hash = Sha256Text::new(&eval_identifier).hex();
             std::env::temp_dir().join(format!("mj-{}", &hash[..12]))
         });
+        let provider_argument = parser.string("provider")?;
+        let uses_local_openai_compatible = local_openai_compatible
+            || provider_argument.as_deref()
+                == Some(MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_PROVIDER);
+        let provider = provider_argument.unwrap_or_else(|| {
+            if uses_local_openai_compatible {
+                MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_PROVIDER.to_owned()
+            } else {
+                MindKnowledgeJudgeAgentConfiguration::DEEPSEEK_PROVIDER.to_owned()
+            }
+        });
+        let model = parser.string("model")?.unwrap_or_else(|| {
+            if uses_local_openai_compatible {
+                MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_MODEL.to_owned()
+            } else {
+                MindKnowledgeJudgeAgentConfiguration::DEEPSEEK_FLASH_MODEL.to_owned()
+            }
+        });
+        let endpoint = parser.string("endpoint")?.unwrap_or_else(|| {
+            if uses_local_openai_compatible {
+                MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_ENDPOINT.to_owned()
+            } else {
+                DEFAULT_ENDPOINT.to_owned()
+            }
+        });
+        let secret_source =
+            SecretSource::from_text(&parser.string("secret-source")?.unwrap_or_else(|| {
+                if uses_local_openai_compatible {
+                    "NoSecret".to_owned()
+                } else {
+                    DEFAULT_SECRET_SOURCE.to_owned()
+                }
+            }))?;
+        let check_secret_source =
+            parser.boolean("check-secret-source", !secret_source.is_none())?;
         let arguments = Self {
             eval_identifier,
-            provider: parser.string("provider")?.unwrap_or_else(|| {
-                MindKnowledgeJudgeAgentConfiguration::DEEPSEEK_PROVIDER.to_owned()
-            }),
-            model: parser.string("model")?.unwrap_or_else(|| {
-                MindKnowledgeJudgeAgentConfiguration::DEEPSEEK_FLASH_MODEL.to_owned()
-            }),
-            endpoint: parser
-                .string("endpoint")?
-                .unwrap_or_else(|| DEFAULT_ENDPOINT.to_owned()),
-            secret_source: SecretSource::from_text(
-                &parser
-                    .string("secret-source")?
-                    .unwrap_or_else(|| DEFAULT_SECRET_SOURCE.to_owned()),
-            )?,
-            check_secret_source: parser.boolean("check-secret-source", true)?,
+            provider,
+            model,
+            endpoint,
+            secret_source,
+            check_secret_source,
             actor: parser
                 .string("actor")?
                 .unwrap_or_else(|| DEFAULT_ACTOR.to_owned()),
@@ -244,9 +274,15 @@ impl EvalMode {
 
 impl SecretSource {
     fn from_text(text: &str) -> Result<Self, EvalError> {
+        if matches!(text, "NoSecret" | "None") {
+            return Ok(Self {
+                kind: "NoSecret".to_owned(),
+                value: String::new(),
+            });
+        }
         let Some((kind, value)) = text.split_once(':') else {
             return Err(EvalError::Message(
-                "secret source must be shaped Kind:value".to_owned(),
+                "secret source must be shaped Kind:value or NoSecret".to_owned(),
             ));
         };
         if !matches!(kind, "Gopass" | "Environment" | "File") {
@@ -266,11 +302,23 @@ impl SecretSource {
     }
 
     fn to_nota(&self) -> String {
-        format!("({} {})", self.kind, self.value)
+        if self.is_none() {
+            self.kind.clone()
+        } else {
+            format!("({} {})", self.kind, self.value)
+        }
     }
 
     fn redacted_reference(&self) -> String {
-        format!("{}:{}", self.kind, self.value)
+        if self.is_none() {
+            self.kind.clone()
+        } else {
+            format!("{}:{}", self.kind, self.value)
+        }
+    }
+
+    fn is_none(&self) -> bool {
+        self.kind == "NoSecret"
     }
 }
 

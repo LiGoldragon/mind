@@ -683,10 +683,13 @@ This repo does not own:
   identity. Mind materializes and stores the submission under a generated
   identity on accept; old-style or malformed accepted-draft payloads reject and
   store nothing.
-- The current AI-backed accepted-knowledge demo/test model selection is the
-  existing DeepSeek Flash provider/model pair: provider `deepseek`, model
-  `deepseek-v4-flash`. Mind does not call DeepSeek directly; the `agent`
-  daemon owns provider endpoint and secret-source resolution.
+- The current AI-backed accepted-knowledge demo/test model selection includes
+  the existing DeepSeek Flash provider/model pair (`deepseek` /
+  `deepseek-v4-flash`) and the local OpenAI-compatible alternative
+  (`local-openai` / `gpt-5.5`) served at `http://127.0.0.1:18080/v1`. Mind does
+  not call either provider directly; the `agent` daemon owns provider endpoint
+  and secret-source resolution. The local server uses `NoSecret` unless it is
+  started with its optional local bearer gate.
 - Accepted-knowledge semantic rejections store nothing.
 - Accepted admission replies and receipts are not persisted as knowledge.
 - Current accepted-knowledge reads are `Get(identity)` and return

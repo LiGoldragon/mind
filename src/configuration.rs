@@ -115,6 +115,9 @@ pub enum MindKnowledgeJudgeTrainingSource {
 impl MindKnowledgeJudgeAgentConfiguration {
     pub const DEEPSEEK_PROVIDER: &'static str = "deepseek";
     pub const DEEPSEEK_FLASH_MODEL: &'static str = "deepseek-v4-flash";
+    pub const LOCAL_OPENAI_COMPATIBLE_PROVIDER: &'static str = "local-openai";
+    pub const LOCAL_OPENAI_COMPATIBLE_MODEL: &'static str = "gpt-5.5";
+    pub const LOCAL_OPENAI_COMPATIBLE_ENDPOINT: &'static str = "http://127.0.0.1:18080/v1";
     pub const DEFAULT_TIMEOUT_MILLISECONDS: u64 = 180_000;
     pub const DEFAULT_MAXIMUM_OUTPUT_TOKENS: u64 = 2048;
 
@@ -148,6 +151,16 @@ impl MindKnowledgeJudgeAgentConfiguration {
             agent_socket_path,
             Some(Self::DEEPSEEK_PROVIDER.to_owned()),
             Some(Self::DEEPSEEK_FLASH_MODEL.to_owned()),
+            Self::DEFAULT_TIMEOUT_MILLISECONDS,
+            Some(Self::DEFAULT_MAXIMUM_OUTPUT_TOKENS),
+        )
+    }
+
+    pub fn local_openai_compatible(agent_socket_path: WirePath) -> Self {
+        Self::new(
+            agent_socket_path,
+            Some(Self::LOCAL_OPENAI_COMPATIBLE_PROVIDER.to_owned()),
+            Some(Self::LOCAL_OPENAI_COMPATIBLE_MODEL.to_owned()),
             Self::DEFAULT_TIMEOUT_MILLISECONDS,
             Some(Self::DEFAULT_MAXIMUM_OUTPUT_TOKENS),
         )
