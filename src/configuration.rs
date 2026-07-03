@@ -13,6 +13,9 @@ use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use signal_mind::WirePath;
 use triad_runtime::{BindingSurface, RequestConcurrencyLimit, SocketMode};
 
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+
 const OWNER_ONLY_SOCKET_MODE: u32 = 0o600;
 const MAXIMUM_CONCURRENT_REQUESTS: usize = 64;
 
@@ -66,14 +69,13 @@ impl MindDaemonConfiguration {
     }
 
     pub fn validate(&self) -> Result<(), ConfigurationError> {
-        if let MindKnowledgeJudgeConfiguration::Agent(judge) = &self.knowledge_judge {
-            if let MindJudgeRequestResponseLog::JsonLines(path) = &judge.request_response_log {
-                if self.judge_request_response_log_conflicts_with_store(path) {
-                    return Err(ConfigurationError::JudgeRequestResponseLogPathIsStore {
-                        path: path.as_str().to_owned(),
-                    });
-                }
-            }
+        if let MindKnowledgeJudgeConfiguration::Agent(judge) = &self.knowledge_judge
+            && let MindJudgeRequestResponseLog::JsonLines(path) = &judge.request_response_log
+            && self.judge_request_response_log_conflicts_with_store(path)
+        {
+            return Err(ConfigurationError::JudgeRequestResponseLogPathIsStore {
+                path: path.as_str().to_owned(),
+            });
         }
         Ok(())
     }
@@ -90,6 +92,15 @@ impl MindDaemonConfiguration {
             .unwrap_or(false)
         {
             return true;
+        }
+        #[cfg(unix)]
+        {
+            if let (Ok(store), Ok(log)) = (store_path.metadata(), log_path.metadata())
+                && store.dev() == log.dev()
+                && store.ino() == log.ino()
+            {
+                return true;
+            }
         }
         match (store_path.canonicalize(), log_path.canonicalize()) {
             (Ok(store), Ok(log)) => store == log,
