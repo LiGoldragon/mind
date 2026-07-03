@@ -15,8 +15,8 @@ use mind::{
 };
 use nota_next::NotaEncode;
 use signal_agent::{
-    Completion, CompletionText, Input as AgentInput, Output as AgentOutput, StopReasonText,
-    TokenUsage,
+    CallRejection, CallRejectionReason, Completion, CompletionText, Input as AgentInput,
+    Output as AgentOutput, RejectionDetail, StopReasonText, TokenUsage,
 };
 use signal_mind::{
     AboutTechnicalNode, AcceptedSubscriptionStream, ActiveClaim, ActorName, ByRelationKind,
@@ -306,7 +306,35 @@ impl FakeKnowledgeAgent {
         )
     }
 
+    fn spawn_outputs(outputs: Vec<AgentOutput>) -> Self {
+        Self::spawn_output_sources(
+            outputs
+                .into_iter()
+                .map(|output| {
+                    Box::new(move || output.clone()) as Box<dyn Fn() -> AgentOutput + Send>
+                })
+                .collect(),
+        )
+    }
+
     fn spawn_reply_sources(reply_sources: Vec<Box<dyn Fn() -> String + Send>>) -> Self {
+        Self::spawn_output_sources(
+            reply_sources
+                .into_iter()
+                .map(|reply_source| {
+                    Box::new(move || {
+                        AgentOutput::completed(Completion {
+                            completion_text: CompletionText::new(reply_source()),
+                            stop_reason: StopReasonText::new("stop"),
+                            token_usage: TokenUsage::new(None, None),
+                        })
+                    }) as Box<dyn Fn() -> AgentOutput + Send>
+                })
+                .collect(),
+        )
+    }
+
+    fn spawn_output_sources(reply_sources: Vec<Box<dyn Fn() -> AgentOutput + Send>>) -> Self {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time")
@@ -331,7 +359,11 @@ impl FakeKnowledgeAgent {
         }
     }
 
-    fn answer(mut stream: UnixStream, reply: String, captured_prompts: &Arc<Mutex<Vec<String>>>) {
+    fn answer(
+        mut stream: UnixStream,
+        output: AgentOutput,
+        captured_prompts: &Arc<Mutex<Vec<String>>>,
+    ) {
         let codec = LengthPrefixedCodec::default();
         let request = codec
             .read_body(&mut stream)
@@ -374,11 +406,6 @@ impl FakeKnowledgeAgent {
             .lock()
             .expect("capture prompt")
             .push(format!("{system}\n\n{user}"));
-        let output = AgentOutput::completed(Completion {
-            completion_text: CompletionText::new(reply),
-            stop_reason: StopReasonText::new("stop"),
-            token_usage: TokenUsage::new(None, None),
-        });
         codec
             .write_body(
                 &mut stream,
@@ -835,6 +862,48 @@ async fn agent_knowledge_judge_request_response_log_records_malformed_response()
             .as_str()
             .expect("request is string")
             .contains("Mind logs raw malformed judge responses.")
+    );
+
+    fixture.stop().await;
+    fake_agent.join();
+    let _ = std::fs::remove_file(log_path);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_knowledge_judge_request_response_log_records_non_completed_agent_output() {
+    let log_path = temporary_judge_log_path("agent-rejected");
+    let fake_agent =
+        FakeKnowledgeAgent::spawn_outputs(vec![AgentOutput::call_rejected(CallRejection {
+            reason: CallRejectionReason::InvalidNotaOutput,
+            detail: RejectionDetail::new("provider returned invalid Nota"),
+        })]);
+    let judge = fake_agent.knowledge_judge_with_request_response_log(&log_path);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(judge)).await;
+
+    let reply = fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind logs non-completed agent judge outputs.",
+        ))
+        .await;
+    assert!(matches!(
+        reply.reply().expect("knowledge reply exists"),
+        MindReply::Rejected(KnowledgeRejectionReason::MeaningUnclear)
+    ));
+
+    let records = read_judge_log(&log_path);
+    assert_eq!(records.len(), 1);
+    assert!(
+        records[0]["agent_output"]
+            .as_str()
+            .expect("agent output is string")
+            .contains("InvalidNotaOutput")
+    );
+    assert!(
+        records[0]["request"]
+            .as_str()
+            .expect("request is string")
+            .contains("Mind logs non-completed agent judge outputs.")
     );
 
     fixture.stop().await;

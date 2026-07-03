@@ -57,7 +57,8 @@ struct EvalArguments {
     case_limit: Option<usize>,
     categories: BTreeSet<String>,
     probe_rejections: bool,
-    training_file: Option<PathBuf>,
+    training_sources: EvalTrainingSources,
+    request_response_log: bool,
     output_directory: PathBuf,
     work_directory: PathBuf,
     agent_daemon: PathBuf,
@@ -73,6 +74,13 @@ struct EvalArguments {
 enum EvalMode {
     Stateful,
     IsolatedCategories,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct EvalTrainingSources {
+    include_default: bool,
+    files: Vec<PathBuf>,
+    include_diagnostic: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -172,6 +180,16 @@ impl EvalArguments {
             }))?;
         let check_secret_source =
             parser.boolean("check-secret-source", !secret_source.is_none())?;
+        let training_file = parser.path("training-file")?;
+        let mut training_files = parser.path_list("training-files")?;
+        if let Some(path) = training_file {
+            training_files.insert(0, path);
+        }
+        let include_diagnostic_training = parser.boolean("diagnostic-judge-training", false)?;
+        let include_default_training = parser.boolean(
+            "include-default-training",
+            training_files.is_empty() && !include_diagnostic_training,
+        )?;
         let arguments = Self {
             eval_identifier,
             provider,
@@ -189,7 +207,12 @@ impl EvalArguments {
             case_limit: parser.usize("case-limit")?,
             categories: parser.string_list("categories")?.into_iter().collect(),
             probe_rejections: parser.boolean("probe-rejections", false)?,
-            training_file: parser.path("training-file")?,
+            training_sources: EvalTrainingSources::new(
+                include_default_training,
+                training_files,
+                include_diagnostic_training,
+            )?,
+            request_response_log: parser.boolean("judge-request-response-log", false)?,
             output_directory,
             work_directory,
             agent_daemon: parser
@@ -272,6 +295,83 @@ impl EvalMode {
     }
 }
 
+impl EvalTrainingSources {
+    fn new(
+        include_default: bool,
+        files: Vec<PathBuf>,
+        include_diagnostic: bool,
+    ) -> Result<Self, EvalError> {
+        if !include_default && files.is_empty() && !include_diagnostic {
+            return Err(EvalError::Message(
+                "judge training sources are empty; use --include-default-training, --training-file, --training-files, or --diagnostic-judge-training".to_owned(),
+            ));
+        }
+        Ok(Self {
+            include_default,
+            files,
+            include_diagnostic,
+        })
+    }
+
+    fn source_count(&self) -> usize {
+        usize::from(self.include_default) + self.files.len() + usize::from(self.include_diagnostic)
+    }
+
+    fn to_nota(&self) -> String {
+        let mut sources = Vec::new();
+        if self.include_default {
+            sources.push("(DefaultJudgeTraining)".to_owned());
+        }
+        sources.extend(
+            self.files
+                .iter()
+                .map(|path| format!("(JudgeTrainingFile {})", path.display())),
+        );
+        if self.include_diagnostic {
+            sources.push("(DiagnosticJudgeTraining)".to_owned());
+        }
+        if sources.len() == 1 {
+            sources.remove(0)
+        } else {
+            format!("(JudgeTrainingSources {})", sources.join(" "))
+        }
+    }
+
+    fn manifest(&self) -> Result<Value, EvalError> {
+        let default_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("src/knowledge-judge-prompts/accepted-knowledge.md");
+        let mut sources = Vec::new();
+        if self.include_default {
+            sources.push(json!({
+                "kind": "compiled_default",
+                "path": default_path.display().to_string(),
+                "sha256": Sha256File::new(&default_path).hex()?,
+            }));
+        }
+        for path in &self.files {
+            sources.push(json!({
+                "kind": "file",
+                "path": path.display().to_string(),
+                "sha256": Sha256File::new(path).hex()?,
+            }));
+        }
+        if self.include_diagnostic {
+            sources.push(json!({
+                "kind": "diagnostic_judge_training",
+                "enabled": true,
+                "normal_contract": "debug-only optional source; production default excludes it",
+            }));
+        }
+        Ok(json!({
+            "kind": if self.source_count() == 1 { "single" } else { "composed" },
+            "source_count": self.source_count(),
+            "include_default": self.include_default,
+            "include_diagnostic": self.include_diagnostic,
+            "sources": sources,
+        }))
+    }
+}
+
 impl SecretSource {
     fn from_text(text: &str) -> Result<Self, EvalError> {
         if matches!(text, "NoSecret" | "None") {
@@ -349,6 +449,14 @@ impl ArgumentParser {
 
     fn path(&mut self, name: &str) -> Result<Option<PathBuf>, EvalError> {
         Ok(self.string(name)?.map(PathBuf::from))
+    }
+
+    fn path_list(&mut self, name: &str) -> Result<Vec<PathBuf>, EvalError> {
+        Ok(self
+            .string_list(name)?
+            .into_iter()
+            .map(PathBuf::from)
+            .collect())
     }
 
     fn u64(&mut self, name: &str) -> Result<Option<u64>, EvalError> {
@@ -1385,7 +1493,7 @@ impl LiveJudgeEvalRunner {
         let scope_directory = self.arguments.work_directory.join(scope);
         self.create_directory(&scope_directory)?;
         self.start_agent_daemon(&scope_directory)?;
-        self.start_mind_daemon(&scope_directory)?;
+        self.start_mind_daemon(scope, &scope_directory)?;
         Ok(())
     }
 
@@ -1423,7 +1531,7 @@ impl LiveJudgeEvalRunner {
         SocketWait::new(&agent_socket, "agent-daemon").wait()
     }
 
-    fn start_mind_daemon(&mut self, scope_directory: &Path) -> Result<(), EvalError> {
+    fn start_mind_daemon(&mut self, scope: &str, scope_directory: &Path) -> Result<(), EvalError> {
         let mind_socket = self.mind_socket("active");
         if mind_socket.exists() {
             let _ = std::fs::remove_file(&mind_socket);
@@ -1433,9 +1541,19 @@ impl LiveJudgeEvalRunner {
         let mind_configuration = scope_directory.join("mind.rkyv");
         let request_path = scope_directory.join("mind-configuration.nota");
         let agent_socket = scope_directory.join("agent.sock");
-        let training_source = self.training_source_nota();
+        let training_source = self.arguments.training_sources.to_nota();
+        let request_response_log = if self.arguments.request_response_log {
+            let log_directory = self.arguments.output_directory.join("runtime").join(scope);
+            self.create_directory(&log_directory)?;
+            format!(
+                " (JudgeRequestResponseLog (JsonLines {}))",
+                log_directory.join("judge-request-response.jsonl").display()
+            )
+        } else {
+            String::new()
+        };
         let request = format!(
-            "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} {} {} {} {} {}))\n",
+            "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} {} {} {} {} {}{}))\n",
             mind_socket.display(),
             mind_meta_socket.display(),
             mind_store.display(),
@@ -1445,7 +1563,8 @@ impl LiveJudgeEvalRunner {
             self.arguments.model,
             self.arguments.timeout_milliseconds(),
             self.arguments.maximum_output_tokens,
-            training_source
+            training_source,
+            request_response_log
         );
         self.write_text(&request_path, &request)?;
         self.run_command(
@@ -1518,7 +1637,7 @@ impl LiveJudgeEvalRunner {
             "model": self.arguments.model,
             "endpoint": self.arguments.endpoint,
             "secret_source_reference": self.arguments.secret_source.redacted_reference(),
-            "training_source": self.training_manifest()?,
+            "training_source": self.arguments.training_sources.manifest()?,
             "case_count": cases.len(),
             "categories": categories,
             "setup_mode": if matches!(self.arguments.mode, EvalMode::IsolatedCategories) {
@@ -1535,6 +1654,7 @@ impl LiveJudgeEvalRunner {
             "safe_diagnostics": {
                 "judge_diagnostic_hashes": "mind-daemon writes packet_sha256, prompt_sha256, and training_sha256 when MIND_JUDGE_DIAGNOSTIC_PATH is set",
                 "redacted_packet_text": self.arguments.include_redacted_packet_text,
+                "judge_request_response_log": self.arguments.request_response_log,
                 "provider_http_dumps": false
             },
             "secret_safety": [
@@ -1842,32 +1962,6 @@ impl LiveJudgeEvalRunner {
             &self.arguments.output_directory.join("blocker.json"),
             &(serde_json::to_string_pretty(&blocker).expect("blocker serializes") + "\n"),
         )
-    }
-
-    fn training_source_nota(&self) -> String {
-        self.arguments
-            .training_file
-            .as_ref()
-            .map(|path| format!("(JudgeTrainingFile {})", path.display()))
-            .unwrap_or_else(|| "(DefaultJudgeTraining)".to_owned())
-    }
-
-    fn training_manifest(&self) -> Result<Value, EvalError> {
-        if let Some(path) = &self.arguments.training_file {
-            Ok(json!({
-                "kind": "override",
-                "path": path.display().to_string(),
-                "sha256": Sha256File::new(path).hex()?,
-            }))
-        } else {
-            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("src/knowledge-judge-prompts/accepted-knowledge.md");
-            Ok(json!({
-                "kind": "compiled_default",
-                "path": path.display().to_string(),
-                "sha256": Sha256File::new(&path).hex()?,
-            }))
-        }
     }
 
     fn alias_json(&self) -> Value {
@@ -2227,13 +2321,13 @@ impl<'case> ReplyEvaluation<'case> {
             .difference(&actual_identity_set)
             .cloned()
             .collect::<BTreeSet<_>>();
-        let extra = actual_identity_set
+        let unexpected = actual_identity_set
             .difference(expected_identity_set)
             .cloned()
             .collect::<BTreeSet<_>>();
         let identity_exists = non_existent.is_empty();
         let minimal_identity_set =
-            missing.is_empty() && extra.is_empty() && duplicate_identity_count == 0;
+            missing.is_empty() && unexpected.is_empty() && duplicate_identity_count == 0;
         self.identity_exists_passed = Some(identity_exists);
         self.minimal_conflict_identity_passed = Some(identity_exists && minimal_identity_set);
         self.identity_passed = identity_exists && minimal_identity_set;
@@ -2251,7 +2345,7 @@ impl<'case> ReplyEvaluation<'case> {
                 format!("missing conflict identity: {identity}"),
             );
         }
-        for identity in &extra {
+        for identity in &unexpected {
             self.record_identity_failure(
                 IdentityFailureKind::ExtraIdentity,
                 format!("extra conflict identity: {identity}"),

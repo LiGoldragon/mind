@@ -15,6 +15,27 @@ use signal_mind::WirePath;
 use thiserror::Error;
 use triad_runtime::{ArgumentError, ComponentArgument, ComponentCommand};
 
+const ACCEPTED_KNOWLEDGE_JUDGE_TRAINING: &str =
+    include_str!("../knowledge-judge-prompts/accepted-knowledge.md");
+const DIAGNOSTIC_PROSE_JUDGE_TRAINING: &str = "\
+# Debug-only Mind judge diagnostic prose escape hatch
+
+This training source is only for debugging and evaluation profiles. It is not
+part of the normal production judge contract unless explicitly included.
+
+Normal response path: return exactly one valid KnowledgeJudgeVerdict NOTA
+expression and nothing else.
+
+Diagnostic response path: if, and only if, you cannot confidently emit a valid
+KnowledgeJudgeVerdict because the NOTA format, schema shape, variant shape, or
+instruction contract supplied in the prompt is unclear, you may answer in prose
+explaining what part is unclear, what information or example would make it
+answerable, and what prompt or schema wording should be improved.
+
+Do not use prose for ordinary semantic uncertainty about submitted knowledge.
+Ordinary uncertainty must still map to a KnowledgeJudgeVerdict reject reason.
+";
+
 fn main() {
     if let Err(error) = ConfigurationWriterCommand::from_environment().run() {
         eprintln!("mind-write-configuration: {error}");
@@ -63,6 +84,8 @@ struct ConfigurationWriterAgentKnowledgeJudge {
 enum ConfigurationWriterJudgeTrainingSource {
     DefaultJudgeTraining,
     JudgeTrainingFile(ConfigurationWriterPath),
+    DiagnosticJudgeTraining,
+    JudgeTrainingSources(Vec<ConfigurationWriterJudgeTrainingSource>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -314,7 +337,12 @@ impl ConfigurationWriterAgentKnowledgeJudgeTail {
             });
         }
         match objects[0].demote_to_string() {
-            Some("DefaultJudgeTraining") | Some("JudgeTrainingFile") => Ok(Self::TrainingSource(
+            Some(
+                "DefaultJudgeTraining"
+                | "JudgeTrainingFile"
+                | "DiagnosticJudgeTraining"
+                | "JudgeTrainingSources",
+            ) => Ok(Self::TrainingSource(
                 ConfigurationWriterJudgeTrainingSource::from_nota_block(block)?,
             )),
             Some("JudgeRequestResponseLog") => Ok(Self::RequestResponseLog(
@@ -348,6 +376,16 @@ impl ConfigurationWriterJudgeTrainingSource {
             Some("JudgeTrainingFile") if objects.len() == 2 => Ok(Self::JudgeTrainingFile(
                 ConfigurationWriterPath::from_nota_block(&objects[1])?,
             )),
+            Some("DiagnosticJudgeTraining") if objects.len() == 1 => {
+                Ok(Self::DiagnosticJudgeTraining)
+            }
+            Some("JudgeTrainingSources") if objects.len() >= 2 => Ok(Self::JudgeTrainingSources(
+                objects
+                    .iter()
+                    .skip(1)
+                    .map(Self::from_nota_block)
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
             Some(variant) => Err(NotaDecodeError::UnknownVariant {
                 enum_name: "JudgeTrainingSource",
                 variant: variant.to_owned(),
@@ -362,6 +400,41 @@ impl ConfigurationWriterJudgeTrainingSource {
         match self {
             Self::DefaultJudgeTraining => Ok(MindKnowledgeJudgeTrainingSource::CompiledDefault),
             Self::JudgeTrainingFile(path) => path.into_training_source(),
+            Self::DiagnosticJudgeTraining => Ok(MindKnowledgeJudgeTrainingSource::OverrideText(
+                DIAGNOSTIC_PROSE_JUDGE_TRAINING.to_owned(),
+            )),
+            Self::JudgeTrainingSources(sources) => {
+                let mut text = String::new();
+                for source in sources {
+                    let source_text = source.into_training_text()?;
+                    if !text.is_empty() {
+                        text.push_str("\n\n");
+                    }
+                    text.push_str(source_text.trim());
+                    text.push('\n');
+                }
+                Ok(MindKnowledgeJudgeTrainingSource::OverrideText(text))
+            }
+        }
+    }
+
+    fn into_training_text(self) -> Result<String, ConfigurationWriterError> {
+        match self {
+            Self::DefaultJudgeTraining => Ok(ACCEPTED_KNOWLEDGE_JUDGE_TRAINING.to_owned()),
+            Self::JudgeTrainingFile(path) => path.into_training_text(),
+            Self::DiagnosticJudgeTraining => Ok(DIAGNOSTIC_PROSE_JUDGE_TRAINING.to_owned()),
+            Self::JudgeTrainingSources(sources) => {
+                let mut text = String::new();
+                for source in sources {
+                    let source_text = source.into_training_text()?;
+                    if !text.is_empty() {
+                        text.push_str("\n\n");
+                    }
+                    text.push_str(source_text.trim());
+                    text.push('\n');
+                }
+                Ok(text)
+            }
         }
     }
 }
@@ -438,6 +511,12 @@ impl ConfigurationWriterPath {
     fn into_training_source(
         self,
     ) -> Result<MindKnowledgeJudgeTrainingSource, ConfigurationWriterError> {
+        Ok(MindKnowledgeJudgeTrainingSource::OverrideText(
+            self.into_training_text()?,
+        ))
+    }
+
+    fn into_training_text(self) -> Result<String, ConfigurationWriterError> {
         let path = self.path_buf();
         let text = fs::read_to_string(&path).map_err(|source| {
             ConfigurationWriterError::ReadTrainingFile {
@@ -448,7 +527,7 @@ impl ConfigurationWriterPath {
         if text.trim().is_empty() {
             return Err(ConfigurationWriterError::EmptyTrainingFile { path });
         }
-        Ok(MindKnowledgeJudgeTrainingSource::OverrideText(text))
+        Ok(text)
     }
 }
 

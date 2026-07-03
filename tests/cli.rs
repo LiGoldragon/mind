@@ -128,6 +128,29 @@ impl ConfigurationWriterFixture {
         )
     }
 
+    fn multi_source_agent_judge_request(&self, training_path: &std::path::Path) -> String {
+        format!(
+            "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} deepseek deepseek-v4-flash 180000 2048 (JudgeTrainingSources (DefaultJudgeTraining) (JudgeTrainingFile {}) (DiagnosticJudgeTraining))))",
+            self.socket_path.display(),
+            self.meta_socket_path.display(),
+            self.store_path.display(),
+            self.output_path.display(),
+            self.agent_socket_path.display(),
+            training_path.display(),
+        )
+    }
+
+    fn diagnostic_agent_judge_request(&self) -> String {
+        format!(
+            "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} deepseek deepseek-v4-flash 180000 2048 (DiagnosticJudgeTraining)))",
+            self.socket_path.display(),
+            self.meta_socket_path.display(),
+            self.store_path.display(),
+            self.output_path.display(),
+            self.agent_socket_path.display(),
+        )
+    }
+
     fn agent_judge_request_response_log_request(&self) -> String {
         format!(
             "(ConfigurationWriteRequest {} {} {} {} (AgentKnowledgeJudge {} deepseek deepseek-v4-flash 180000 2048 (DefaultJudgeTraining) (JudgeRequestResponseLog (JsonLines {}))))",
@@ -359,6 +382,54 @@ fn configuration_writer_reads_override_training_file_into_archive() {
             "Override writer training marker reaches binary configuration.\n".to_owned()
         )
     );
+}
+
+#[test]
+fn configuration_writer_composes_multiple_training_sources_into_archive() {
+    let fixture = ConfigurationWriterFixture::new("multi-source-training");
+    let training_path = fixture.training_path();
+    fs::write(
+        &training_path,
+        "# External NOTA literacy marker\n\nUse positional records.\n",
+    )
+    .expect("write training source fixture");
+    let request_path = fixture.request_path();
+    fs::write(
+        &request_path,
+        fixture.multi_source_agent_judge_request(&training_path),
+    )
+    .expect("write multi-source configuration writer request file");
+
+    let stdout = run_configuration_writer(&request_path);
+    assert!(stdout.contains("(ConfigurationWritten"));
+
+    let configuration = fixture.read_configuration();
+    let MindKnowledgeJudgeTrainingSource::OverrideText(text) =
+        assert_agent_training_source(&configuration)
+    else {
+        panic!("multi-source training should be archived as composed text");
+    };
+    assert!(text.contains("# Mind accepted-knowledge judge training"));
+    assert!(text.contains("# External NOTA literacy marker"));
+    assert!(text.contains("Use positional records."));
+    assert!(text.contains("Debug-only Mind judge diagnostic prose escape hatch"));
+}
+
+#[test]
+fn configuration_writer_accepts_optional_diagnostic_training_source() {
+    let fixture = ConfigurationWriterFixture::new("diagnostic-training");
+    let stdout = run_configuration_writer(fixture.diagnostic_agent_judge_request());
+    assert!(stdout.contains("(ConfigurationWritten"));
+
+    let configuration = fixture.read_configuration();
+    let MindKnowledgeJudgeTrainingSource::OverrideText(text) =
+        assert_agent_training_source(&configuration)
+    else {
+        panic!("diagnostic training should be archived as override text");
+    };
+    assert!(text.contains("Debug-only Mind judge diagnostic prose escape hatch"));
+    assert!(text.contains("Normal response path"));
+    assert!(text.contains("Do not use prose for ordinary semantic uncertainty"));
 }
 
 #[test]

@@ -223,6 +223,9 @@ impl KnowledgeJudge for AgentKnowledgeJudge {
             Err(error) => return Self::unavailable_verdict(error),
         };
         let AgentOutput::Completed(completion) = output else {
+            self.configuration
+                .request_response_log
+                .write_agent_output(request.client_request(), &output);
             return Self::unavailable_verdict(AgentKnowledgeJudgeError::AgentRejected(format!(
                 "{output:?}"
             )));
@@ -288,14 +291,25 @@ impl JudgeRequestResponseLog {
     }
 
     fn write(&self, client_request: &MindRequest, raw_response: &str) {
-        let JudgeRequestResponseLogDestination::JsonLines(path) = &self.destination else {
-            return;
-        };
-        let record = json!({
+        self.write_record(json!({
             "timestamp_unix_millis": JudgeRequestResponseLogClock::now_unix_millis(),
             "request": client_request.to_nota(),
             "raw_response": raw_response,
-        });
+        }));
+    }
+
+    fn write_agent_output(&self, client_request: &MindRequest, output: &AgentOutput) {
+        self.write_record(json!({
+            "timestamp_unix_millis": JudgeRequestResponseLogClock::now_unix_millis(),
+            "request": client_request.to_nota(),
+            "agent_output": format!("{output:?}"),
+        }));
+    }
+
+    fn write_record(&self, record: serde_json::Value) {
+        let JudgeRequestResponseLogDestination::JsonLines(path) = &self.destination else {
+            return;
+        };
         let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -385,7 +399,11 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
                 .map(|model| ModelName::new(model.to_owned())),
             self.provider_name
                 .map(|provider| ProviderName::new(provider.to_owned())),
-            Some(TemperatureMilli::new(0)),
+            if local_openai_compatible {
+                None
+            } else {
+                Some(TemperatureMilli::new(0))
+            },
             self.maximum_output_tokens.map(MaximumOutputTokens::new),
             OutputMode::Nota,
             if local_openai_compatible {
