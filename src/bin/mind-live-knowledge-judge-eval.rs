@@ -1259,6 +1259,62 @@ impl EvalSuite {
     }
 }
 
+struct EvalRunStatus {
+    scored_failure_count: usize,
+    setup_failed_count: usize,
+    blocked_row_count: usize,
+}
+
+impl EvalRunStatus {
+    fn new(raw_results: &[Value], scored_results: &[Value]) -> Self {
+        Self {
+            scored_failure_count: scored_results
+                .iter()
+                .filter(|result| result["passed"] != true)
+                .count(),
+            setup_failed_count: raw_results
+                .iter()
+                .filter(|result| result["row_kind"].as_str() == Some("setup"))
+                .filter(|result| result["passed"] != true)
+                .count(),
+            blocked_row_count: raw_results
+                .iter()
+                .filter(|result| result["score_status"].as_str() == Some("blocked"))
+                .count(),
+        }
+    }
+
+    fn success(&self) -> bool {
+        self.scored_failure_count == 0
+            && self.setup_failed_count == 0
+            && self.blocked_row_count == 0
+    }
+
+    fn as_str(&self) -> &'static str {
+        if self.success() {
+            "passed"
+        } else if self.blocked_row_count > 0 {
+            "incomplete"
+        } else {
+            "failed"
+        }
+    }
+
+    fn reasons(&self) -> Vec<&'static str> {
+        let mut reasons = Vec::new();
+        if self.scored_failure_count > 0 {
+            reasons.push("scored_rows_failed");
+        }
+        if self.setup_failed_count > 0 {
+            reasons.push("setup_rows_failed");
+        }
+        if self.blocked_row_count > 0 {
+            reasons.push("blocked_rows_present");
+        }
+        reasons
+    }
+}
+
 struct LiveJudgeEvalRunner {
     arguments: EvalArguments,
     processes: ProcessSet,
@@ -1297,7 +1353,11 @@ impl LiveJudgeEvalRunner {
         }
         self.write_summary()?;
         self.processes.stop_all();
-        Ok(self.results.iter().all(|result| result["passed"] == true))
+        Ok(self.run_status().success())
+    }
+
+    fn run_status(&self) -> EvalRunStatus {
+        EvalRunStatus::new(&self.raw_results, &self.results)
     }
 
     fn run_stateful(&mut self) -> Result<(), EvalError> {
@@ -1766,6 +1826,7 @@ impl LiveJudgeEvalRunner {
     }
 
     fn write_summary(&self) -> Result<(), EvalError> {
+        let run_status = self.run_status();
         let mut category_totals = BTreeMap::<String, usize>::new();
         let mut category_passed = BTreeMap::<String, usize>::new();
         let mut setup_totals = BTreeMap::<String, usize>::new();
@@ -1799,11 +1860,6 @@ impl LiveJudgeEvalRunner {
             .raw_results
             .iter()
             .filter(|result| result["row_kind"].as_str() == Some("rejection_stability_probe"))
-            .count();
-        let blocked_row_count = self
-            .raw_results
-            .iter()
-            .filter(|result| result["score_status"].as_str() == Some("blocked"))
             .count();
         let primary_row_count = self
             .raw_results
@@ -1932,7 +1988,7 @@ impl LiveJudgeEvalRunner {
             .iter()
             .filter(|result| result["runner_ledger_absence_witness"]["passed"] == true)
             .count();
-        let summary = json!({
+        let mut summary = json!({
             "eval_id": self.arguments.eval_identifier,
             "mode": self.arguments.mode.as_str(),
             "provider": self.arguments.provider,
@@ -1941,7 +1997,7 @@ impl LiveJudgeEvalRunner {
             "setup_row_count": setup_row_count,
             "setup_passed_count": setup_passed.values().sum::<usize>(),
             "rejection_stability_probe_row_count": rejection_probe_row_count,
-            "blocked_row_count": blocked_row_count,
+            "blocked_row_count": run_status.blocked_row_count,
             "scored_row_count": scored_count,
             "primary_case_count": primary_row_count,
             "submit_calls": self.submit_calls,
@@ -2045,6 +2101,11 @@ impl LiveJudgeEvalRunner {
             "failures": failures.iter().map(SanitizedFailure::new).map(|failure| failure.to_json()).collect::<Vec<_>>(),
             "blocker": self.blocker,
         });
+        summary["run_success"] = json!(run_status.success());
+        summary["run_status"] = json!(run_status.as_str());
+        summary["run_status_reasons"] = json!(run_status.reasons());
+        summary["scored_failure_count"] = json!(run_status.scored_failure_count);
+        summary["setup_failed_count"] = json!(run_status.setup_failed_count);
         self.write_text(
             &self.arguments.output_directory.join("summary.json"),
             &(serde_json::to_string_pretty(&summary).expect("summary serializes") + "\n"),
@@ -2851,6 +2912,12 @@ impl<'summary> SummaryMarkdown<'summary> {
                 self.summary["provider"].as_str().unwrap_or("unknown"),
                 self.summary["model"].as_str().unwrap_or("unknown")
             ),
+            format!(
+                "Run status: `{}` (success={}) reasons={}",
+                self.summary["run_status"].as_str().unwrap_or("unknown"),
+                self.summary["run_success"].as_bool().unwrap_or(false),
+                self.summary["run_status_reasons"]
+            ),
             format!("Primary cases: {}", self.summary["primary_case_count"]),
             format!("Scored rows: {}", self.summary["scored_row_count"]),
             format!("Blocked rows: {}", self.summary["blocked_row_count"]),
@@ -3019,6 +3086,65 @@ mod tests {
             "setup": false,
         });
         FailureDiagnosis::new(&result).as_str()
+    }
+
+    fn scored_primary_result(passed: bool) -> Value {
+        json!({
+            "row_kind": "primary",
+            "passed": passed,
+            "score_status": "scored",
+        })
+    }
+
+    fn blocked_primary_result() -> Value {
+        json!({
+            "row_kind": "primary",
+            "passed": false,
+            "score_status": "blocked",
+        })
+    }
+
+    fn setup_result(passed: bool) -> Value {
+        json!({
+            "row_kind": "setup",
+            "passed": passed,
+            "score_status": "scored",
+        })
+    }
+
+    #[test]
+    fn blocked_rows_make_run_incomplete_without_entering_semantic_denominator() {
+        let scored = vec![scored_primary_result(true)];
+        let raw = vec![scored[0].clone(), blocked_primary_result()];
+        let status = EvalRunStatus::new(&raw, &scored);
+
+        assert!(
+            !status.success(),
+            "blocked rows must prevent a successful eval exit"
+        );
+        assert_eq!(status.as_str(), "incomplete");
+        assert_eq!(status.blocked_row_count, 1);
+        assert_eq!(
+            status.scored_failure_count, 0,
+            "blocked rows are not semantic scoring failures"
+        );
+        assert_eq!(status.reasons(), vec!["blocked_rows_present"]);
+    }
+
+    #[test]
+    fn failed_setup_rows_make_run_fail_even_when_scored_rows_pass() {
+        let scored = vec![scored_primary_result(true)];
+        let raw = vec![setup_result(false), scored[0].clone()];
+        let status = EvalRunStatus::new(&raw, &scored);
+
+        assert!(
+            !status.success(),
+            "failed setup rows must prevent a successful eval exit"
+        );
+        assert_eq!(status.as_str(), "failed");
+        assert_eq!(status.setup_failed_count, 1);
+        assert_eq!(status.scored_failure_count, 0);
+        assert_eq!(status.reasons(), vec!["setup_rows_failed"]);
     }
 
     #[test]
