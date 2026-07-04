@@ -17,18 +17,18 @@ from pathlib import Path
 
 def main() -> int:
     repository = Path(__file__).resolve().parents[1]
-    binary = repository / "target" / "debug" / "mind-live-knowledge-judge-eval"
-    if binary.exists():
-        command = [str(binary), *sys.argv[1:]]
-    else:
-        command = [
-            "cargo",
-            "run",
-            "--bin",
-            "mind-live-knowledge-judge-eval",
-            "--",
-            *sys.argv[1:],
-        ]
+    command = [
+        os.environ.get("CARGO", "cargo"),
+        "run",
+        "--manifest-path",
+        str(repository / "Cargo.toml"),
+        "--features",
+        "eval-fixture-prepopulation",
+        "--bin",
+        "mind-live-knowledge-judge-eval",
+        "--",
+        *sys.argv[1:],
+    ]
     os.execvp(command[0], command)
     return 127
 
