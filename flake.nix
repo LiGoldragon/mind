@@ -445,6 +445,13 @@
               cargoTestExtraArgs = "--test cli";
             }
           );
+          mind-live-knowledge-judge-eval = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--features eval-fixture-prepopulation --bin mind-live-knowledge-judge-eval";
+            }
+          );
           mind-cli-accepts-full-signal-mind-request-for-typed-graph = craneLib.cargoTest (
             commonArgs
             // {

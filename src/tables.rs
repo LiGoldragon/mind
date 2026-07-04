@@ -141,6 +141,7 @@ pub(crate) struct OpenedTechnicalRelationSubscription {
 #[derive(Clone)]
 pub(crate) enum GraphSubscriptionPublisher {
     Actor(ActorRef<SubscriptionSupervisor>),
+    #[allow(dead_code)]
     Disabled,
 }
 
@@ -922,14 +923,6 @@ impl MindTables {
         Ok(record)
     }
 
-    pub fn eval_fixture_prepopulate_accepted_knowledge(
-        store: &StoreLocation,
-        record: AcceptedKnowledge,
-    ) -> Result<AcceptedKnowledge> {
-        let tables = Self::open(store, GraphSubscriptionPublisher::disabled())?;
-        tables.assert_accepted_knowledge(record)
-    }
-
     pub(crate) fn accepted_knowledge_records(&self) -> Result<Vec<AcceptedKnowledge>> {
         Ok(self
             .engine
@@ -1382,6 +1375,7 @@ impl GraphSubscriptionPublisher {
         Self::Actor(actor)
     }
 
+    #[allow(dead_code)]
     fn disabled() -> Self {
         Self::Disabled
     }

@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use mind::{MindKnowledgeJudgeAgentConfiguration, MindTables, StoreLocation};
+use mind::MindKnowledgeJudgeAgentConfiguration;
+#[cfg(feature = "eval-fixture-prepopulation")]
+use mind::{StoreLocation, eval_fixture::AcceptedKnowledgeFixturePrepopulation};
 use nota_next::{NotaEncode, NotaSource};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -1460,35 +1462,59 @@ impl LiveJudgeEvalRunner {
     ) -> Result<(), EvalError> {
         let fixtures = PrepopulatedAcceptedKnowledgeFixtures::new(cases);
         for fixture in fixtures.records {
-            let result = match MindTables::eval_fixture_prepopulate_accepted_knowledge(
-                &StoreLocation::new(store.display().to_string()),
-                fixture.accepted_record.clone(),
-            ) {
-                Ok(record) => {
-                    let public_record = record.public_record();
-                    self.aliases
-                        .insert(fixture.alias.clone(), public_record.identity.clone());
-                    self.accepted_records.push(public_record);
-                    self.prepopulated_setup_result(
+            let result =
+                match self.prepopulate_fixture_record(store, fixture.accepted_record.clone()) {
+                    Ok(record) => {
+                        let public_record = record.public_record();
+                        self.aliases
+                            .insert(fixture.alias.clone(), public_record.identity.clone());
+                        self.accepted_records.push(public_record);
+                        self.prepopulated_setup_result(
+                            run_scope,
+                            &fixture.case,
+                            &fixture.alias,
+                            true,
+                            None,
+                        )
+                    }
+                    Err(error) => self.prepopulated_setup_result(
                         run_scope,
                         &fixture.case,
                         &fixture.alias,
-                        true,
-                        None,
-                    )
-                }
-                Err(error) => self.prepopulated_setup_result(
-                    run_scope,
-                    &fixture.case,
-                    &fixture.alias,
-                    false,
-                    Some(error.to_string()),
-                ),
-            };
+                        false,
+                        Some(error.to_string()),
+                    ),
+                };
             self.append_result_row(&result)?;
             self.raw_results.push(result);
         }
         Ok(())
+    }
+
+    #[cfg(feature = "eval-fixture-prepopulation")]
+    fn prepopulate_fixture_record(
+        &self,
+        store: &Path,
+        record: AcceptedKnowledge,
+    ) -> Result<AcceptedKnowledge, String> {
+        AcceptedKnowledgeFixturePrepopulation::new(
+            StoreLocation::new(store.display().to_string()),
+            record,
+        )
+        .prepopulate()
+        .map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(feature = "eval-fixture-prepopulation"))]
+    fn prepopulate_fixture_record(
+        &self,
+        _store: &Path,
+        _record: AcceptedKnowledge,
+    ) -> Result<AcceptedKnowledge, String> {
+        Err(
+            "mind-live-knowledge-judge-eval was built without eval-fixture-prepopulation"
+                .to_owned(),
+        )
     }
 
     fn prepopulated_setup_result(
@@ -3275,6 +3301,18 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "eval-fixture-prepopulation")]
+    fn temporary_eval_directory(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "mind-live-judge-{name}-{}-{stamp}",
+            std::process::id()
+        ))
+    }
+
     #[test]
     fn blocked_rows_make_run_incomplete_without_entering_semantic_denominator() {
         let scored = vec![scored_primary_result(true)];
@@ -3410,6 +3448,46 @@ mod tests {
         assert_eq!(conflict_setup[0].category, "valid_seed");
         assert_eq!(conflict_checks["identity_passed"], true);
         assert_eq!(conflict_checks["minimal_conflict_identity_passed"], true);
+    }
+
+    #[cfg(feature = "eval-fixture-prepopulation")]
+    #[test]
+    fn feature_prepopulation_writes_deterministic_setup_record_and_alias() {
+        let root = temporary_eval_directory("prepopulation");
+        let output_directory = root.join("output");
+        std::fs::create_dir_all(&output_directory).expect("output directory exists");
+        let store = root.join("mind.sema");
+        let mut arguments = test_arguments();
+        arguments.output_directory = output_directory;
+        arguments.work_directory = root.join("work");
+        let mut runner = LiveJudgeEvalRunner::new(arguments);
+        let setup_case = EvalCase::new(
+            "setup_case",
+            "valid_seed",
+            KnowledgeSubject::Component,
+            "Feature-gated prepopulation writes deterministic setup records.",
+            ExpectedVerdict::accept(),
+        )
+        .accepting_alias("SETUP")
+        .setup();
+
+        runner
+            .prepopulate_accepted_knowledge("unit", &store, &[setup_case])
+            .expect("feature-gated setup prepopulation succeeds");
+
+        let expected_identity = KnowledgeIdentity::new("p000");
+        assert_eq!(runner.aliases.get("SETUP"), Some(&expected_identity));
+        assert_eq!(runner.accepted_records.len(), 1);
+        assert_eq!(runner.accepted_records[0].identity, expected_identity);
+        assert_eq!(runner.raw_results.len(), 1);
+        assert_eq!(runner.raw_results[0]["row_kind"], "setup");
+        assert_eq!(runner.raw_results[0]["passed"], true);
+        assert_eq!(
+            runner.raw_results[0]["setup_kind"],
+            "prepopulated_accepted_knowledge_fixture"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

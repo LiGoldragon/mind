@@ -33,8 +33,9 @@ path = "src/bin/mind_write_configuration.rs"
 required-features = ["nota-text"]
 
 [features]
-default   = ["nota-text"]
-nota-text = ["meta-signal-mind/nota-text"]
+default                        = ["nota-text"]
+eval-fixture-prepopulation     = []
+nota-text                      = ["meta-signal-mind/nota-text"]
 
 [dependencies]
 kameo               = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", default-features = false, features = ["macros", "tracing"] }
