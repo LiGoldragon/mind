@@ -1,5 +1,5 @@
 #[allow(unused_extern_crates)]
-extern crate nota_next as nota;
+extern crate nota;
 
 pub mod actors;
 pub mod command;

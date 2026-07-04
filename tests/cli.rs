@@ -8,7 +8,7 @@ use mind::{
     MindJudgeRequestResponseLog, MindKnowledgeJudgeAgentConfiguration,
     MindKnowledgeJudgeConfiguration, MindKnowledgeJudgeTrainingSource, StoreLocation,
 };
-use nota_next::NotaEncode;
+use nota::NotaEncode;
 use signal_mind::{
     GoalBody, GoalScope, MindRequest, SubmitThought, TextBody, ThoughtBody, ThoughtKind,
     WorkspaceGoal,

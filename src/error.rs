@@ -48,7 +48,7 @@ pub enum Error {
     SignalPersonaMind(#[from] signal_mind::Error),
 
     #[error("nota: {0}")]
-    Nota(#[from] nota_next::NotaDecodeError),
+    Nota(#[from] nota::NotaDecodeError),
 
     #[error("meta nota: {0}")]
     MetaNota(String),

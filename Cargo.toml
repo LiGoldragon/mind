@@ -39,25 +39,25 @@ nota-text                      = ["meta-signal-mind/nota-text"]
 
 [dependencies]
 kameo               = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", default-features = false, features = ["macros", "tracing"] }
-nota-next           = { package = "nota", git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
-meta-signal-mind    = { git = "https://github.com/LiGoldragon/meta-signal-mind.git", rev = "0ac8f093190ff2660747ded706dc73b56b3c44fa", default-features = false }
-meta-signal-orchestrate = { git = "ssh://git@github.com/LiGoldragon/meta-signal-orchestrate.git", rev = "a2594ed875b4631fab13ecd652aaf4b52d7b6aef" }
+nota           = { package = "nota", git = "https://github.com/LiGoldragon/nota.git", branch = "main" }
+meta-signal-mind    = { git = "https://github.com/LiGoldragon/meta-signal-mind.git", branch = "drop-next", default-features = false }
+meta-signal-orchestrate = { git = "https://github.com/LiGoldragon/meta-signal-orchestrate.git", branch = "drop-next" }
 rkyv                = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 redb                = "4.1"
 getrandom           = "0.3"
 serde_json          = "1"
 sha2                = "0.10"
 sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
-signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
-signal-agent        = { git = "https://github.com/LiGoldragon/signal-agent.git", branch = "main" }
-signal-persona      = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
-signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", rev = "16a70dfd7f696b3e51080dbc2d086726fdaa8c75" }
-triad-runtime       = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
+signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "drop-next" }
+signal-agent        = { git = "https://github.com/LiGoldragon/signal-agent.git", branch = "drop-next" }
+signal-persona      = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "drop-next" }
+signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "drop-next" }
+triad-runtime       = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "drop-next" }
 thiserror           = "2"
 tokio               = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util"] }
 
 [build-dependencies]
-schema-rust-next = { git = "ssh://git@github.com/LiGoldragon/schema-rust-next.git", rev = "bb4dfe293e03e64e89f899621cc5dfa5bff6958e" }
+schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", branch = "drop-next" }
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -66,15 +66,3 @@ dead_code   = "warn"
 
 [patch.crates-io]
 kameo = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main" }
-
-[patch."https://github.com/LiGoldragon/nota-next.git"]
-nota-next = { git = "ssh://git@github.com/LiGoldragon/nota-next.git", rev = "7105c2be36067cb3d5b8f744aaf628ffdac7a112" }
-
-[patch."https://github.com/LiGoldragon/schema-rust-next.git"]
-schema-rust-next = { git = "ssh://git@github.com/LiGoldragon/schema-rust-next.git", rev = "bb4dfe293e03e64e89f899621cc5dfa5bff6958e" }
-
-[patch."https://github.com/LiGoldragon/schema-next.git"]
-schema-next = { git = "ssh://git@github.com/LiGoldragon/schema-next.git", rev = "b3be7d0f9161cc01353cfecd0cc0a17678b5030a" }
-
-[patch."https://github.com/LiGoldragon/signal-orchestrate.git"]
-signal-orchestrate = { git = "ssh://git@github.com/LiGoldragon/signal-orchestrate.git", rev = "93a05d6effdeb74e3e6726feff6a7fbb092501aa" }

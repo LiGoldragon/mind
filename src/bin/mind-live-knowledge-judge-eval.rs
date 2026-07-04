@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use mind::MindKnowledgeJudgeAgentConfiguration;
 #[cfg(feature = "eval-fixture-prepopulation")]
 use mind::{StoreLocation, eval_fixture::AcceptedKnowledgeFixturePrepopulation};
-use nota_next::{NotaEncode, NotaSource};
+use nota::{NotaEncode, NotaSource};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use signal_mind::{
@@ -1948,7 +1948,7 @@ impl LiveJudgeEvalRunner {
             "eval_id": self.arguments.eval_identifier,
             "runner": "mind-live-knowledge-judge-eval",
             "runner_language": "rust",
-            "reply_parser": "nota_next::NotaSource::<signal_mind::MindReply>",
+            "reply_parser": "nota::NotaSource::<signal_mind::MindReply>",
             "mode": self.arguments.mode.as_str(),
             "provider": self.arguments.provider,
             "model": self.arguments.model,

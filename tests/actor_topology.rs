@@ -13,7 +13,7 @@ use mind::{
     MindKnowledgeJudgeTrainingSource, MindRoot, MindRootArguments, MindRootReply, StoreLocation,
     SubmitEnvelope, TechnicalSeedDataset,
 };
-use nota_next::NotaEncode;
+use nota::NotaEncode;
 use signal_agent::{
     CallRejection, CallRejectionReason, Completion, CompletionText, Input as AgentInput,
     Output as AgentOutput, RejectionDetail, StopReasonText, TokenUsage,

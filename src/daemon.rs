@@ -2,7 +2,7 @@
 //!
 //! The uniform daemon skeleton (argv parsing, async task-backed multi-listener
 //! binding, request gating, peer credentials, lifecycle, and the `ExitReport`
-//! entry) is emitted into `src/schema/daemon.rs` by schema-rust-next's daemon
+//! entry) is emitted into `src/schema/daemon.rs` by schema-rust's daemon
 //! emitter. Mind's working tier is *component-decoded*: the ordinary socket
 //! speaks the hand-written `signal-mind` `MindFrame` contract, which is not a
 //! schema-derived root, so the component owns the per-connection frame

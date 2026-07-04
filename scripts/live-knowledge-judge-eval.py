@@ -4,7 +4,7 @@
 The previous implementation in this path hand-parsed NOTA replies with regular
 expressions. The supported harness is now the Rust
 `mind-live-knowledge-judge-eval` binary, which parses replies through
-`nota_next` and generated `signal-mind` types.
+`nota` and generated `signal-mind` types.
 """
 
 from __future__ import annotations

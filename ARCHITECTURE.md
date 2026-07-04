@@ -707,7 +707,7 @@ This repo does not own:
 - Live accepted-knowledge evals run through the Rust
   `mind-live-knowledge-judge-eval` binary. The deprecated Python script is only
   a compatibility launcher and does not parse replies. The Rust runner parses
-  daemon replies as `signal_mind::MindReply` through `nota_next`, records
+  daemon replies as `signal_mind::MindReply` through `nota`, records
   `submit_calls` and `judge_attempts`, leaves provider HTTP call count marked
   unavailable unless agent-daemon exports telemetry, and supports `--mode
   stateful` plus `--mode isolated-categories` for reset-by-category
@@ -863,7 +863,7 @@ src/supervision.rs         engine-management (supervision) codec (`serve_connect
 src/daemon.rs              `ComponentDaemon` hooks: `MindEngine` wraps the `MindRoot` actor tree; component-decoded working + meta hooks
 src/configuration.rs       binary rkyv `MindDaemonConfiguration`, including fixture/agent knowledge-judge selection (single startup argument; daemons never parse NOTA)
 src/schema/daemon.rs       @generated daemon shell: argv -> binary config -> multi-listener accept/lifecycle/exit spine
-build.rs                   schema-rust-next generation driver (component-decoded `NexusDaemonShape` + meta tier)
+build.rs                   schema-rust generation driver (component-decoded `NexusDaemonShape` + meta tier)
 src/main.rs                `mind` CLI (client-only): one NOTA request -> daemon -> printed reply
 src/bin/meta-mind.rs       owner policy CLI: one meta NOTA request -> daemon -> printed reply
 src/daemon_main.rs         `mind-daemon` process entry: `<MindProcessDaemon as DaemonEntry>::run_to_exit_code()`

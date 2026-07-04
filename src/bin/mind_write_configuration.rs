@@ -8,9 +8,9 @@ use mind::{
     MindKnowledgeJudgeAgentConfiguration, MindKnowledgeJudgeTrainingSource,
 };
 #[allow(unused_extern_crates)]
-extern crate nota_next as nota;
+extern crate nota;
 
-use nota_next::{Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
+use nota::{Delimiter, NotaBlock, NotaDecode, NotaDecodeError, NotaEncode, NotaSource};
 use signal_mind::WirePath;
 use thiserror::Error;
 use triad_runtime::{ArgumentError, ComponentArgument, ComponentCommand};
@@ -187,7 +187,7 @@ impl ConfigurationWriteRequest {
 }
 
 impl NotaDecode for ConfigurationWriteRequest {
-    fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+    fn from_nota_block(block: &nota::Block) -> Result<Self, NotaDecodeError> {
         let body = NotaBlock::new(block)
             .expect_body(Delimiter::Parenthesis, "ConfigurationWriteRequest")?;
         let objects = body.root_objects();
@@ -250,7 +250,7 @@ impl ConfigurationWriterPath {
 }
 
 impl ConfigurationWriterKnowledgeJudge {
-    fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+    fn from_nota_block(block: &nota::Block) -> Result<Self, NotaDecodeError> {
         let body = NotaBlock::new(block).expect_body(Delimiter::Parenthesis, "KnowledgeJudge")?;
         let objects = body.root_objects();
         if objects.is_empty() {
@@ -326,7 +326,7 @@ enum ConfigurationWriterAgentKnowledgeJudgeTail {
 }
 
 impl ConfigurationWriterAgentKnowledgeJudgeTail {
-    fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+    fn from_nota_block(block: &nota::Block) -> Result<Self, NotaDecodeError> {
         let body = NotaBlock::new(block).expect_body(Delimiter::Parenthesis, "KnowledgeJudge")?;
         let objects = body.root_objects();
         if objects.is_empty() {
@@ -360,7 +360,7 @@ impl ConfigurationWriterAgentKnowledgeJudgeTail {
 }
 
 impl ConfigurationWriterJudgeTrainingSource {
-    fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+    fn from_nota_block(block: &nota::Block) -> Result<Self, NotaDecodeError> {
         let body =
             NotaBlock::new(block).expect_body(Delimiter::Parenthesis, "JudgeTrainingSource")?;
         let objects = body.root_objects();
@@ -440,7 +440,7 @@ impl ConfigurationWriterJudgeTrainingSource {
 }
 
 impl ConfigurationWriterJudgeRequestResponseLog {
-    fn from_nota_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+    fn from_nota_block(block: &nota::Block) -> Result<Self, NotaDecodeError> {
         let body =
             NotaBlock::new(block).expect_body(Delimiter::Parenthesis, "JudgeRequestResponseLog")?;
         let objects = body.root_objects();
@@ -465,7 +465,7 @@ impl ConfigurationWriterJudgeRequestResponseLog {
         }
     }
 
-    fn from_setting_block(block: &nota_next::Block) -> Result<Self, NotaDecodeError> {
+    fn from_setting_block(block: &nota::Block) -> Result<Self, NotaDecodeError> {
         if matches!(block.demote_to_string(), Some("Disabled")) {
             return Ok(Self::Disabled);
         }
