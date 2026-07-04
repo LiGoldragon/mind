@@ -141,7 +141,6 @@ pub(crate) struct OpenedTechnicalRelationSubscription {
 #[derive(Clone)]
 pub(crate) enum GraphSubscriptionPublisher {
     Actor(ActorRef<SubscriptionSupervisor>),
-    #[cfg(test)]
     Disabled,
 }
 
@@ -923,6 +922,14 @@ impl MindTables {
         Ok(record)
     }
 
+    pub fn eval_fixture_prepopulate_accepted_knowledge(
+        store: &StoreLocation,
+        record: AcceptedKnowledge,
+    ) -> Result<AcceptedKnowledge> {
+        let tables = Self::open(store, GraphSubscriptionPublisher::disabled())?;
+        tables.assert_accepted_knowledge(record)
+    }
+
     pub(crate) fn accepted_knowledge_records(&self) -> Result<Vec<AcceptedKnowledge>> {
         Ok(self
             .engine
@@ -1375,7 +1382,6 @@ impl GraphSubscriptionPublisher {
         Self::Actor(actor)
     }
 
-    #[cfg(test)]
     fn disabled() -> Self {
         Self::Disabled
     }
@@ -1398,7 +1404,6 @@ impl GraphSubscriptionPublisher {
                     ))
                     .try_send();
             }
-            #[cfg(test)]
             Self::Disabled => {}
         }
     }
@@ -1421,7 +1426,6 @@ impl GraphSubscriptionPublisher {
                     ))
                     .try_send();
             }
-            #[cfg(test)]
             Self::Disabled => {}
         }
     }
@@ -1444,7 +1448,6 @@ impl GraphSubscriptionPublisher {
                     ))
                     .try_send();
             }
-            #[cfg(test)]
             Self::Disabled => {}
         }
     }
@@ -1467,7 +1470,6 @@ impl GraphSubscriptionPublisher {
                     ))
                     .try_send();
             }
-            #[cfg(test)]
             Self::Disabled => {}
         }
     }
@@ -1482,7 +1484,6 @@ impl GraphSubscriptionPublisher {
                 .tell(PublishThoughtDelta::new(subscription, thought))
                 .try_send()
                 .map_err(|error| SinkError::new(error.to_string())),
-            #[cfg(test)]
             Self::Disabled => Ok(()),
         }
     }
@@ -1497,7 +1498,6 @@ impl GraphSubscriptionPublisher {
                 .tell(PublishRelationDelta::new(subscription, relation))
                 .try_send()
                 .map_err(|error| SinkError::new(error.to_string())),
-            #[cfg(test)]
             Self::Disabled => Ok(()),
         }
     }
@@ -1512,7 +1512,6 @@ impl GraphSubscriptionPublisher {
                 .tell(PublishTechnicalNodeDelta::new(subscription, node))
                 .try_send()
                 .map_err(|error| SinkError::new(error.to_string())),
-            #[cfg(test)]
             Self::Disabled => Ok(()),
         }
     }
@@ -1527,7 +1526,6 @@ impl GraphSubscriptionPublisher {
                 .tell(PublishTechnicalRelationDelta::new(subscription, relation))
                 .try_send()
                 .map_err(|error| SinkError::new(error.to_string())),
-            #[cfg(test)]
             Self::Disabled => Ok(()),
         }
     }
