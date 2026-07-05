@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -214,7 +216,7 @@ impl EvalArguments {
                 training_files,
                 include_diagnostic_training,
             )?,
-            request_response_log: parser.boolean("judge-request-response-log", false)?,
+            request_response_log: parser.boolean("judge-request-response-log", true)?,
             output_directory,
             work_directory,
             agent_daemon: parser
@@ -1297,6 +1299,7 @@ struct EvalRunStatus {
     scored_failure_count: usize,
     setup_failed_count: usize,
     blocked_row_count: usize,
+    judge_format_failure_count: usize,
 }
 
 impl EvalRunStatus {
@@ -1314,6 +1317,10 @@ impl EvalRunStatus {
             blocked_row_count: raw_results
                 .iter()
                 .filter(|result| result["score_status"].as_str() == Some("blocked"))
+                .count(),
+            judge_format_failure_count: raw_results
+                .iter()
+                .filter(|result| result["failure_diagnosis"].as_str() == Some("JudgeFormatFailure"))
                 .count(),
         }
     }
@@ -1345,6 +1352,9 @@ impl EvalRunStatus {
         if self.blocked_row_count > 0 {
             reasons.push("blocked_rows_present");
         }
+        if self.judge_format_failure_count > 0 {
+            reasons.push("judge_format_failures_present");
+        }
         reasons
     }
 }
@@ -1356,6 +1366,8 @@ struct LiveJudgeEvalRunner {
     results: Vec<Value>,
     submit_calls: usize,
     judge_attempts: usize,
+    judge_contract_calls: usize,
+    judge_log_offsets: HashMap<String, u64>,
     aliases: HashMap<String, KnowledgeIdentity>,
     accepted_records: Vec<KnowledgeRecord>,
     blocker: Option<String>,
@@ -1370,6 +1382,8 @@ impl LiveJudgeEvalRunner {
             results: Vec::new(),
             submit_calls: 0,
             judge_attempts: 0,
+            judge_contract_calls: 0,
+            judge_log_offsets: HashMap::new(),
             aliases: HashMap::new(),
             accepted_records: Vec::new(),
             blocker: None,
@@ -1593,14 +1607,31 @@ impl LiveJudgeEvalRunner {
             )
         };
         if !has_exact_duplicate {
+            self.judge_contract_calls += 1;
+        }
+        let reply = self.call_mind(&request_nota, MindCallKind::Submit, run_scope)?;
+        let judge_contract = reply
+            .judge_contract
+            .as_ref()
+            .map(JudgeContractTelemetry::to_json)
+            .unwrap_or(Value::Null);
+        let judge_format_failure = reply
+            .judge_contract
+            .as_ref()
+            .map(JudgeContractTelemetry::has_format_failure)
+            .unwrap_or(false);
+        if !has_exact_duplicate && !judge_format_failure {
             self.judge_attempts += 1;
         }
-        let reply = self.call_mind(&request_nota, MindCallKind::Submit)?;
         let mut checks =
             ReplyEvaluation::new(case, &reply, &self.aliases, &self.accepted_records).to_json();
+        if judge_format_failure {
+            checks = JudgeFormatFailureChecks::new(&reply).to_json();
+        }
         let mut get_reply = Value::Null;
-        if let (ExpectedVerdictKind::Accepted, MindReply::Accepted(identity)) =
-            (case.expected.verdict, &reply.reply)
+        if !judge_format_failure
+            && let (ExpectedVerdictKind::Accepted, MindReply::Accepted(identity)) =
+                (case.expected.verdict, &reply.reply)
         {
             if let Some(alias) = &case.accept_alias {
                 self.aliases.insert(alias.clone(), identity.clone());
@@ -1608,6 +1639,7 @@ impl LiveJudgeEvalRunner {
             let get = self.call_mind(
                 &MindRequest::Get(identity.clone()).to_nota(),
                 MindCallKind::Get,
+                run_scope,
             )?;
             let get_passed = ReplyEvaluation::get_passed(case, identity, &get.reply);
             checks["get_passed"] = json!(get_passed);
@@ -1616,20 +1648,30 @@ impl LiveJudgeEvalRunner {
                 self.accepted_records.push(record);
             }
         }
-        let runner_ledger_absence_witness = RunnerLedgerAbsenceWitness::new(
-            case,
-            &reply.reply,
-            accepted_record_count_before,
-            &self.accepted_records,
-        )
-        .to_json();
+        let runner_ledger_absence_witness = if judge_format_failure {
+            Value::Null
+        } else {
+            RunnerLedgerAbsenceWitness::new(
+                case,
+                &reply.reply,
+                accepted_record_count_before,
+                &self.accepted_records,
+            )
+            .to_json()
+        };
         checks["runner_ledger_absence_passed"] = runner_ledger_absence_witness["passed"].clone();
         let reason_passed = checks["reason_passed"].as_bool().unwrap_or(true);
-        let passed = checks["verdict_passed"] == true
+        let passed = !judge_format_failure
+            && checks["verdict_passed"] == true
             && reason_passed
             && checks["identity_passed"] == true
             && checks["get_passed"] != false
             && checks["runner_ledger_absence_passed"] != false;
+        let score_status = if judge_format_failure {
+            "blocked"
+        } else {
+            "scored"
+        };
         let mut result = json!({
             "case_id": case.case_identifier,
             "category": case.category,
@@ -1643,13 +1685,15 @@ impl LiveJudgeEvalRunner {
             "candidate_context_sha256": candidate_context_sha256,
             "candidate_context_redacted": candidate_context_redacted,
             "exact_prefilter_hit": has_exact_duplicate,
-            "semantic_judge_attempt": !has_exact_duplicate,
+            "semantic_judge_attempt": !has_exact_duplicate && !judge_format_failure,
+            "judge_contract_attempt": !has_exact_duplicate,
+            "judge_contract": judge_contract,
             "expected": case.expected.to_json(),
             "actual": ParsedMindReply::new(reply.reply, reply.latency_milliseconds).to_json(),
             "get_reply": get_reply,
             "runner_ledger_absence_witness": runner_ledger_absence_witness,
             "passed": passed,
-            "score_status": "scored",
+            "score_status": score_status,
             "checks": checks,
             "aliases_after_case": self.alias_json(),
             "fixture_dependencies": {
@@ -1724,9 +1768,22 @@ impl LiveJudgeEvalRunner {
         let candidate_context = CandidateContext::new(case, &self.accepted_records);
         let has_exact_duplicate = candidate_context.has_exact_duplicate();
         if !has_exact_duplicate {
+            self.judge_contract_calls += 1;
+        }
+        let reply = self.call_mind(&case.request().to_nota(), MindCallKind::Submit, run_scope)?;
+        let judge_contract = reply
+            .judge_contract
+            .as_ref()
+            .map(JudgeContractTelemetry::to_json)
+            .unwrap_or(Value::Null);
+        let judge_format_failure = reply
+            .judge_contract
+            .as_ref()
+            .map(JudgeContractTelemetry::has_format_failure)
+            .unwrap_or(false);
+        if !has_exact_duplicate && !judge_format_failure {
             self.judge_attempts += 1;
         }
-        let reply = self.call_mind(&case.request().to_nota(), MindCallKind::Submit)?;
         let passed = matches!(reply.reply, MindReply::Rejected(_));
         Ok(json!({
             "case_id": format!("{}__rejection_store_probe", case.case_identifier),
@@ -1738,13 +1795,15 @@ impl LiveJudgeEvalRunner {
             "statement": case.statement,
             "statement_sha256": Sha256Text::new(&case.statement).hex(),
             "exact_prefilter_hit": has_exact_duplicate,
-            "semantic_judge_attempt": !has_exact_duplicate,
+            "semantic_judge_attempt": !has_exact_duplicate && !judge_format_failure,
+            "judge_contract_attempt": !has_exact_duplicate,
+            "judge_contract": judge_contract,
             "expected": case.expected.to_json(),
             "actual": ParsedMindReply::new(reply.reply, reply.latency_milliseconds).to_json(),
             "get_reply": Value::Null,
             "runner_ledger_absence_witness": Value::Null,
-            "passed": passed,
-            "score_status": "scored",
+            "passed": passed && !judge_format_failure,
+            "score_status": if judge_format_failure { "blocked" } else { "scored" },
             "checks": {
                 "verdict_passed": passed,
                 "reason_passed": passed,
@@ -1754,7 +1813,7 @@ impl LiveJudgeEvalRunner {
                 "store_probe": true,
                 "notes": if passed { Vec::<String>::new() } else { vec!["rejected submission was accepted when resubmitted".to_owned()] },
             },
-            "failure_diagnosis": if passed { "Passed" } else { "RejectionStabilityFailure" },
+            "failure_diagnosis": if judge_format_failure { "JudgeFormatFailure" } else if passed { "Passed" } else { "RejectionStabilityFailure" },
             "aliases_after_case": self.alias_json(),
             "fixture_dependencies": {
                 "required_aliases": case.required_alias_set().into_iter().collect::<Vec<_>>(),
@@ -1762,10 +1821,16 @@ impl LiveJudgeEvalRunner {
         }))
     }
 
-    fn call_mind(&mut self, request: &str, kind: MindCallKind) -> Result<MindCallReply, EvalError> {
+    fn call_mind(
+        &mut self,
+        request: &str,
+        kind: MindCallKind,
+        run_scope: &str,
+    ) -> Result<MindCallReply, EvalError> {
         if matches!(kind, MindCallKind::Submit) {
             self.submit_calls += 1;
         }
+        let judge_log_offset = self.judge_log_offset(run_scope);
         let start = Instant::now();
         let output = Command::new(&self.arguments.mind)
             .arg(request)
@@ -1792,10 +1857,60 @@ impl LiveJudgeEvalRunner {
         let reply = NotaSource::new(stdout.trim())
             .parse::<MindReply>()
             .map_err(|error| EvalError::MindReplyParse(error.to_string()))?;
+        let judge_contract = if matches!(kind, MindCallKind::Submit) {
+            Some(self.read_judge_contract_telemetry(run_scope, judge_log_offset)?)
+        } else {
+            None
+        };
         Ok(MindCallReply {
             reply,
             latency_milliseconds,
+            judge_contract,
         })
+    }
+
+    fn judge_log_path(&self, run_scope: &str) -> PathBuf {
+        self.arguments
+            .output_directory
+            .join("runtime")
+            .join(run_scope)
+            .join("judge-request-response.jsonl")
+    }
+
+    fn judge_log_offset(&self, run_scope: &str) -> u64 {
+        self.judge_log_offsets
+            .get(run_scope)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn read_judge_contract_telemetry(
+        &mut self,
+        run_scope: &str,
+        offset: u64,
+    ) -> Result<JudgeContractTelemetry, EvalError> {
+        if !self.arguments.request_response_log {
+            return Ok(JudgeContractTelemetry::unavailable(
+                "judge request/response log disabled",
+            ));
+        }
+        let path = self.judge_log_path(run_scope);
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(JudgeContractTelemetry::unavailable(
+                    "judge request/response log was not created",
+                ));
+            }
+            Err(source) => return Err(EvalError::Io { path, source }),
+        };
+        let offset = usize::try_from(offset)
+            .unwrap_or(bytes.len())
+            .min(bytes.len());
+        let text = String::from_utf8_lossy(&bytes[offset..]);
+        self.judge_log_offsets
+            .insert(run_scope.to_owned(), bytes.len() as u64);
+        Ok(JudgeContractTelemetry::from_log_text(&text))
     }
 
     fn start_daemons(&mut self, scope: &str, setup_cases: &[EvalCase]) -> Result<(), EvalError> {
@@ -2041,6 +2156,47 @@ impl LiveJudgeEvalRunner {
             .iter()
             .filter(|result| result["semantic_judge_attempt"] == true)
             .count();
+        let judge_contract_attempt_row_count = self
+            .raw_results
+            .iter()
+            .filter(|result| result["judge_contract_attempt"] == true)
+            .count();
+        let completed_response_count = self
+            .raw_results
+            .iter()
+            .filter_map(|result| {
+                result["judge_contract"]["completed_response_count"]
+                    .as_u64()
+                    .map(|count| count as usize)
+            })
+            .sum::<usize>();
+        let parsed_completed_response_count = self
+            .raw_results
+            .iter()
+            .filter_map(|result| {
+                result["judge_contract"]["parsed_completed_response_count"]
+                    .as_u64()
+                    .map(|count| count as usize)
+            })
+            .sum::<usize>();
+        let judge_format_failure_count = self
+            .raw_results
+            .iter()
+            .filter_map(|result| {
+                result["judge_contract"]["judge_format_failure_count"]
+                    .as_u64()
+                    .map(|count| count as usize)
+            })
+            .sum::<usize>();
+        let diagnostic_message_count = self
+            .raw_results
+            .iter()
+            .filter_map(|result| {
+                result["judge_contract"]["diagnostic_message_count"]
+                    .as_u64()
+                    .map(|count| count as usize)
+            })
+            .sum::<usize>();
         let verdict_class_passed = self
             .results
             .iter()
@@ -2161,6 +2317,12 @@ impl LiveJudgeEvalRunner {
             "primary_case_count": primary_row_count,
             "submit_calls": self.submit_calls,
             "exact_prefilter_hit_count": exact_prefilter_hit_count,
+            "judge_contract_call_count": self.judge_contract_calls,
+            "judge_contract_attempt_row_count": judge_contract_attempt_row_count,
+            "completed_response_count": completed_response_count,
+            "parsed_completed_response_count": parsed_completed_response_count,
+            "judge_format_failure_count": judge_format_failure_count,
+            "diagnostic_message_count": diagnostic_message_count,
             "semantic_judge_attempt_count": self.judge_attempts,
             "semantic_judge_attempt_row_count": semantic_judge_attempt_row_count,
             "alias_missing_count": alias_missing_count,
@@ -2261,6 +2423,8 @@ impl LiveJudgeEvalRunner {
         summary["run_status_reasons"] = json!(run_status.reasons());
         summary["scored_failure_count"] = json!(run_status.scored_failure_count);
         summary["setup_failed_count"] = json!(run_status.setup_failed_count);
+        summary["judge_format_failure_blocked_count"] =
+            json!(run_status.judge_format_failure_count);
         self.write_text(
             &self.arguments.output_directory.join("summary.json"),
             &(serde_json::to_string_pretty(&summary).expect("summary serializes") + "\n"),
@@ -2361,6 +2525,129 @@ enum MindCallKind {
 struct MindCallReply {
     reply: MindReply,
     latency_milliseconds: u64,
+    judge_contract: Option<JudgeContractTelemetry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct JudgeContractTelemetry {
+    available: bool,
+    unavailable_reason: Option<String>,
+    completed_response_count: usize,
+    parsed_completed_response_count: usize,
+    judge_format_failure_count: usize,
+    diagnostic_message_count: usize,
+    parse_status_counts: BTreeMap<String, usize>,
+    last_parse_error: Option<String>,
+}
+
+impl JudgeContractTelemetry {
+    fn unavailable(reason: &str) -> Self {
+        Self {
+            available: false,
+            unavailable_reason: Some(reason.to_owned()),
+            completed_response_count: 0,
+            parsed_completed_response_count: 0,
+            judge_format_failure_count: 0,
+            diagnostic_message_count: 0,
+            parse_status_counts: BTreeMap::new(),
+            last_parse_error: None,
+        }
+    }
+
+    fn from_log_text(text: &str) -> Self {
+        let mut telemetry = Self {
+            available: true,
+            unavailable_reason: None,
+            completed_response_count: 0,
+            parsed_completed_response_count: 0,
+            judge_format_failure_count: 0,
+            diagnostic_message_count: 0,
+            parse_status_counts: BTreeMap::new(),
+            last_parse_error: None,
+        };
+        for record in text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        {
+            telemetry.observe_record(&record);
+        }
+        telemetry
+    }
+
+    fn observe_record(&mut self, record: &Value) {
+        let Some(kind) = record["kind"].as_str() else {
+            return;
+        };
+        if kind != "completed_response" {
+            return;
+        }
+        self.completed_response_count += 1;
+        if record["parsed_completed_response"] == true {
+            self.parsed_completed_response_count += 1;
+        }
+        if record["diagnostic_message"].as_str().is_some() {
+            self.diagnostic_message_count += 1;
+        }
+        let status = record["judge_response_parse_status"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_owned();
+        *self.parse_status_counts.entry(status.clone()).or_default() += 1;
+        if status == "judge_format_failure" {
+            self.judge_format_failure_count += 1;
+        }
+        if let Some(error) = record["judge_response_parse_error"].as_str() {
+            self.last_parse_error = Some(error.to_owned());
+        }
+    }
+
+    fn has_format_failure(&self) -> bool {
+        self.judge_format_failure_count > 0
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "available": self.available,
+            "unavailable_reason": self.unavailable_reason,
+            "completed_response_count": self.completed_response_count,
+            "parsed_completed_response_count": self.parsed_completed_response_count,
+            "judge_format_failure_count": self.judge_format_failure_count,
+            "diagnostic_message_count": self.diagnostic_message_count,
+            "parse_status_counts": self.parse_status_counts,
+            "last_parse_error": self.last_parse_error,
+        })
+    }
+}
+
+struct JudgeFormatFailureChecks<'reply> {
+    reply: &'reply MindCallReply,
+}
+
+impl<'reply> JudgeFormatFailureChecks<'reply> {
+    fn new(reply: &'reply MindCallReply) -> Self {
+        Self { reply }
+    }
+
+    fn to_json(&self) -> Value {
+        let parse_error = self
+            .reply
+            .judge_contract
+            .as_ref()
+            .and_then(|contract| contract.last_parse_error.as_deref())
+            .unwrap_or("judge response did not parse as KnowledgeJudgeResponse");
+        json!({
+            "verdict_passed": Value::Null,
+            "reason_passed": Value::Null,
+            "identity_passed": Value::Null,
+            "identity_exists_passed": Value::Null,
+            "minimal_conflict_identity_passed": Value::Null,
+            "identity_failure_kinds": Vec::<String>::new(),
+            "get_passed": Value::Null,
+            "store_probe": false,
+            "runner_ledger_absence_passed": Value::Null,
+            "notes": [format!("judge format failure: {parse_error}")],
+        })
+    }
 }
 
 struct ParsedMindReply {
@@ -2816,6 +3103,13 @@ impl<'result> FailureDiagnosis<'result> {
 
     fn as_str(&self) -> &'static str {
         if self.result["score_status"].as_str() == Some("blocked") {
+            if self.result["judge_contract"]["judge_format_failure_count"]
+                .as_u64()
+                .unwrap_or(0)
+                > 0
+            {
+                return "JudgeFormatFailure";
+            }
             return "SetupAliasMissing";
         }
         if self.result["passed"] == true {
@@ -3092,6 +3386,13 @@ impl<'summary> SummaryMarkdown<'summary> {
                 self.summary["semantic_judge_attempt_count"]
             ),
             format!(
+                "Judge contract calls / parsed completed responses / format failures / diagnostic messages: {} / {} / {} / {}",
+                self.summary["judge_contract_call_count"],
+                self.summary["parsed_completed_response_count"],
+                self.summary["judge_format_failure_count"],
+                self.summary["diagnostic_message_count"]
+            ),
+            format!(
                 "Verdict class pass rate: {:.2}%",
                 self.summary["verdict_class_pass_rate"]["pass_rate"]
                     .as_f64()
@@ -3227,6 +3528,7 @@ mod tests {
         let mind_reply = MindCallReply {
             reply,
             latency_milliseconds: 0,
+            judge_contract: None,
         };
         ReplyEvaluation::new(&case, &mind_reply, aliases, accepted_records).to_json()
     }
@@ -3255,6 +3557,26 @@ mod tests {
             "row_kind": "primary",
             "passed": false,
             "score_status": "blocked",
+        })
+    }
+
+    fn judge_format_failure_result() -> Value {
+        json!({
+            "row_kind": "primary",
+            "passed": false,
+            "score_status": "blocked",
+            "failure_diagnosis": "JudgeFormatFailure",
+            "judge_contract": {
+                "available": true,
+                "completed_response_count": 1,
+                "parsed_completed_response_count": 0,
+                "judge_format_failure_count": 1,
+                "diagnostic_message_count": 0,
+                "parse_status_counts": {
+                    "judge_format_failure": 1,
+                },
+                "last_parse_error": "KnowledgeJudgeResponse parse failed",
+            },
         })
     }
 
@@ -3330,6 +3652,47 @@ mod tests {
             "blocked rows are not semantic scoring failures"
         );
         assert_eq!(status.reasons(), vec!["blocked_rows_present"]);
+    }
+
+    #[test]
+    fn judge_format_failure_blocks_run_without_semantic_failure_credit() {
+        let scored = vec![scored_primary_result(true)];
+        let raw = vec![scored[0].clone(), judge_format_failure_result()];
+        let status = EvalRunStatus::new(&raw, &scored);
+
+        assert!(
+            !status.success(),
+            "format failures must prevent a successful eval exit"
+        );
+        assert_eq!(status.as_str(), "incomplete");
+        assert_eq!(status.scored_failure_count, 0);
+        assert_eq!(status.judge_format_failure_count, 1);
+        assert_eq!(
+            status.reasons(),
+            vec!["blocked_rows_present", "judge_format_failures_present"]
+        );
+    }
+
+    #[test]
+    fn judge_contract_telemetry_counts_format_failure_and_diagnostic_messages() {
+        let log_text = "\
+{\"kind\":\"completed_response\",\"parsed_completed_response\":false,\"judge_response_parse_status\":\"judge_format_failure\",\"judge_response_parse_error\":\"KnowledgeJudgeResponse parse failed\",\"diagnostic_message\":null}\n\
+{\"kind\":\"applied_decision\",\"judge_response_parse_status\":\"judge_format_failure\"}\n\
+{\"kind\":\"completed_response\",\"parsed_completed_response\":true,\"judge_response_parse_status\":\"parsed_knowledge_judge_response\",\"diagnostic_message\":\"debug note\"}\n";
+        let telemetry = JudgeContractTelemetry::from_log_text(log_text);
+
+        assert_eq!(telemetry.completed_response_count, 2);
+        assert_eq!(telemetry.parsed_completed_response_count, 1);
+        assert_eq!(telemetry.judge_format_failure_count, 1);
+        assert_eq!(telemetry.diagnostic_message_count, 1);
+        assert!(telemetry.has_format_failure());
+        assert_eq!(
+            telemetry
+                .parse_status_counts
+                .get("judge_format_failure")
+                .copied(),
+            Some(1)
+        );
     }
 
     #[test]

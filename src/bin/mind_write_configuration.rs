@@ -25,6 +25,10 @@ part of the normal production judge contract unless explicitly included.
 
 Normal response path: return exactly one valid KnowledgeJudgeResponse NOTA
 expression and nothing else. The verdict field is the only load-bearing value.
+Use the full positional response wrapper, for example:
+(Accept None)
+((Reject NotKnowledge) None)
+((Reject NeedsMoreSpecificShape) (Some [The statement lacks a stable referent.]))
 
 Diagnostic response path: use the optional diagnostic_message field to explain
 ambiguity, unclear guidance, unclear instructions, unclear NOTA/schema shape, or
@@ -34,6 +38,11 @@ verdict you can.
 Do not write prose outside the KnowledgeJudgeResponse. Do not use
 diagnostic_message as an extra verdict or alternate reason. Ordinary semantic
 uncertainty must still map to a KnowledgeJudgeVerdict reject reason.
+Do not emit a bare verdict such as (Verdict accepted), Accept, or
+(Reject NotKnowledge). Bare verdict output is a response-format failure, not a
+semantic judgment.
+Do not prefix the output with KnowledgeJudgeResponse; the NOTA value is the
+positional response itself.
 ";
 
 fn main() {

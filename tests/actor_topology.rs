@@ -635,7 +635,10 @@ async fn accepted_knowledge_submit_mints_identity_and_get_finds_record() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exact_accepted_knowledge_duplicate_rejects_before_judge_and_stores_nothing_new() {
     let accepted_statement = "Mind exact duplicate submissions are deterministic mechanism.";
-    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![accept().to_nota(), accept().to_nota()]);
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![
+        response(accept()).to_nota(),
+        response(accept()).to_nota(),
+    ]);
     let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
 
     let accepted = fixture
@@ -688,8 +691,8 @@ async fn exact_accepted_knowledge_duplicate_rejects_before_judge_and_stores_noth
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn semantic_rejection_stores_nothing_before_next_judgment() {
     let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![
-        reject(KnowledgeRejectionReason::NotKnowledge).to_nota(),
-        accept().to_nota(),
+        response(reject(KnowledgeRejectionReason::NotKnowledge)).to_nota(),
+        response(accept()).to_nota(),
     ]);
     let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
 
@@ -733,7 +736,7 @@ async fn semantic_rejection_stores_nothing_before_next_judgment() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() {
-    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![accept().to_nota()]);
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![response(accept()).to_nota()]);
     let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
 
     let reply = fixture
@@ -760,6 +763,8 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
     assert!(prompts[0].contains("KnowledgeJudgePacket under judgment"));
     assert!(prompts[0].contains("Return exactly one KnowledgeJudgeResponse"));
     assert!(prompts[0].contains("diagnostic_message field is debug-only"));
+    assert!(prompts[0].contains("do not prefix it with KnowledgeJudgeResponse"));
+    assert!(prompts[0].contains("Never return (Verdict accepted)"));
     assert!(prompts[0].contains("Reject imperatives, tasks, instructions, requests"));
     assert!(prompts[0].contains(&response(accept()).to_nota()));
     assert!(
@@ -817,7 +822,7 @@ async fn agent_knowledge_judge_request_response_log_disabled_by_default_writes_n
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_knowledge_judge_request_response_log_records_valid_response() {
     let log_path = temporary_judge_log_path("valid");
-    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![accept().to_nota()]);
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![response(accept()).to_nota()]);
     let judge = fake_agent.knowledge_judge_with_request_response_log(&log_path);
     let fixture = ActorFixture::with_knowledge_judge(Arc::new(judge)).await;
 
@@ -832,14 +837,24 @@ async fn agent_knowledge_judge_request_response_log_records_valid_response() {
     assert_eq!(records.len(), 2);
     assert_eq!(records[0]["kind"], "completed_response");
     assert!(records[0]["timestamp_unix_millis"].is_number());
-    assert_eq!(records[0]["raw_response"], accept().to_nota());
+    assert_eq!(records[0]["raw_response"], response(accept()).to_nota());
     assert_eq!(records[0]["parsed_verdict"], accept().to_nota());
+    assert_eq!(
+        records[0]["judge_response_parse_status"],
+        "parsed_knowledge_judge_response"
+    );
+    assert_eq!(records[0]["parsed_completed_response"], true);
     assert_eq!(records[0]["diagnostic_message"], serde_json::Value::Null);
     let request = records[0]["request"].as_str().expect("request is string");
     assert!(request.contains("(Submit"));
     assert!(request.contains("Mind can log the accepted-knowledge judge request and response."));
     assert_eq!(records[1]["kind"], "applied_decision");
     assert_eq!(records[1]["parsed_verdict"], accept().to_nota());
+    assert_eq!(
+        records[1]["judge_response_parse_status"],
+        "parsed_knowledge_judge_response"
+    );
+    assert_eq!(records[1]["parsed_completed_response"], true);
     assert!(records[1]["accepted_identity"].is_string());
     assert_eq!(
         records[1]["reply"],
@@ -922,11 +937,27 @@ async fn agent_knowledge_judge_request_response_log_records_malformed_response()
     assert_eq!(records.len(), 2);
     assert_eq!(records[0]["kind"], "completed_response");
     assert_eq!(records[0]["raw_response"], "not a verdict");
+    assert_eq!(
+        records[0]["judge_response_parse_status"],
+        "judge_format_failure"
+    );
+    assert_eq!(records[0]["parsed_completed_response"], false);
+    assert!(
+        records[0]["judge_response_parse_error"]
+            .as_str()
+            .expect("parse error is string")
+            .contains("KnowledgeJudgeResponse")
+    );
     assert_eq!(records[1]["kind"], "applied_decision");
     assert_eq!(
         records[1]["parsed_verdict"],
         reject(KnowledgeRejectionReason::MeaningUnclear).to_nota()
     );
+    assert_eq!(
+        records[1]["judge_response_parse_status"],
+        "judge_format_failure"
+    );
+    assert_eq!(records[1]["parsed_completed_response"], false);
     assert_eq!(records[1]["accepted_identity"], serde_json::Value::Null);
     assert!(
         records[0]["request"]
@@ -934,6 +965,45 @@ async fn agent_knowledge_judge_request_response_log_records_malformed_response()
             .expect("request is string")
             .contains("Mind logs raw malformed judge responses.")
     );
+
+    fixture.stop().await;
+    fake_agent.join();
+    let _ = std::fs::remove_file(log_path);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_knowledge_judge_bare_verdict_response_is_format_failure() {
+    let log_path = temporary_judge_log_path("bare-verdict");
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec!["(Verdict accepted)".to_owned()]);
+    let judge = fake_agent.knowledge_judge_with_request_response_log(&log_path);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(judge)).await;
+
+    let reply = fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind classifies bare judge verdict output as a format failure.",
+        ))
+        .await;
+    assert!(matches!(
+        reply.reply().expect("knowledge reply exists"),
+        MindReply::Rejected(KnowledgeRejectionReason::MeaningUnclear)
+    ));
+
+    let records = read_judge_log(&log_path);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["kind"], "completed_response");
+    assert_eq!(records[0]["raw_response"], "(Verdict accepted)");
+    assert_eq!(
+        records[0]["judge_response_parse_status"],
+        "judge_format_failure"
+    );
+    assert_eq!(records[0]["parsed_completed_response"], false);
+    assert_eq!(
+        records[1]["judge_response_parse_status"],
+        "judge_format_failure"
+    );
+    assert_eq!(records[1]["parsed_completed_response"], false);
+    assert_eq!(records[1]["accepted_identity"], serde_json::Value::Null);
 
     fixture.stop().await;
     fake_agent.join();
@@ -990,7 +1060,7 @@ async fn agent_knowledge_judge_request_response_log_records_non_completed_agent_
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_knowledge_judge_override_training_reaches_prompt() {
-    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![accept().to_nota()]);
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![response(accept()).to_nota()]);
     let judge = fake_agent.knowledge_judge_with_training_source(
         MindKnowledgeJudgeTrainingSource::OverrideText(
             "Override accepted-knowledge judge training marker.".to_owned(),
@@ -1009,7 +1079,7 @@ async fn agent_knowledge_judge_override_training_reaches_prompt() {
     assert_eq!(prompts.len(), 1);
     assert!(prompts[0].contains("Override accepted-knowledge judge training marker."));
     assert!(!prompts[0].contains("# Mind accepted-knowledge judge training"));
-    assert!(prompts[0].contains(&accept().to_nota()));
+    assert!(prompts[0].contains(&response(accept()).to_nota()));
 
     fixture.stop().await;
     fake_agent.join();
@@ -1020,7 +1090,7 @@ async fn agent_knowledge_judge_old_substitute_accept_payload_rejects_and_stores_
     let old_substitute_payload =
         "(Accept (([(Domain (domain:component [Component] None))]) []))".to_owned();
     let fake_agent =
-        FakeKnowledgeAgent::spawn_texts(vec![old_substitute_payload, accept().to_nota()]);
+        FakeKnowledgeAgent::spawn_texts(vec![old_substitute_payload, response(accept()).to_nota()]);
     let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
 
     let reply = fixture
@@ -1056,8 +1126,10 @@ async fn agent_knowledge_judge_old_substitute_accept_payload_rejects_and_stores_
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_knowledge_judge_malformed_verdict_rejects_and_stores_nothing() {
-    let fake_agent =
-        FakeKnowledgeAgent::spawn_texts(vec!["not a verdict".to_owned(), accept().to_nota()]);
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![
+        "not a verdict".to_owned(),
+        response(accept()).to_nota(),
+    ]);
     let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
 
     let reply = fixture
@@ -1097,25 +1169,27 @@ async fn agent_knowledge_judge_prompt_and_verdicts_cover_first_rejection_batch()
     let duplicate_identity = Arc::clone(&shared_identity);
     let conflict_identity = Arc::clone(&shared_identity);
     let fake_agent = FakeKnowledgeAgent::spawn_reply_sources(vec![
-        Box::new(|| accept().to_nota()),
-        Box::new(|| reject(KnowledgeRejectionReason::NotKnowledge).to_nota()),
-        Box::new(|| reject(KnowledgeRejectionReason::NeedsMoreSpecificShape).to_nota()),
+        Box::new(|| response(accept()).to_nota()),
+        Box::new(|| response(reject(KnowledgeRejectionReason::NotKnowledge)).to_nota()),
+        Box::new(|| response(reject(KnowledgeRejectionReason::NeedsMoreSpecificShape)).to_nota()),
         Box::new(|| {
-            reject(KnowledgeRejectionReason::WrongSubject(
+            response(reject(KnowledgeRejectionReason::WrongSubject(
                 KnowledgeSubject::Component,
-            ))
+            )))
             .to_nota()
         }),
         Box::new(move || {
-            reject(KnowledgeRejectionReason::SemanticDuplicate(
+            response(reject(KnowledgeRejectionReason::SemanticDuplicate(
                 shared_accepted_identity(&duplicate_identity),
-            ))
+            )))
             .to_nota()
         }),
         Box::new(move || {
-            reject(KnowledgeRejectionReason::ConflictsAcceptedKnowledge(vec![
-                shared_accepted_identity(&conflict_identity),
-            ]))
+            response(reject(
+                KnowledgeRejectionReason::ConflictsAcceptedKnowledge(vec![
+                    shared_accepted_identity(&conflict_identity),
+                ]),
+            ))
             .to_nota()
         }),
     ]);

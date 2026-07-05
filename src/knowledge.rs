@@ -70,6 +70,7 @@ impl KnowledgeJudgeRequest {
 pub struct KnowledgeJudgeDecision {
     verdict: KnowledgeJudgeVerdict,
     diagnostic_message: Option<TextBody>,
+    parse_status: KnowledgeJudgeParseStatus,
 }
 
 impl KnowledgeJudgeDecision {
@@ -77,6 +78,7 @@ impl KnowledgeJudgeDecision {
         Self {
             verdict,
             diagnostic_message: None,
+            parse_status: KnowledgeJudgeParseStatus::ParsedKnowledgeJudgeResponse,
         }
     }
 
@@ -84,6 +86,7 @@ impl KnowledgeJudgeDecision {
         Self {
             verdict: response.verdict,
             diagnostic_message: response.diagnostic_message,
+            parse_status: KnowledgeJudgeParseStatus::ParsedKnowledgeJudgeResponse,
         }
     }
 
@@ -94,6 +97,54 @@ impl KnowledgeJudgeDecision {
     fn diagnostic_message(&self) -> Option<&TextBody> {
         self.diagnostic_message.as_ref()
     }
+
+    fn parse_status(&self) -> &KnowledgeJudgeParseStatus {
+        &self.parse_status
+    }
+
+    fn format_failure(error: String) -> Self {
+        Self {
+            verdict: KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::MeaningUnclear),
+            diagnostic_message: None,
+            parse_status: KnowledgeJudgeParseStatus::JudgeFormatFailure { error },
+        }
+    }
+
+    fn agent_unavailable(error: String) -> Self {
+        Self {
+            verdict: KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::MeaningUnclear),
+            diagnostic_message: None,
+            parse_status: KnowledgeJudgeParseStatus::AgentUnavailable { error },
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum KnowledgeJudgeParseStatus {
+    ParsedKnowledgeJudgeResponse,
+    JudgeFormatFailure { error: String },
+    AgentUnavailable { error: String },
+}
+
+impl KnowledgeJudgeParseStatus {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::ParsedKnowledgeJudgeResponse => "parsed_knowledge_judge_response",
+            Self::JudgeFormatFailure { .. } => "judge_format_failure",
+            Self::AgentUnavailable { .. } => "agent_unavailable",
+        }
+    }
+
+    fn parsed_completed_response(&self) -> bool {
+        matches!(self, Self::ParsedKnowledgeJudgeResponse)
+    }
+
+    fn error(&self) -> Option<&str> {
+        match self {
+            Self::ParsedKnowledgeJudgeResponse => None,
+            Self::JudgeFormatFailure { error } | Self::AgentUnavailable { error } => Some(error),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -101,6 +152,7 @@ pub struct KnowledgeJudgeAppliedDecision {
     client_request: MindRequest,
     verdict: KnowledgeJudgeVerdict,
     diagnostic_message: Option<TextBody>,
+    parse_status: KnowledgeJudgeParseStatus,
     reply: MindReply,
 }
 
@@ -114,6 +166,7 @@ impl KnowledgeJudgeAppliedDecision {
             client_request,
             verdict: decision.verdict,
             diagnostic_message: decision.diagnostic_message,
+            parse_status: decision.parse_status,
             reply,
         }
     }
@@ -249,23 +302,23 @@ impl AgentKnowledgeJudge {
         completion: &CompletionText,
     ) -> std::result::Result<KnowledgeJudgeDecision, AgentKnowledgeJudgeError> {
         let source = NotaSource::new(completion.payload());
-        match source.parse::<KnowledgeJudgeResponse>() {
-            Ok(response) => Ok(KnowledgeJudgeDecision::from_response(response)),
-            Err(response_error) => NotaSource::new(completion.payload())
-                .parse::<KnowledgeJudgeVerdict>()
-                .map(KnowledgeJudgeDecision::new)
-                .map_err(|verdict_error| {
-                    AgentKnowledgeJudgeError::Malformed(format!(
-                        "response: {response_error}; bare verdict: {verdict_error}"
-                    ))
-                }),
-        }
+        source
+            .parse::<KnowledgeJudgeResponse>()
+            .map(KnowledgeJudgeDecision::from_response)
+            .map_err(|response_error| {
+                AgentKnowledgeJudgeError::Malformed(format!(
+                    "KnowledgeJudgeResponse: {response_error}"
+                ))
+            })
     }
 
-    fn unavailable_decision(_error: AgentKnowledgeJudgeError) -> KnowledgeJudgeDecision {
-        KnowledgeJudgeDecision::new(KnowledgeJudgeVerdict::Reject(
-            KnowledgeRejectionReason::MeaningUnclear,
-        ))
+    fn unavailable_decision(error: AgentKnowledgeJudgeError) -> KnowledgeJudgeDecision {
+        match error {
+            AgentKnowledgeJudgeError::Malformed(message) => {
+                KnowledgeJudgeDecision::format_failure(message)
+            }
+            other => KnowledgeJudgeDecision::agent_unavailable(other.to_string()),
+        }
     }
 }
 
@@ -307,12 +360,13 @@ impl KnowledgeJudge for AgentKnowledgeJudge {
                 decision
             }
             Err(error) => {
+                let decision = Self::unavailable_decision(error);
                 self.configuration.request_response_log.write_completed(
                     request.client_request(),
                     completion.completion_text.payload(),
-                    None,
+                    Some(&decision),
                 );
-                Self::unavailable_decision(error)
+                decision
             }
         }
     }
@@ -386,6 +440,12 @@ impl JudgeRequestResponseLog {
             "raw_response": raw_response,
         });
         if let Some(decision) = decision {
+            record["judge_response_parse_status"] = json!(decision.parse_status().as_str());
+            record["parsed_completed_response"] =
+                json!(decision.parse_status().parsed_completed_response());
+            if let Some(error) = decision.parse_status().error() {
+                record["judge_response_parse_error"] = json!(error);
+            }
             record["parsed_verdict"] = json!(decision.verdict().to_nota());
             record["diagnostic_message"] = json!(
                 decision
@@ -412,6 +472,9 @@ impl JudgeRequestResponseLog {
             "request": decision.client_request.to_nota(),
             "parsed_verdict": decision.verdict.to_nota(),
             "diagnostic_message": decision.diagnostic_message.as_ref().map(|message| message.as_str()),
+            "judge_response_parse_status": decision.parse_status.as_str(),
+            "parsed_completed_response": decision.parse_status.parsed_completed_response(),
+            "judge_response_parse_error": decision.parse_status.error(),
             "reply": decision.reply.to_nota(),
             "accepted_identity": match &decision.reply {
                 MindReply::Accepted(identity) => Some(identity.as_str()),
@@ -486,10 +549,11 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
              Return exactly one KnowledgeJudgeResponse NOTA value and nothing else: no markdown, no \
              prose around it, no JSON, no code fence. Its first field is the load-bearing \
              KnowledgeJudgeVerdict. Its optional diagnostic_message field is debug-only and \
-             non-load-bearing. A valid accept response is shaped like {accept}. A valid reject \
+             non-load-bearing. The encoded value is positional; do not prefix it with \
+             KnowledgeJudgeResponse. A valid accept response is shaped like {accept}. A valid reject \
              response is shaped like {reject}. Duplicate, conflict, vague, and wrong-subject \
              reject responses are shaped like {duplicate}, {conflict}, {vague}, and \
-             {wrong_subject}.",
+             {wrong_subject}. Never return (Verdict accepted); that is malformed output.",
             training = self.training_source.prompt_text().trim(),
             accept = Self::accept_example(),
             reject = Self::reject_example(),

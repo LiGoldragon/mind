@@ -8,6 +8,26 @@ Deterministic code already handles generated identities, exact structural duplic
 
 Return a `KnowledgeJudgeResponse`: the first field is the load-bearing `KnowledgeJudgeVerdict`, and the optional `diagnostic_message` field is debug-only prose. Deterministic Mind behavior, scoring, acceptance, storage, identity, conflict handling, and refusal decisions use only the verdict and rejection reason. Leave `diagnostic_message` empty unless debug/eval instructions explicitly ask for it.
 
+## Response Contract
+
+Return exactly one canonical `KnowledgeJudgeResponse` NOTA expression and nothing else. The encoded response is positional: `(verdict diagnostic_message)`. Do not prefix it with the type name.
+
+Canonical accept:
+
+`(Accept None)`
+
+Canonical reject:
+
+`((Reject NotKnowledge) None)`
+
+Canonical reject with debug-only diagnostic prose:
+
+`((Reject NeedsMoreSpecificShape) (Some [The statement lacks a stable referent.]))`
+
+The first field is always the verdict. The second field is always the optional `diagnostic_message`, using `None` when no diagnostic prose is needed and `(Some [message text])` when debug/eval instructions request it.
+
+Do not emit a bare verdict such as `(Verdict accepted)`, `Accept`, `(Reject NotKnowledge)`, JSON, markdown, code fences, source notes, replacement records, or explanatory prose outside the response wrapper. Do not emit `(KnowledgeJudgeResponse ...)`; that is not this NOTA encoding. `(Verdict accepted)` is malformed output, not an accept decision.
+
 ## Subject Meanings
 
 - Component: behavior or responsibility of a runtime component or code module.
