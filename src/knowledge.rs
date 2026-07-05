@@ -15,8 +15,9 @@ use signal_agent::{
     ReasoningEffort, SystemText, TemperatureMilli, ThinkingMode,
 };
 use signal_mind::{
-    AcceptedKnowledge, ActorName, KnowledgeIdentity, KnowledgeJudgePacket, KnowledgeJudgeVerdict,
-    KnowledgeRejectionReason, KnowledgeSubject, KnowledgeSubmission, MindReply, MindRequest,
+    AcceptedKnowledge, ActorName, KnowledgeIdentity, KnowledgeJudgePacket, KnowledgeJudgeResponse,
+    KnowledgeJudgeVerdict, KnowledgeRejectionReason, KnowledgeSubject, KnowledgeSubmission,
+    MindReply, MindRequest, TextBody,
 };
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
@@ -35,7 +36,9 @@ const JUDGE_DIAGNOSTIC_PATH_ENVIRONMENT: &str = "MIND_JUDGE_DIAGNOSTIC_PATH";
 const JUDGE_DIAGNOSTIC_TEXT_ENVIRONMENT: &str = "MIND_JUDGE_DIAGNOSTIC_TEXT";
 
 pub trait KnowledgeJudge: Send + Sync {
-    fn judge(&self, request: KnowledgeJudgeRequest) -> KnowledgeJudgeVerdict;
+    fn judge(&self, request: KnowledgeJudgeRequest) -> KnowledgeJudgeDecision;
+
+    fn record_applied_decision(&self, _decision: KnowledgeJudgeAppliedDecision) {}
 }
 
 pub type KnowledgeJudgePort = Arc<dyn KnowledgeJudge>;
@@ -60,6 +63,59 @@ impl KnowledgeJudgeRequest {
 
     fn packet(&self) -> &KnowledgeJudgePacket {
         &self.packet
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KnowledgeJudgeDecision {
+    verdict: KnowledgeJudgeVerdict,
+    diagnostic_message: Option<TextBody>,
+}
+
+impl KnowledgeJudgeDecision {
+    fn new(verdict: KnowledgeJudgeVerdict) -> Self {
+        Self {
+            verdict,
+            diagnostic_message: None,
+        }
+    }
+
+    fn from_response(response: KnowledgeJudgeResponse) -> Self {
+        Self {
+            verdict: response.verdict,
+            diagnostic_message: response.diagnostic_message,
+        }
+    }
+
+    fn verdict(&self) -> &KnowledgeJudgeVerdict {
+        &self.verdict
+    }
+
+    fn diagnostic_message(&self) -> Option<&TextBody> {
+        self.diagnostic_message.as_ref()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct KnowledgeJudgeAppliedDecision {
+    client_request: MindRequest,
+    verdict: KnowledgeJudgeVerdict,
+    diagnostic_message: Option<TextBody>,
+    reply: MindReply,
+}
+
+impl KnowledgeJudgeAppliedDecision {
+    fn new(
+        client_request: MindRequest,
+        decision: KnowledgeJudgeDecision,
+        reply: MindReply,
+    ) -> Self {
+        Self {
+            client_request,
+            verdict: decision.verdict,
+            diagnostic_message: decision.diagnostic_message,
+            reply,
+        }
     }
 }
 
@@ -102,9 +158,9 @@ impl Default for FixtureKnowledgeJudge {
 }
 
 impl KnowledgeJudge for FixtureKnowledgeJudge {
-    fn judge(&self, _request: KnowledgeJudgeRequest) -> KnowledgeJudgeVerdict {
+    fn judge(&self, _request: KnowledgeJudgeRequest) -> KnowledgeJudgeDecision {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        self.next_verdict()
+        KnowledgeJudgeDecision::new(self.next_verdict())
     }
 }
 
@@ -188,22 +244,33 @@ impl AgentKnowledgeJudge {
             .map_err(|error| AgentKnowledgeJudgeError::Frame(error.to_string()))
     }
 
-    fn parse_verdict(
+    fn parse_decision(
         &self,
         completion: &CompletionText,
-    ) -> std::result::Result<KnowledgeJudgeVerdict, AgentKnowledgeJudgeError> {
-        NotaSource::new(completion.payload())
-            .parse::<KnowledgeJudgeVerdict>()
-            .map_err(|error| AgentKnowledgeJudgeError::Malformed(error.to_string()))
+    ) -> std::result::Result<KnowledgeJudgeDecision, AgentKnowledgeJudgeError> {
+        let source = NotaSource::new(completion.payload());
+        match source.parse::<KnowledgeJudgeResponse>() {
+            Ok(response) => Ok(KnowledgeJudgeDecision::from_response(response)),
+            Err(response_error) => NotaSource::new(completion.payload())
+                .parse::<KnowledgeJudgeVerdict>()
+                .map(KnowledgeJudgeDecision::new)
+                .map_err(|verdict_error| {
+                    AgentKnowledgeJudgeError::Malformed(format!(
+                        "response: {response_error}; bare verdict: {verdict_error}"
+                    ))
+                }),
+        }
     }
 
-    fn unavailable_verdict(_error: AgentKnowledgeJudgeError) -> KnowledgeJudgeVerdict {
-        KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::MeaningUnclear)
+    fn unavailable_decision(_error: AgentKnowledgeJudgeError) -> KnowledgeJudgeDecision {
+        KnowledgeJudgeDecision::new(KnowledgeJudgeVerdict::Reject(
+            KnowledgeRejectionReason::MeaningUnclear,
+        ))
     }
 }
 
 impl KnowledgeJudge for AgentKnowledgeJudge {
-    fn judge(&self, request: KnowledgeJudgeRequest) -> KnowledgeJudgeVerdict {
+    fn judge(&self, request: KnowledgeJudgeRequest) -> KnowledgeJudgeDecision {
         let prompt = KnowledgeJudgePrompt::new(
             request.packet(),
             self.configuration.provider_name.as_deref(),
@@ -220,24 +287,40 @@ impl KnowledgeJudge for AgentKnowledgeJudge {
         .write();
         let output = match self.call_agent(prompt) {
             Ok(output) => output,
-            Err(error) => return Self::unavailable_verdict(error),
+            Err(error) => return Self::unavailable_decision(error),
         };
         let AgentOutput::Completed(completion) = output else {
             self.configuration
                 .request_response_log
                 .write_agent_output(request.client_request(), &output);
-            return Self::unavailable_verdict(AgentKnowledgeJudgeError::AgentRejected(format!(
+            return Self::unavailable_decision(AgentKnowledgeJudgeError::AgentRejected(format!(
                 "{output:?}"
             )));
         };
-        self.configuration.request_response_log.write(
-            request.client_request(),
-            completion.completion_text.payload(),
-        );
-        match self.parse_verdict(&completion.completion_text) {
-            Ok(verdict) => verdict,
-            Err(error) => Self::unavailable_verdict(error),
+        match self.parse_decision(&completion.completion_text) {
+            Ok(decision) => {
+                self.configuration.request_response_log.write_completed(
+                    request.client_request(),
+                    completion.completion_text.payload(),
+                    Some(&decision),
+                );
+                decision
+            }
+            Err(error) => {
+                self.configuration.request_response_log.write_completed(
+                    request.client_request(),
+                    completion.completion_text.payload(),
+                    None,
+                );
+                Self::unavailable_decision(error)
+            }
         }
+    }
+
+    fn record_applied_decision(&self, decision: KnowledgeJudgeAppliedDecision) {
+        self.configuration
+            .request_response_log
+            .write_applied_decision(&decision);
     }
 }
 
@@ -290,19 +373,50 @@ impl JudgeRequestResponseLog {
         }
     }
 
-    fn write(&self, client_request: &MindRequest, raw_response: &str) {
-        self.write_record(json!({
+    fn write_completed(
+        &self,
+        client_request: &MindRequest,
+        raw_response: &str,
+        decision: Option<&KnowledgeJudgeDecision>,
+    ) {
+        let mut record = json!({
+            "kind": "completed_response",
             "timestamp_unix_millis": JudgeRequestResponseLogClock::now_unix_millis(),
             "request": client_request.to_nota(),
             "raw_response": raw_response,
-        }));
+        });
+        if let Some(decision) = decision {
+            record["parsed_verdict"] = json!(decision.verdict().to_nota());
+            record["diagnostic_message"] = json!(
+                decision
+                    .diagnostic_message()
+                    .map(|message| message.as_str())
+            );
+        }
+        self.write_record(record);
     }
 
     fn write_agent_output(&self, client_request: &MindRequest, output: &AgentOutput) {
         self.write_record(json!({
+            "kind": "agent_output",
             "timestamp_unix_millis": JudgeRequestResponseLogClock::now_unix_millis(),
             "request": client_request.to_nota(),
             "agent_output": format!("{output:?}"),
+        }));
+    }
+
+    fn write_applied_decision(&self, decision: &KnowledgeJudgeAppliedDecision) {
+        self.write_record(json!({
+            "kind": "applied_decision",
+            "timestamp_unix_millis": JudgeRequestResponseLogClock::now_unix_millis(),
+            "request": decision.client_request.to_nota(),
+            "parsed_verdict": decision.verdict.to_nota(),
+            "diagnostic_message": decision.diagnostic_message.as_ref().map(|message| message.as_str()),
+            "reply": decision.reply.to_nota(),
+            "accepted_identity": match &decision.reply {
+                MindReply::Accepted(identity) => Some(identity.as_str()),
+                _ => None,
+            },
         }));
     }
 
@@ -369,10 +483,13 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
     fn system_prompt(&self) -> String {
         format!(
             "{training}\n\n\
-             Return exactly one KnowledgeJudgeVerdict NOTA value and nothing else: no markdown, no \
-             prose around it, no JSON, no code fence. A valid accept is shaped like {accept}. A \
-             valid reject is shaped like {reject}. Duplicate, conflict, vague, and wrong-subject \
-             rejects are shaped like {duplicate}, {conflict}, {vague}, and {wrong_subject}.",
+             Return exactly one KnowledgeJudgeResponse NOTA value and nothing else: no markdown, no \
+             prose around it, no JSON, no code fence. Its first field is the load-bearing \
+             KnowledgeJudgeVerdict. Its optional diagnostic_message field is debug-only and \
+             non-load-bearing. A valid accept response is shaped like {accept}. A valid reject \
+             response is shaped like {reject}. Duplicate, conflict, vague, and wrong-subject \
+             reject responses are shaped like {duplicate}, {conflict}, {vague}, and \
+             {wrong_subject}.",
             training = self.training_source.prompt_text().trim(),
             accept = Self::accept_example(),
             reject = Self::reject_example(),
@@ -386,7 +503,7 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
     fn user_prompt(&self) -> String {
         format!(
             "KnowledgeJudgePacket under judgment:\n{}\n\n\
-             Return one KnowledgeJudgeVerdict.",
+             Return one KnowledgeJudgeResponse.",
             self.packet.to_nota(),
         )
     }
@@ -420,34 +537,42 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
     }
 
     fn accept_example() -> String {
-        KnowledgeJudgeVerdict::Accept.to_nota()
+        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Accept).to_nota()
     }
 
     fn reject_example() -> String {
-        KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::NotKnowledge).to_nota()
+        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Reject(
+            KnowledgeRejectionReason::NotKnowledge,
+        ))
+        .to_nota()
     }
 
     fn duplicate_example() -> String {
-        KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::SemanticDuplicate(
-            KnowledgeIdentity::new("abcd"),
+        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Reject(
+            KnowledgeRejectionReason::SemanticDuplicate(KnowledgeIdentity::new("abcd")),
         ))
         .to_nota()
     }
 
     fn conflict_example() -> String {
-        KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::ConflictsAcceptedKnowledge(vec![
-            KnowledgeIdentity::new("abcd"),
-        ]))
+        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Reject(
+            KnowledgeRejectionReason::ConflictsAcceptedKnowledge(vec![KnowledgeIdentity::new(
+                "abcd",
+            )]),
+        ))
         .to_nota()
     }
 
     fn vague_example() -> String {
-        KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::NeedsMoreSpecificShape).to_nota()
+        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Reject(
+            KnowledgeRejectionReason::NeedsMoreSpecificShape,
+        ))
+        .to_nota()
     }
 
     fn wrong_subject_example() -> String {
-        KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::WrongSubject(
-            KnowledgeSubject::Component,
+        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Reject(
+            KnowledgeRejectionReason::WrongSubject(KnowledgeSubject::Component),
         ))
         .to_nota()
     }
@@ -682,10 +807,17 @@ impl<'tables> KnowledgeAdmission<'tables> {
 
         let request =
             KnowledgeJudgeRequest::new(MindRequest::Submit(self.submission.clone()), packet);
-        match judge.judge(request) {
+        let decision = judge.judge(request);
+        let reply = match decision.verdict() {
             KnowledgeJudgeVerdict::Accept => self.apply_acceptance(),
-            KnowledgeJudgeVerdict::Reject(reason) => MindReply::Rejected(reason),
-        }
+            KnowledgeJudgeVerdict::Reject(reason) => MindReply::Rejected(reason.clone()),
+        };
+        judge.record_applied_decision(KnowledgeJudgeAppliedDecision::new(
+            MindRequest::Submit(self.submission.clone()),
+            decision,
+            reply.clone(),
+        ));
+        reply
     }
 
     fn apply_acceptance(&self) -> MindReply {

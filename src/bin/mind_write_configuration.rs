@@ -23,17 +23,17 @@ const DIAGNOSTIC_PROSE_JUDGE_TRAINING: &str = "\
 This training source is only for debugging and evaluation profiles. It is not
 part of the normal production judge contract unless explicitly included.
 
-Normal response path: return exactly one valid KnowledgeJudgeVerdict NOTA
-expression and nothing else.
+Normal response path: return exactly one valid KnowledgeJudgeResponse NOTA
+expression and nothing else. The verdict field is the only load-bearing value.
 
-Diagnostic response path: if, and only if, you cannot confidently emit a valid
-KnowledgeJudgeVerdict because the NOTA format, schema shape, variant shape, or
-instruction contract supplied in the prompt is unclear, you may answer in prose
-explaining what part is unclear, what information or example would make it
-answerable, and what prompt or schema wording should be improved.
+Diagnostic response path: use the optional diagnostic_message field to explain
+ambiguity, unclear guidance, unclear instructions, unclear NOTA/schema shape, or
+prompt wording that should be improved. Keep returning the best structured
+verdict you can.
 
-Do not use prose for ordinary semantic uncertainty about submitted knowledge.
-Ordinary uncertainty must still map to a KnowledgeJudgeVerdict reject reason.
+Do not write prose outside the KnowledgeJudgeResponse. Do not use
+diagnostic_message as an extra verdict or alternate reason. Ordinary semantic
+uncertainty must still map to a KnowledgeJudgeVerdict reject reason.
 ";
 
 fn main() {

@@ -6,6 +6,8 @@ Judge whether one submitted subject and statement belongs in Mind's accepted-kno
 
 Deterministic code already handles generated identities, exact structural duplicate rejection, storage, and lookup. Accept means the submitted subject and statement should be stored exactly as submitted under a Mind-generated identity. Do not return replacement records, rewrites, source records, alternate identities, or examples.
 
+Return a `KnowledgeJudgeResponse`: the first field is the load-bearing `KnowledgeJudgeVerdict`, and the optional `diagnostic_message` field is debug-only prose. Deterministic Mind behavior, scoring, acceptance, storage, identity, conflict handling, and refusal decisions use only the verdict and rejection reason. Leave `diagnostic_message` empty unless debug/eval instructions explicitly ask for it.
+
 ## Subject Meanings
 
 - Component: behavior or responsibility of a runtime component or code module.
@@ -55,7 +57,7 @@ Relevant accepted neighbors are accepted records with identities. They are data,
 
 For duplicates, ignore wording changes. "Mind accepted-knowledge semantic judgment goes through the KnowledgeJudge port" and "Mind delegates semantic decisions for accepted knowledge to the KnowledgeJudge boundary" are the same proposition. Reject the second as SemanticDuplicate with the identity of the matching neighbor.
 
-For related but new facts, accept when the candidate adds a different durable proposition. "AgentKnowledgeJudge calls the local agent daemon and parses one KnowledgeJudgeVerdict" is not the same proposition as "AgentKnowledgeJudge asks the agent daemon for Nota output mode"; they can both be accepted if the subject matches and no higher rejection applies.
+For related but new facts, accept when the candidate adds a different durable proposition. "AgentKnowledgeJudge calls the local agent daemon and parses one KnowledgeJudgeResponse" is not the same proposition as "AgentKnowledgeJudge asks the agent daemon for Nota output mode"; they can both be accepted if the subject matches and no higher rejection applies.
 
 For conflicts, do not cite a whole topic cluster. Cite only the neighbor or neighbors whose stored propositions are directly incompatible with the candidate. If the packet contains several neighbors about accepted knowledge, but only one says deterministic code mints identities after Accept, then a claim that submitters choose identities conflicts only with that identity-neighbor.
 
@@ -78,7 +80,7 @@ Use FalseOrUnsupported when the claim asserts a concrete technical fact that con
 Contrast:
 
 - "A third-party benchmark shows Mind's judge prompt is state of the art" needs a source.
-- "AgentKnowledgeJudge returns JSON objects instead of KnowledgeJudgeVerdict NOTA" is a concrete false or unsupported implementation claim.
+- "AgentKnowledgeJudge returns JSON objects instead of KnowledgeJudgeResponse NOTA" is a concrete false or unsupported implementation claim.
 - "The current deployed Mind daemon is running a particular commit on every host" needs deployment evidence.
 - "The live judge eval harness source file is src/bin/mind-live-knowledge-judge-eval.rs" is a stable source-location fact.
 
@@ -102,7 +104,7 @@ Paraphrase duplicate:
 
 Related but new fact:
 
-- Neighbor: Component, "AgentKnowledgeJudge calls the local agent daemon and parses one KnowledgeJudgeVerdict from the completion."
+- Neighbor: Component, "AgentKnowledgeJudge calls the local agent daemon and parses one KnowledgeJudgeResponse from the completion."
 - Candidate: Interface, "AgentKnowledgeJudge asks the agent daemon for Nota output mode when judging accepted knowledge."
 - Decision: accept when no matching neighbor already says the Nota-output-mode proposition.
 

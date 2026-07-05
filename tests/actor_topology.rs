@@ -22,17 +22,17 @@ use signal_mind::{
     AboutTechnicalNode, AcceptedSubscriptionStream, ActiveClaim, ActorName, ByRelationKind,
     ByTechnicalNodeStableKey, ByTechnicalRelationSource, ByThoughtKind, ClaimActivity, ClaimBody,
     ClaimScope, FileReference, GoalBody, GoalScope, ItemKind, KnowledgeIdentity,
-    KnowledgeJudgeVerdict, KnowledgeRecord, KnowledgeRejectionReason, KnowledgeSubject,
-    KnowledgeSubmission, Magnitude, MindReply, MindRequest, Opening, PathClaimScope, Query,
-    QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes, QueryTechnicalRelations,
-    QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter, RelationKind, RoleName,
-    SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation, SubmitThought,
-    SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations, SubscribeThoughts,
-    SubscriptionCursor, SubscriptionDemand, SubscriptionDemandCredit, SubscriptionStreamEvent,
-    SubscriptionStreamKind, TaskToken, TechnicalDependencyClosureQuery, TechnicalNodeBody,
-    TechnicalNodeFilter, TechnicalNodeKey, TechnicalNodeKind, TechnicalNodeQuery,
-    TechnicalNodeRejectionReason, TechnicalProvenanceChainQuery, TechnicalRelationFilter,
-    TechnicalRelationKind, TechnicalRelationNeighborhoodDirection,
+    KnowledgeJudgeResponse, KnowledgeJudgeVerdict, KnowledgeRecord, KnowledgeRejectionReason,
+    KnowledgeSubject, KnowledgeSubmission, Magnitude, MindReply, MindRequest, Opening,
+    PathClaimScope, Query, QueryKind, QueryLimit, QueryRelations, QueryTechnicalNodes,
+    QueryTechnicalRelations, QueryThoughts, ReferenceBody, ReferenceTarget, RelationFilter,
+    RelationKind, RoleName, SubmitRelation, SubmitTechnicalNode, SubmitTechnicalRelation,
+    SubmitThought, SubscribeRelations, SubscribeTechnicalNodes, SubscribeTechnicalRelations,
+    SubscribeThoughts, SubscriptionCursor, SubscriptionDemand, SubscriptionDemandCredit,
+    SubscriptionStreamEvent, SubscriptionStreamKind, TaskToken, TechnicalDependencyClosureQuery,
+    TechnicalNodeBody, TechnicalNodeFilter, TechnicalNodeKey, TechnicalNodeKind,
+    TechnicalNodeQuery, TechnicalNodeRejectionReason, TechnicalProvenanceChainQuery,
+    TechnicalRelationFilter, TechnicalRelationKind, TechnicalRelationNeighborhoodDirection,
     TechnicalRelationNeighborhoodQuery, TechnicalRelationRejectionReason, TechnicalSourceLocator,
     TextBody, ThoughtBody, ThoughtFilter, ThoughtKind, TimestampNanos, Title, WirePath,
     WorkspaceGoal,
@@ -481,6 +481,10 @@ fn reject(reason: KnowledgeRejectionReason) -> KnowledgeJudgeVerdict {
     KnowledgeJudgeVerdict::Reject(reason)
 }
 
+fn response(verdict: KnowledgeJudgeVerdict) -> KnowledgeJudgeResponse {
+    KnowledgeJudgeResponse::new(verdict)
+}
+
 fn accepted_identity(reply: &MindRootReply) -> KnowledgeIdentity {
     let MindReply::Accepted(accepted) = reply.reply().expect("knowledge reply exists") else {
         panic!("expected accepted knowledge reply");
@@ -754,23 +758,28 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
     );
     assert!(prompts[0].contains("# Mind accepted-knowledge judge training"));
     assert!(prompts[0].contains("KnowledgeJudgePacket under judgment"));
-    assert!(prompts[0].contains("Return exactly one KnowledgeJudgeVerdict"));
+    assert!(prompts[0].contains("Return exactly one KnowledgeJudgeResponse"));
+    assert!(prompts[0].contains("diagnostic_message field is debug-only"));
     assert!(prompts[0].contains("Reject imperatives, tasks, instructions, requests"));
-    assert!(prompts[0].contains(&accept().to_nota()));
-    assert!(prompts[0].contains(&reject(KnowledgeRejectionReason::NotKnowledge).to_nota()));
+    assert!(prompts[0].contains(&response(accept()).to_nota()));
+    assert!(
+        prompts[0].contains(&response(reject(KnowledgeRejectionReason::NotKnowledge)).to_nota())
+    );
     assert!(
         prompts[0].contains(
-            &reject(KnowledgeRejectionReason::SemanticDuplicate(
+            &response(reject(KnowledgeRejectionReason::SemanticDuplicate(
                 KnowledgeIdentity::new("abcd")
-            ))
+            )))
             .to_nota()
         )
     );
     assert!(
         prompts[0].contains(
-            &reject(KnowledgeRejectionReason::ConflictsAcceptedKnowledge(vec![
-                KnowledgeIdentity::new("abcd")
-            ]))
+            &response(reject(
+                KnowledgeRejectionReason::ConflictsAcceptedKnowledge(vec![KnowledgeIdentity::new(
+                    "abcd"
+                )])
+            ))
             .to_nota()
         )
     );
@@ -785,7 +794,7 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_knowledge_judge_request_response_log_disabled_by_default_writes_nothing() {
     let log_path = temporary_judge_log_path("disabled");
-    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![accept().to_nota()]);
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![response(accept()).to_nota()]);
     let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
 
     fixture
@@ -820,16 +829,71 @@ async fn agent_knowledge_judge_request_response_log_records_valid_response() {
         .await;
 
     let records = read_judge_log(&log_path);
-    assert_eq!(records.len(), 1);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["kind"], "completed_response");
     assert!(records[0]["timestamp_unix_millis"].is_number());
     assert_eq!(records[0]["raw_response"], accept().to_nota());
+    assert_eq!(records[0]["parsed_verdict"], accept().to_nota());
+    assert_eq!(records[0]["diagnostic_message"], serde_json::Value::Null);
     let request = records[0]["request"].as_str().expect("request is string");
     assert!(request.contains("(Submit"));
     assert!(request.contains("Mind can log the accepted-knowledge judge request and response."));
+    assert_eq!(records[1]["kind"], "applied_decision");
+    assert_eq!(records[1]["parsed_verdict"], accept().to_nota());
+    assert!(records[1]["accepted_identity"].is_string());
+    assert_eq!(
+        records[1]["reply"],
+        format!(
+            "(Accepted {})",
+            records[1]["accepted_identity"]
+                .as_str()
+                .expect("accepted identity")
+        )
+    );
     assert!(
         !request.contains("# Mind accepted-knowledge judge training"),
         "request/response log must not include internal training prompt text"
     );
+
+    fixture.stop().await;
+    fake_agent.join();
+    let _ = std::fs::remove_file(log_path);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_knowledge_judge_diagnostic_message_is_logged_but_not_load_bearing() {
+    let log_path = temporary_judge_log_path("diagnostic-message");
+    let diagnostic = "Ambiguous guidance note that must not change the verdict.";
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![
+        response(accept())
+            .with_diagnostic_message(diagnostic)
+            .to_nota(),
+    ]);
+    let judge = fake_agent.knowledge_judge_with_request_response_log(&log_path);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(judge)).await;
+
+    let reply = fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Component,
+            "Mind ignores diagnostic judge prose for accepted-knowledge decisions.",
+        ))
+        .await;
+    let identity = accepted_identity(&reply);
+    let record = found_record(&fixture.submit(knowledge_get(identity.clone())).await);
+    assert_eq!(
+        record.statement.as_str(),
+        "Mind ignores diagnostic judge prose for accepted-knowledge decisions."
+    );
+
+    let records = read_judge_log(&log_path);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["kind"], "completed_response");
+    assert_eq!(records[0]["parsed_verdict"], accept().to_nota());
+    assert_eq!(records[0]["diagnostic_message"], diagnostic);
+    assert_eq!(records[1]["kind"], "applied_decision");
+    assert_eq!(records[1]["parsed_verdict"], accept().to_nota());
+    assert_eq!(records[1]["diagnostic_message"], diagnostic);
+    assert_eq!(records[1]["accepted_identity"], identity.as_str());
 
     fixture.stop().await;
     fake_agent.join();
@@ -855,8 +919,15 @@ async fn agent_knowledge_judge_request_response_log_records_malformed_response()
     ));
 
     let records = read_judge_log(&log_path);
-    assert_eq!(records.len(), 1);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["kind"], "completed_response");
     assert_eq!(records[0]["raw_response"], "not a verdict");
+    assert_eq!(records[1]["kind"], "applied_decision");
+    assert_eq!(
+        records[1]["parsed_verdict"],
+        reject(KnowledgeRejectionReason::MeaningUnclear).to_nota()
+    );
+    assert_eq!(records[1]["accepted_identity"], serde_json::Value::Null);
     assert!(
         records[0]["request"]
             .as_str()
@@ -892,7 +963,8 @@ async fn agent_knowledge_judge_request_response_log_records_non_completed_agent_
     ));
 
     let records = read_judge_log(&log_path);
-    assert_eq!(records.len(), 1);
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0]["kind"], "agent_output");
     assert!(
         records[0]["agent_output"]
             .as_str()
@@ -904,6 +976,11 @@ async fn agent_knowledge_judge_request_response_log_records_non_completed_agent_
             .as_str()
             .expect("request is string")
             .contains("Mind logs non-completed agent judge outputs.")
+    );
+    assert_eq!(records[1]["kind"], "applied_decision");
+    assert_eq!(
+        records[1]["parsed_verdict"],
+        reject(KnowledgeRejectionReason::MeaningUnclear).to_nota()
     );
 
     fixture.stop().await;
