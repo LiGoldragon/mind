@@ -391,7 +391,7 @@ checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 [[package]]
 name = "meta-signal-mind"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-mind.git?branch=drop-next#0e875b54377470c8c2dbd6df2f666e1130c29f9c"
+source = "git+https://github.com/LiGoldragon/meta-signal-mind.git?branch=drop-next#e8ff7a7610adda5fb2f72c0d514d67ce4227af50"
 dependencies = [
  "nota",
  "rkyv",
@@ -403,7 +403,7 @@ dependencies = [
 [[package]]
 name = "meta-signal-orchestrate"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/meta-signal-orchestrate.git?branch=drop-next#644e6e49ac55a018bdb4ac3afd64da0ed9d19950"
+source = "git+https://github.com/LiGoldragon/meta-signal-orchestrate.git?branch=drop-next#9cefaafa017dddbdfa8c78bc16cd6c2a23b196c8"
 dependencies = [
  "nota",
  "rkyv",
@@ -673,7 +673,7 @@ dependencies = [
 [[package]]
 name = "schema-rust"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust.git?branch=drop-next#94a0aa88a1d909b6f87cbf1431762c6fb0e19b71"
+source = "git+https://github.com/LiGoldragon/schema-rust.git?branch=drop-next#72c71ffc558fee0d29c5b0517013de46e0307597"
 dependencies = [
  "nota",
  "prettyplease",
@@ -771,7 +771,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 [[package]]
 name = "signal-agent"
 version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-agent.git?branch=drop-next#25cbde4e50f557a4e7b2bc59d2a8a1e9831ea0a3"
+source = "git+https://github.com/LiGoldragon/signal-agent.git?branch=drop-next#064f2fe6d0df64acc73b8080affb9262c20aaa1f"
 dependencies = [
  "nota",
  "rkyv",
@@ -783,7 +783,7 @@ dependencies = [
 [[package]]
 name = "signal-criome"
 version = "0.6.0"
-source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=drop-next#4962a606abc1e0efb8b5ee5ac031b2a3c06bb8f3"
+source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=drop-next#b4bfeecef41a05a6a93b7909976ab5312a17fa46"
 dependencies = [
  "blake3",
  "blst",
@@ -840,7 +840,7 @@ dependencies = [
 [[package]]
 name = "signal-mind"
 version = "0.7.0"
-source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=drop-next#b6ec6ac165f6ed76fb18ec0f9836dffb477d4196"
+source = "git+https://github.com/LiGoldragon/signal-mind.git?branch=drop-next#458ad2dca2dbca8679f7d88c12f2673e462fc118"
 dependencies = [
  "nota",
  "rkyv",
@@ -852,7 +852,7 @@ dependencies = [
 [[package]]
 name = "signal-orchestrate"
 version = "0.4.0"
-source = "git+https://github.com/LiGoldragon/signal-orchestrate.git?branch=drop-next#2435be195d0985e1c9fa8718ca75ffb84c235b6a"
+source = "git+https://github.com/LiGoldragon/signal-orchestrate.git?branch=drop-next#ab12e8ad1b183863c36e3402c69c8f109a93b2c4"
 dependencies = [
  "nota",
  "rkyv",
@@ -865,7 +865,7 @@ dependencies = [
 [[package]]
 name = "signal-persona"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=drop-next#e8eead5ae6d576a298ee547b78901fe7fd7c7afc"
+source = "git+https://github.com/LiGoldragon/signal-persona.git?branch=drop-next#9de82cd3a11270dd3c38ed507553c78ea703b25f"
 dependencies = [
  "nota",
  "rkyv",
