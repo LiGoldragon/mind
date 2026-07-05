@@ -139,7 +139,7 @@ async fn choreography_refresh_decision_calls_orchestrate_meta_refresh() {
     let Some(MetaOrchestrateReply::RepositoryIndexRefreshed(refreshed)) = result.reply() else {
         panic!("expected repository refresh, got {result:?}");
     };
-    assert_eq!(refreshed.repositories, 1);
+    assert_eq!(refreshed.repositories(), 1);
     assert_eq!(
         request,
         MetaOrchestrateRequest::Refresh(RefreshRepositoryIndexOrder {})
@@ -216,7 +216,7 @@ impl MetaResponder {
                     .try_into()
                     .expect("repository count fits u32");
                 MetaOrchestrateReply::RepositoryIndexRefreshed(
-                    meta_signal_orchestrate::RepositoryIndexRefreshed { repositories },
+                    meta_signal_orchestrate::RepositoryIndexRefreshed::new(repositories),
                 )
             }
             request => MetaOrchestrateReply::MetaOrchestrateRequestUnimplemented(
