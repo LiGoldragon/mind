@@ -11,7 +11,7 @@ pub mod error;
 pub mod eval_fixture {
     use signal_mind::AcceptedKnowledge;
 
-    use crate::tables::{GraphSubscriptionPublisher, MindTables};
+    use crate::tables::MindTables;
     use crate::{Result, StoreLocation};
 
     pub struct AcceptedKnowledgeFixturePrepopulation {
@@ -25,8 +25,7 @@ pub mod eval_fixture {
         }
 
         pub fn prepopulate(self) -> Result<AcceptedKnowledge> {
-            let tables = MindTables::open(&self.store, GraphSubscriptionPublisher::Disabled)?;
-            tables.assert_accepted_knowledge(self.record)
+            MindTables::prepopulate_accepted_knowledge_fixture(&self.store, self.record)
         }
     }
 }

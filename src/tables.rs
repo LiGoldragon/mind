@@ -548,6 +548,15 @@ impl MindTables {
         Ok(tables)
     }
 
+    #[cfg(feature = "eval-fixture-prepopulation")]
+    pub(crate) fn prepopulate_accepted_knowledge_fixture(
+        store: &StoreLocation,
+        record: AcceptedKnowledge,
+    ) -> Result<AcceptedKnowledge> {
+        let tables = Self::open(store, GraphSubscriptionPublisher::Disabled)?;
+        tables.assert_accepted_knowledge(record)
+    }
+
     fn engine_open(store: &StoreLocation) -> EngineOpen {
         Self::engine_open_with_version(store, MIND_SCHEMA_VERSION)
     }
