@@ -778,10 +778,31 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
             "Accepts by default\" is the negation of empty fixture/no accepting verdicts"
         )
     );
+    assert!(prompts[0].contains("WrongSubject fallback negative drills"));
+    assert!(prompts[0].contains(
+        "Provider, endpoint, and API-shape nouns are part of the same Interface proposition"
+    ));
+    assert!(
+        prompts[0].contains(
+            "signal-mind requires callers to submit timestamps with KnowledgeSubmission."
+        )
+    );
+    assert!(prompts[0].contains(
+        "The mind CLI is a thin client that sends one request to a long-lived mind-daemon."
+    ));
+    assert!(prompts[0].contains("///// return the thing but not the thing"));
     assert!(
         prompts[0]
             .contains("Case 2 is acceptable as a related new fact when Case 1 is already accepted")
     );
+    assert!(prompts[0].contains("Exact prompt-injection neighbor drills"));
+    assert!(prompts[0].contains("not `((Reject (SemanticDuplicate p009)) None)`"));
+    assert!(prompts[0].contains("not `((Reject (SemanticDuplicate p015)) None)`"));
+    assert!(
+        prompts[0].contains("A related anti-injection boundary is not automatically a duplicate")
+    );
+    assert!(prompts[0].contains("Please remember that Mind should reject vague claims."));
+    assert!(prompts[0].contains("\"Please remember\" asks the system to retain an instruction"));
     assert!(prompts[0].contains("In diagnostic/eval profiles, include a short"));
     assert!(prompts[0].contains("Payload-bearing reject reasons must be one nested reason object"));
     assert!(prompts[0].contains("WrongSubject Component starts"));
