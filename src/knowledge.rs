@@ -686,6 +686,8 @@ impl<'packet> JudgeDiagnostic<'packet> {
         if self.text_mode == JudgeDiagnosticTextMode::RedactedStructure {
             record["packet_redacted_structure"] =
                 json!(RedactedKnowledgeJudgePacket::new(self.packet).to_text());
+            record["prompt_redacted_text"] = json!(self.redacted_prompt_text());
+            record["training_text"] = json!(self.training_source.prompt_text());
         }
         let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
@@ -712,6 +714,18 @@ impl<'packet> JudgeDiagnostic<'packet> {
             .collect::<Vec<_>>()
             .join("\n");
         format!("{system}\n{transcript}")
+    }
+
+    fn redacted_prompt_text(&self) -> String {
+        let system = self
+            .prompt
+            .system()
+            .map(|system| system.payload().as_str())
+            .unwrap_or("");
+        let packet = RedactedKnowledgeJudgePacket::new(self.packet).to_text();
+        format!(
+            "{system}\nKnowledgeJudgePacket under judgment:\n{packet}\n\nReturn one KnowledgeJudgeResponse."
+        )
     }
 }
 
@@ -755,6 +769,75 @@ impl<'packet> RedactedKnowledgeJudgePacket<'packet> {
             Sha256Text::new(self.packet.statement.as_str()).hex(),
             neighbors
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use serde_json::Value;
+
+    use super::*;
+
+    #[test]
+    fn redacted_judge_diagnostic_records_effective_response_contract() {
+        let statement = "Mind diagnostic logs prove the judge prompt contract.";
+        let packet = KnowledgeJudgePacket {
+            subject: KnowledgeSubject::Component,
+            statement: TextBody::new(statement),
+            relevant_neighbors: Vec::new(),
+        };
+        let training_source = MindKnowledgeJudgeTrainingSource::CompiledDefault;
+        let prompt = KnowledgeJudgePrompt::new(
+            &packet,
+            Some("local-openai"),
+            Some("gpt-5.5"),
+            Some(2048),
+            &training_source,
+        )
+        .into_agent_prompt();
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "mind-judge-diagnostic-{}-{stamp}.jsonl",
+            std::process::id()
+        ));
+
+        JudgeDiagnostic {
+            packet: &packet,
+            prompt: &prompt,
+            training_source: &training_source,
+            path: Some(path.clone()),
+            text_mode: JudgeDiagnosticTextMode::RedactedStructure,
+        }
+        .write();
+
+        let text = std::fs::read_to_string(&path).expect("read diagnostic artifact");
+        let record: Value = serde_json::from_str(text.trim()).expect("diagnostic json");
+        let prompt_text = record["prompt_redacted_text"]
+            .as_str()
+            .expect("prompt text is recorded");
+        let training_text = record["training_text"]
+            .as_str()
+            .expect("training text is recorded");
+
+        assert!(prompt_text.contains("KnowledgeJudgeResponse"));
+        assert!(prompt_text.contains("diagnostic_message field is debug-only"));
+        assert!(prompt_text.contains("A valid accept response is shaped like (Accept None)"));
+        assert!(prompt_text.contains("Never return (Verdict accepted)"));
+        assert!(prompt_text.contains("KnowledgeJudgePacket under judgment:"));
+        assert!(prompt_text.contains("[redacted statement sha256:"));
+        assert!(
+            !prompt_text.contains(statement),
+            "redacted diagnostic prompt must not include the raw statement"
+        );
+        assert!(training_text.contains("# Mind accepted-knowledge judge training"));
+        assert!(training_text.contains("Do not emit a bare verdict"));
+
+        let _ = std::fs::remove_file(path);
     }
 }
 

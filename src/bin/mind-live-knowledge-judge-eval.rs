@@ -1971,12 +1971,14 @@ impl LiveJudgeEvalRunner {
         let request_path = scope_directory.join("mind-configuration.nota");
         let agent_socket = scope_directory.join("agent.sock");
         let training_source = self.arguments.training_sources.to_nota();
+        let diagnostic_directory = self.arguments.output_directory.join("runtime").join(scope);
+        self.create_directory(&diagnostic_directory)?;
         let request_response_log = if self.arguments.request_response_log {
-            let log_directory = self.arguments.output_directory.join("runtime").join(scope);
-            self.create_directory(&log_directory)?;
             format!(
                 " (JudgeRequestResponseLog (JsonLines {}))",
-                log_directory.join("judge-request-response.jsonl").display()
+                diagnostic_directory
+                    .join("judge-request-response.jsonl")
+                    .display()
             )
         } else {
             String::new()
@@ -2005,7 +2007,7 @@ impl LiveJudgeEvalRunner {
         self.prepopulate_accepted_knowledge(scope, &mind_store, setup_cases)?;
         let mut environment = vec![(
             "MIND_JUDGE_DIAGNOSTIC_PATH".to_owned(),
-            scope_directory
+            diagnostic_directory
                 .join("judge-diagnostics.jsonl")
                 .display()
                 .to_string(),
@@ -2082,6 +2084,7 @@ impl LiveJudgeEvalRunner {
             },
             "safe_diagnostics": {
                 "judge_diagnostic_hashes": "mind-daemon writes packet_sha256, prompt_sha256, and training_sha256 when MIND_JUDGE_DIAGNOSTIC_PATH is set",
+                "judge_diagnostic_text": "with redacted text enabled, mind-daemon writes redacted packet structure, redacted prompt text, and judge training text",
                 "redacted_packet_text": self.arguments.include_redacted_packet_text,
                 "judge_request_response_log": self.arguments.request_response_log,
                 "provider_http_dumps": false
