@@ -28,10 +28,14 @@ def option_value(arguments: list[str], name: str) -> str | None:
 def main() -> int:
     repository = Path(__file__).resolve().parents[1]
     arguments = sys.argv[1:]
-    if (
-        option_value(arguments, "agent-daemon") is None
-        and option_value(arguments, "agent-configuration-writer") is None
-    ):
+    agent_daemon = option_value(arguments, "agent-daemon")
+    agent_configuration_writer = option_value(arguments, "agent-configuration-writer")
+    if (agent_daemon is None) != (agent_configuration_writer is None):
+        sys.stderr.write(
+            "error: --agent-daemon and --agent-configuration-writer must be supplied together\n"
+        )
+        return 2
+    if agent_daemon is None:
         agent_repository = Path(
             option_value(arguments, "agent-repository")
             or "/git/github.com/LiGoldragon/agent"
