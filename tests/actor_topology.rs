@@ -763,9 +763,21 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
     assert!(prompts[0].contains("KnowledgeJudgePacket under judgment"));
     assert!(prompts[0].contains("Return exactly one KnowledgeJudgeResponse"));
     assert!(prompts[0].contains("diagnostic_message field is debug-only"));
+    assert!(prompts[0].contains("The `KnowledgeJudgePacket` is the only evidence"));
+    assert!(prompts[0].contains("## Response Shape Drill"));
+    assert!(prompts[0].contains("((Reject (SemanticDuplicate abcd)) None)"));
+    assert!(prompts[0].contains("Duplicate outranks conflict"));
+    assert!(prompts[0].contains("## Semantic Duplicate Curriculum"));
+    assert!(prompts[0].contains("In diagnostic/eval profiles, include a short"));
+    assert!(prompts[0].contains("Payload-bearing reject reasons must be one nested reason object"));
+    assert!(prompts[0].contains("WrongSubject Component starts"));
+    assert!(prompts[0].contains("WrongSubject always requires a subject payload"));
+    assert!(prompts[0].contains("choose a no-payload rejection reason instead"));
     assert!(prompts[0].contains("do not prefix it with KnowledgeJudgeResponse"));
     assert!(prompts[0].contains("Never return (Verdict accepted)"));
     assert!(prompts[0].contains("Reject imperatives, tasks, instructions, requests"));
+    assert!(!prompts[0].contains("source_note"));
+    assert!(!prompts[0].contains("fixture_author_note"));
     assert!(prompts[0].contains(&response(accept()).to_nota()));
     assert!(
         prompts[0].contains(&response(reject(KnowledgeRejectionReason::NotKnowledge)).to_nota())

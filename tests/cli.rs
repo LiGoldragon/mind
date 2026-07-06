@@ -413,7 +413,10 @@ fn configuration_writer_composes_multiple_training_sources_into_archive() {
     assert!(text.contains("# External NOTA literacy marker"));
     assert!(text.contains("Use positional records."));
     assert!(text.contains("Debug-only Mind judge diagnostic prose escape hatch"));
-    assert!(text.contains("diagnostic_message field"));
+    assert!(text.contains("Diagnostic/eval response path"));
+    assert!(text.contains("non-identity-bearing semantic tie-breaker"));
+    assert!(text.contains("without quotation marks"));
+    assert!(text.contains("diagnostic_message"));
 }
 
 #[test]
@@ -430,8 +433,12 @@ fn configuration_writer_accepts_optional_diagnostic_training_source() {
     };
     assert!(text.contains("Debug-only Mind judge diagnostic prose escape hatch"));
     assert!(text.contains("Normal response path"));
+    assert!(text.contains("Diagnostic/eval response path"));
+    assert!(text.contains("source-required judgment"));
+    assert!(text.contains("most duplicate"));
+    assert!(text.contains("without quotation marks"));
     assert!(text.contains("Do not write prose outside the KnowledgeJudgeResponse"));
-    assert!(text.contains("diagnostic_message field"));
+    assert!(text.contains("diagnostic_message"));
 }
 
 #[test]

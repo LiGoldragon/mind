@@ -553,7 +553,17 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
              KnowledgeJudgeResponse. A valid accept response is shaped like {accept}. A valid reject \
              response is shaped like {reject}. Duplicate, conflict, vague, and wrong-subject \
              reject responses are shaped like {duplicate}, {conflict}, {vague}, and \
-             {wrong_subject}. Never return (Verdict accepted); that is malformed output.",
+             {wrong_subject}. Payload-bearing reject reasons must be one nested reason object \
+             inside Reject: the reason name and its payload stay inside the same inner \
+             parentheses. Never flatten a payload-bearing reason into separate siblings after \
+             Reject. Before sending, check the first field: WrongSubject Component starts \
+             ((Reject (WrongSubject Component)); SemanticDuplicate p001 starts \
+             ((Reject (SemanticDuplicate p001)); ConflictsAcceptedKnowledge p001 starts \
+             ((Reject (ConflictsAcceptedKnowledge [p001])). If you are not certain you can emit \
+             a valid nested payload shape, choose a no-payload rejection reason instead of \
+             malformed NOTA. WrongSubject always requires a subject payload; if you cannot \
+             include it, choose a no-payload rejection reason instead of \
+             malformed NOTA. Never return (Verdict accepted); that is malformed output.",
             training = self.training_source.prompt_text().trim(),
             accept = Self::accept_example(),
             reject = Self::reject_example(),
@@ -781,6 +791,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn accepted_knowledge_judge_training_contains_packet_only_curriculum() {
+        let training = ACCEPTED_KNOWLEDGE_JUDGE_TRAINING;
+
+        assert!(training.contains("The `KnowledgeJudgePacket` is the only evidence"));
+        assert!(training.contains("Training examples are examples of judgment, not facts"));
+        assert!(training.contains("No extra provenance fields exist in the live packet"));
+        assert!(training.contains("## Response Shape Drill"));
+        assert!(training.contains("((Reject (SemanticDuplicate abcd)) None)"));
+        assert!(training.contains("((Reject (ConflictsAcceptedKnowledge [abcd])) None)"));
+        assert!(training.contains("the reason payload is always nested inside the `Reject` value"));
+        assert!(training.contains("## Reason Precedence"));
+        assert!(training.contains("Duplicate outranks conflict"));
+        assert!(training.contains("## Narrow Accept Rule"));
+        assert!(training.contains("## Semantic Duplicate Curriculum"));
+        assert!(training.contains(
+            "The accepted-knowledge protocol answers with Accepted or Rejected for Submit and Found or NotFound for Get."
+        ));
+        assert!(training.contains(
+            "Callers submit a subject and statement for accepted knowledge, not their own compact id."
+        ));
+        assert!(training.contains("reject as `SourceRequired` unless the packet includes an accepted neighbor establishing that source-location fact"));
+        assert!(training.contains(
+            "The `diagnostic_message` field is optional, debug-only, and non-load-bearing"
+        ));
+        assert!(training.contains("In diagnostic/eval profiles, include a short"));
+        assert!(training.contains("Do not include quotation marks, parentheses, brackets"));
+        assert!(
+            training.contains("Prefer `None` for duplicate, conflict, and wrong-subject rejects")
+        );
+        assert!(training.contains("Format outranks semantic precision"));
+        assert!(training.contains("`WrongSubject` always requires the declared subject payload"));
+        assert!(!training.contains("source_note"));
+        assert!(!training.contains("fixture_author_note"));
+    }
+
+    #[test]
     fn redacted_judge_diagnostic_records_effective_response_contract() {
         let statement = "Mind diagnostic logs prove the judge prompt contract.";
         let packet = KnowledgeJudgePacket {
@@ -836,6 +882,9 @@ mod tests {
         );
         assert!(training_text.contains("# Mind accepted-knowledge judge training"));
         assert!(training_text.contains("Do not emit a bare verdict"));
+        assert!(training_text.contains("The `KnowledgeJudgePacket` is the only evidence"));
+        assert!(training_text.contains("## Response Shape Drill"));
+        assert!(training_text.contains("## Semantic Duplicate Curriculum"));
 
         let _ = std::fs::remove_file(path);
     }

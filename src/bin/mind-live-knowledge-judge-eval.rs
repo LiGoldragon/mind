@@ -1131,7 +1131,8 @@ impl EvalSuite {
                 "ambiguous_positive_control",
                 KnowledgeSubject::Component,
                 "An unconfigured Mind daemon safely rejects accepted-knowledge submissions because the default fixture judge has no accepting verdict queued.",
-                ExpectedVerdict::source_required(),
+                ExpectedVerdict::reject(vec![ExpectedReason::SemanticDuplicate])
+                    .with_target_alias("K_DEFAULT_FIXTURE"),
             ),
             EvalCase::new(
                 "ambiguous_positive_control_02",
