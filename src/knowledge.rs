@@ -16,8 +16,8 @@ use signal_agent::{
 };
 use signal_mind::{
     AcceptedKnowledge, ActorName, KnowledgeIdentity, KnowledgeJudgePacket, KnowledgeJudgeResponse,
-    KnowledgeJudgeVerdict, KnowledgeRejectionReason, KnowledgeSubject, KnowledgeSubmission,
-    MindReply, MindRequest, TextBody,
+    KnowledgeJudgeVerdict, KnowledgeRecord, KnowledgeRejectionReason, KnowledgeSubject,
+    KnowledgeSubmission, MindReply, MindRequest, TextBody,
 };
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
@@ -578,7 +578,7 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
         format!(
             "KnowledgeJudgePacket under judgment:\n{}\n\n\
              Return one KnowledgeJudgeResponse.",
-            self.packet.to_nota(),
+            ModelVisibleKnowledgeJudgePacket::from_packet(self.packet).to_nota(),
         )
     }
 
@@ -782,11 +782,33 @@ impl<'packet> RedactedKnowledgeJudgePacket<'packet> {
     }
 }
 
+#[derive(NotaEncode)]
+struct ModelVisibleKnowledgeJudgePacket {
+    subject: KnowledgeSubject,
+    statement: TextBody,
+    relevant_neighbors: Vec<KnowledgeRecord>,
+}
+
+impl ModelVisibleKnowledgeJudgePacket {
+    fn from_packet(packet: &KnowledgeJudgePacket) -> Self {
+        Self {
+            subject: packet.subject,
+            statement: packet.statement.clone(),
+            relevant_neighbors: packet
+                .relevant_neighbors
+                .iter()
+                .map(AcceptedKnowledge::public_record)
+                .collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use serde_json::Value;
+    use signal_mind::TimestampNanos;
 
     use super::*;
 
@@ -833,6 +855,16 @@ mod tests {
             "signal-mind requires callers to submit timestamps with KnowledgeSubmission."
         ));
         assert!(training.contains(
+            "Built-in provider/model configuration is source evidence for the configured provider and model only"
+        ));
+        assert!(training.contains(
+            "Reject ranking/current-best claims as `SourceRequired` or `NeedsMoreSpecificShape`"
+        ));
+        assert!(training.contains("False contract-field claims stay contract claims"));
+        assert!(training.contains(
+            "The statement is a false or unsupported contract-field requirement under its declared subject"
+        ));
+        assert!(training.contains(
             "The mind CLI is a thin client that sends one request to a long-lived mind-daemon."
         ));
         assert!(training.contains("///// return the thing but not the thing"));
@@ -867,7 +899,13 @@ mod tests {
         let packet = KnowledgeJudgePacket {
             subject: KnowledgeSubject::Component,
             statement: TextBody::new(statement),
-            relevant_neighbors: Vec::new(),
+            relevant_neighbors: vec![AcceptedKnowledge {
+                identity: KnowledgeIdentity::new("p000"),
+                subject: KnowledgeSubject::Source,
+                statement: TextBody::new("A neighbor statement is redacted in diagnostics."),
+                accepted_by: ActorName::new("mind-live-knowledge-judge-eval-fixture"),
+                accepted_at: TimestampNanos::new(1),
+            }],
         };
         let training_source = MindKnowledgeJudgeTrainingSource::CompiledDefault;
         let prompt = KnowledgeJudgePrompt::new(
@@ -911,10 +949,16 @@ mod tests {
         assert!(prompt_text.contains("Never return (Verdict accepted)"));
         assert!(prompt_text.contains("KnowledgeJudgePacket under judgment:"));
         assert!(prompt_text.contains("[redacted statement sha256:"));
+        assert!(prompt_text.contains("p000"));
         assert!(
             !prompt_text.contains(statement),
             "redacted diagnostic prompt must not include the raw statement"
         );
+        assert!(!prompt_text.contains("mind-live-knowledge-judge-eval-fixture"));
+        assert!(!prompt_text.contains("source_note"));
+        assert!(!prompt_text.contains("fixture_author_note"));
+        assert!(!prompt_text.contains("accepted_by"));
+        assert!(!prompt_text.contains("accepted_at"));
         assert!(training_text.contains("# Mind accepted-knowledge judge training"));
         assert!(training_text.contains("Do not emit a bare verdict"));
         assert!(training_text.contains("The `KnowledgeJudgePacket` is the only evidence"));
@@ -936,12 +980,10 @@ impl<'record> RedactedAcceptedKnowledge<'record> {
 
     fn to_text(&self) -> String {
         format!(
-            "({} {:?} [redacted statement sha256:{}] {} {})",
+            "({} {:?} [redacted statement sha256:{}])",
             self.record.identity.as_str(),
             self.record.subject,
-            Sha256Text::new(self.record.statement.as_str()).hex(),
-            self.record.accepted_by.as_str(),
-            self.record.accepted_at.value()
+            Sha256Text::new(self.record.statement.as_str()).hex()
         )
     }
 }

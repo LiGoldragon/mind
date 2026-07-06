@@ -736,24 +736,32 @@ async fn semantic_rejection_stores_nothing_before_next_judgment() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() {
-    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![response(accept()).to_nota()]);
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![
+        response(accept()).to_nota(),
+        response(accept()).to_nota(),
+    ]);
     let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
 
+    let first_statement = "Mind stores the submitted accepted-knowledge statement.";
     let reply = fixture
         .submit(knowledge_submission(
             KnowledgeSubject::Component,
-            "Mind stores the submitted accepted-knowledge statement.",
+            first_statement,
         ))
         .await;
     let identity = accepted_identity(&reply);
     let record = found_record(&fixture.submit(knowledge_get(identity)).await);
-    assert_eq!(
-        record.statement.as_str(),
-        "Mind stores the submitted accepted-knowledge statement."
-    );
+    assert_eq!(record.statement.as_str(), first_statement);
+
+    fixture
+        .submit(knowledge_submission(
+            KnowledgeSubject::Architecture,
+            "Mind accepted-knowledge prompt text shows public neighbor records.",
+        ))
+        .await;
 
     let prompts = fake_agent.captured_prompts();
-    assert_eq!(prompts.len(), 1);
+    assert_eq!(prompts.len(), 2);
     assert!(prompts[0].contains("Mind's accepted-knowledge judge"));
     assert!(
         DEFAULT_ACCEPTED_KNOWLEDGE_JUDGE_TRAINING
@@ -788,6 +796,16 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
         )
     );
     assert!(prompts[0].contains(
+        "Built-in provider/model configuration is source evidence for the configured provider and model only"
+    ));
+    assert!(prompts[0].contains(
+        "Reject ranking/current-best claims as `SourceRequired` or `NeedsMoreSpecificShape`"
+    ));
+    assert!(prompts[0].contains("False contract-field claims stay contract claims"));
+    assert!(prompts[0].contains(
+        "The statement is a false or unsupported contract-field requirement under its declared subject"
+    ));
+    assert!(prompts[0].contains(
         "The mind CLI is a thin client that sends one request to a long-lived mind-daemon."
     ));
     assert!(prompts[0].contains("///// return the thing but not the thing"));
@@ -813,6 +831,12 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
     assert!(prompts[0].contains("Reject imperatives, tasks, instructions, requests"));
     assert!(!prompts[0].contains("source_note"));
     assert!(!prompts[0].contains("fixture_author_note"));
+    assert!(prompts[1].contains(first_statement));
+    assert!(!prompts[1].contains("mind-live-knowledge-judge-eval-fixture"));
+    assert!(!prompts[1].contains("source_note"));
+    assert!(!prompts[1].contains("fixture_author_note"));
+    assert!(!prompts[1].contains("accepted_by"));
+    assert!(!prompts[1].contains("accepted_at"));
     assert!(prompts[0].contains(&response(accept()).to_nota()));
     assert!(
         prompts[0].contains(&response(reject(KnowledgeRejectionReason::NotKnowledge)).to_nota())

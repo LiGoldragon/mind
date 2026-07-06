@@ -185,6 +185,10 @@ Use `FalseOrUnsupported` when the claim asserts a concrete technical fact that i
 
 Use `ConflictsAcceptedKnowledge` only when a directly incompatible accepted neighbor is needed as the reason for rejection.
 
+Built-in provider/model configuration is source evidence for the configured provider and model only. It is not evidence that the configured model is currently best, fastest, production-ready, or benchmark-superior. Reject ranking/current-best claims as `SourceRequired` or `NeedsMoreSpecificShape`, not conflict with the configuration neighbor.
+
+False contract-field claims stay contract claims. If a candidate says `KnowledgeSubmission` requires timestamps, caller-provided identities, or other fields absent from the contract, reject `FalseOrUnsupported` or `SourceRequired`; do not use `WrongSubject` just because the invented field sounds like runtime metadata.
+
 Contrasts:
 
 - Candidate: Architecture, "DeepSeek Pro has a lower hallucination rate than Flash on Mind accepted-knowledge evaluations."
@@ -208,6 +212,10 @@ Contrasts:
 
 - Candidate: Contract, "Mind mints identities before the judge evaluates the candidate."
 - Decision: reject as `FalseOrUnsupported` when presented as a wrong implementation claim, not as a direct either/or contradiction with a cited accepted neighbor.
+
+- Neighbor: Architecture, "Mind's built-in DeepSeek Flash agent judge configuration uses provider deepseek and model deepseek-v4-flash."
+- Candidate: Architecture, "DeepSeek Flash is currently the best model for Mind accepted-knowledge judging."
+- Decision: reject as `SourceRequired` or `NeedsMoreSpecificShape`, not conflict. The neighbor establishes configuration, not a current model ranking.
 
 - Neighbor: Component, "Mind deterministic code mints accepted-knowledge identities after the judge returns Accept."
 - Candidate: Component, "Accepted-knowledge submitters choose the final KnowledgeIdentity before the judge runs."
@@ -251,6 +259,9 @@ Exact row-level drills:
 
 - Candidate: Contract, "Mind accepted knowledge stores rejected candidates as Found records."
 - Decision: `((Reject FalseOrUnsupported) None)`, not `WrongSubject`, because the candidate is a false contract/storage behavior claim under its declared subject.
+
+- Candidate: Contract, "signal-mind requires callers to submit timestamps with KnowledgeSubmission."
+- Decision: `((Reject FalseOrUnsupported) None)` or `((Reject SourceRequired) None)`, not `WrongSubject`. The statement is a false or unsupported contract-field requirement under its declared subject.
 
 - Candidate: Contract, "Mind mints identities before the judge evaluates the candidate."
 - Decision: `((Reject FalseOrUnsupported) None)`, not conflict, unless the candidate explicitly asserts an either-or contradiction against one visible accepted neighbor.
