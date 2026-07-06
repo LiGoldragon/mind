@@ -800,8 +800,18 @@ mod tests {
         assert!(training.contains("## Response Shape Drill"));
         assert!(training.contains("((Reject (SemanticDuplicate abcd)) None)"));
         assert!(training.contains("((Reject (ConflictsAcceptedKnowledge [abcd])) None)"));
+        assert!(training.contains("((Reject (WrongSubject Interface)) None)"));
+        assert!(training.contains("((Reject (WrongSubject Source)) None)"));
+        assert!(training.contains("never emit `((Reject WrongSubject) None)`"));
         assert!(training.contains("the reason payload is always nested inside the `Reject` value"));
         assert!(training.contains("## Reason Precedence"));
+        let task_precedence_index = training
+            .find("imperative, request, task")
+            .expect("task-like rejection should be trained");
+        let malformed_precedence_index = training
+            .find("malformed, uninterpretable")
+            .expect("malformed rejection should be trained");
+        assert!(task_precedence_index < malformed_precedence_index);
         assert!(training.contains("Duplicate outranks conflict"));
         assert!(training.contains("## Narrow Accept Rule"));
         assert!(training.contains("## Semantic Duplicate Curriculum"));
@@ -812,6 +822,11 @@ mod tests {
             "Callers submit a subject and statement for accepted knowledge, not their own compact id."
         ));
         assert!(training.contains("reject as `SourceRequired` unless the packet includes an accepted neighbor establishing that source-location fact"));
+        assert!(training.contains("((Reject FalseOrUnsupported) None)`. A nearby correct neighbor naming Submit and Get does not by itself make the unsupported invented-surface claim a conflict"));
+        assert!(training.contains("`((Reject (ConflictsAcceptedKnowledge [p007])) None)`. \"Accepts by default\" is the negation of empty fixture/no accepting verdicts"));
+        assert!(training.contains(
+            "Case 2 is acceptable as a related new fact when Case 1 is already accepted"
+        ));
         assert!(training.contains(
             "The `diagnostic_message` field is optional, debug-only, and non-load-bearing"
         ));

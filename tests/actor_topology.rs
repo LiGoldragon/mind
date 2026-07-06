@@ -768,6 +768,20 @@ async fn agent_knowledge_judge_accepts_strict_verdict_and_prompts_with_packet() 
     assert!(prompts[0].contains("((Reject (SemanticDuplicate abcd)) None)"));
     assert!(prompts[0].contains("Duplicate outranks conflict"));
     assert!(prompts[0].contains("## Semantic Duplicate Curriculum"));
+    assert!(prompts[0].contains("never emit `((Reject WrongSubject) None)`"));
+    assert!(prompts[0].contains("((Reject (WrongSubject Interface)) None)"));
+    assert!(prompts[0].contains("((Reject (WrongSubject Source)) None)"));
+    assert!(prompts[0].contains("task, investigation assignment, edit instruction"));
+    assert!(prompts[0].contains("A nearby correct neighbor naming Submit and Get does not by itself make the unsupported invented-surface claim a conflict"));
+    assert!(
+        prompts[0].contains(
+            "Accepts by default\" is the negation of empty fixture/no accepting verdicts"
+        )
+    );
+    assert!(
+        prompts[0]
+            .contains("Case 2 is acceptable as a related new fact when Case 1 is already accepted")
+    );
     assert!(prompts[0].contains("In diagnostic/eval profiles, include a short"));
     assert!(prompts[0].contains("Payload-bearing reject reasons must be one nested reason object"));
     assert!(prompts[0].contains("WrongSubject Component starts"));
