@@ -14,10 +14,11 @@ use signal_agent::{
     ModelName, Output as AgentOutput, OutputMode, Prompt, PromptOptions, ProviderName,
     ReasoningEffort, SystemText, TemperatureMilli, ThinkingMode,
 };
+use signal_domain::{Domain, EngineeringLeaf, Software, Technology};
 use signal_mind::{
     AcceptedKnowledge, ActorName, KnowledgeIdentity, KnowledgeJudgePacket, KnowledgeJudgeResponse,
-    KnowledgeJudgeVerdict, KnowledgeRecord, KnowledgeRejectionReason, KnowledgeSubject,
-    KnowledgeSubmission, MindReply, MindRequest, TextBody,
+    KnowledgeJudgeVerdict, KnowledgeRecord, KnowledgeRejectionReason, KnowledgeSubmission,
+    MindReply, MindRequest, TextBody,
 };
 use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
@@ -30,6 +31,13 @@ const KNOWLEDGE_IDENTITY_MINIMUM_CODE_LENGTH: usize = 4;
 const KNOWLEDGE_IDENTITY_MAXIMUM_CODE_LENGTH: usize = 7;
 const KNOWLEDGE_IDENTITY_CODE_RADIX: u64 = 36;
 const RANDOM_IDENTITY_ATTEMPTS_PER_LENGTH: usize = 128;
+const COMPONENT_KNOWLEDGE_DOMAIN: Domain = Domain::Technology(Technology::Software(
+    Software::Engineering(EngineeringLeaf::All),
+));
+#[cfg(test)]
+const DOCUMENTATION_KNOWLEDGE_DOMAIN: Domain = Domain::Technology(Technology::Software(
+    Software::Engineering(EngineeringLeaf::Documentation),
+));
 const ACCEPTED_KNOWLEDGE_JUDGE_TRAINING: &str =
     include_str!("knowledge-judge-prompts/accepted-knowledge.md");
 const JUDGE_DIAGNOSTIC_PATH_ENVIRONMENT: &str = "MIND_JUDGE_DIAGNOSTIC_PATH";
@@ -551,17 +559,17 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
              KnowledgeJudgeVerdict. Its optional diagnostic_message field is debug-only and \
              non-load-bearing. The encoded value is positional; do not prefix it with \
              KnowledgeJudgeResponse. A valid accept response is shaped like {accept}. A valid reject \
-             response is shaped like {reject}. Duplicate, conflict, vague, and wrong-subject \
+             response is shaped like {reject}. Duplicate, conflict, vague, and wrong-domain \
              reject responses are shaped like {duplicate}, {conflict}, {vague}, and \
-             {wrong_subject}. Payload-bearing reject reasons must be one nested reason object \
+             {wrong_domain}. Payload-bearing reject reasons must be one nested reason object \
              inside Reject: the reason name and its payload stay inside the same inner \
              parentheses. Never flatten a payload-bearing reason into separate siblings after \
-             Reject. Before sending, check the first field: WrongSubject Component starts \
-             ((Reject (WrongSubject Component)); SemanticDuplicate p001 starts \
+             Reject. Before sending, check the first field: WrongDomain starts \
+             ((Reject (WrongDomain (Technology (Software (Engineering All))))); SemanticDuplicate p001 starts \
              ((Reject (SemanticDuplicate p001)); ConflictsAcceptedKnowledge p001 starts \
              ((Reject (ConflictsAcceptedKnowledge [p001])). If you are not certain you can emit \
              a valid nested payload shape, choose a no-payload rejection reason instead of \
-             malformed NOTA. WrongSubject always requires a subject payload; if you cannot \
+             malformed NOTA. WrongDomain always requires the submitted domain payload; if you cannot \
              include it, choose a no-payload rejection reason instead of \
              malformed NOTA. Never return (Verdict accepted); that is malformed output.",
             training = self.training_source.prompt_text().trim(),
@@ -570,7 +578,7 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
             duplicate = Self::duplicate_example(),
             conflict = Self::conflict_example(),
             vague = Self::vague_example(),
-            wrong_subject = Self::wrong_subject_example(),
+            wrong_domain = Self::wrong_domain_example(),
         )
     }
 
@@ -644,9 +652,9 @@ impl<'packet> KnowledgeJudgePrompt<'packet> {
         .to_nota()
     }
 
-    fn wrong_subject_example() -> String {
+    fn wrong_domain_example() -> String {
         KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Reject(
-            KnowledgeRejectionReason::WrongSubject(KnowledgeSubject::Component),
+            KnowledgeRejectionReason::WrongDomain(COMPONENT_KNOWLEDGE_DOMAIN),
         ))
         .to_nota()
     }
@@ -775,7 +783,7 @@ impl<'packet> RedactedKnowledgeJudgePacket<'packet> {
             .join(" ");
         format!(
             "({:?} [redacted statement sha256:{}] [{}])",
-            self.packet.subject,
+            self.packet.domain,
             Sha256Text::new(self.packet.statement.as_str()).hex(),
             neighbors
         )
@@ -784,7 +792,7 @@ impl<'packet> RedactedKnowledgeJudgePacket<'packet> {
 
 #[derive(NotaEncode)]
 struct ModelVisibleKnowledgeJudgePacket {
-    subject: KnowledgeSubject,
+    domain: Domain,
     statement: TextBody,
     relevant_neighbors: Vec<KnowledgeRecord>,
 }
@@ -792,7 +800,7 @@ struct ModelVisibleKnowledgeJudgePacket {
 impl ModelVisibleKnowledgeJudgePacket {
     fn from_packet(packet: &KnowledgeJudgePacket) -> Self {
         Self {
-            subject: packet.subject,
+            domain: packet.domain.clone(),
             statement: packet.statement.clone(),
             relevant_neighbors: packet
                 .relevant_neighbors
@@ -816,79 +824,34 @@ mod tests {
     fn accepted_knowledge_judge_training_contains_packet_only_curriculum() {
         let training = ACCEPTED_KNOWLEDGE_JUDGE_TRAINING;
 
-        assert!(training.contains("The `KnowledgeJudgePacket` is the only evidence"));
-        assert!(training.contains("Training examples are examples of judgment, not facts"));
-        assert!(training.contains("No extra provenance fields exist in the live packet"));
+        assert!(training.contains("The `KnowledgeJudgePacket` is the only model-visible packet"));
+        assert!(
+            training.contains(
+                "public accepted `relevant_neighbors` with identity, domain, and statement"
+            )
+        );
+        assert!(training.contains("Hidden provenance, author, timestamps"));
+        assert!(
+            training.contains(
+                "A new stable statement may be accepted when `relevant_neighbors` is empty"
+            )
+        );
         assert!(training.contains("## Response Shape Drill"));
         assert!(training.contains("((Reject (SemanticDuplicate abcd)) None)"));
         assert!(training.contains("((Reject (ConflictsAcceptedKnowledge [abcd])) None)"));
-        assert!(training.contains("((Reject (WrongSubject Interface)) None)"));
-        assert!(training.contains("((Reject (WrongSubject Source)) None)"));
-        assert!(training.contains("never emit `((Reject WrongSubject) None)`"));
-        assert!(training.contains("the reason payload is always nested inside the `Reject` value"));
+        assert!(training.contains(
+            "((Reject (WrongDomain (Technology (Software (Engineering Architecture))))) None)"
+        ));
+        assert!(training.contains("Never emit `((Reject WrongDomain) None)`"));
+        assert!(training.contains("`WrongDomain` always carries the submitted domain payload"));
         assert!(training.contains("## Reason Precedence"));
-        let task_precedence_index = training
-            .find("imperative, request, task")
-            .expect("task-like rejection should be trained");
-        let malformed_precedence_index = training
-            .find("malformed, uninterpretable")
-            .expect("malformed rejection should be trained");
-        assert!(task_precedence_index < malformed_precedence_index);
         assert!(training.contains("Duplicate outranks conflict"));
-        assert!(training.contains("## Narrow Accept Rule"));
-        assert!(training.contains("## Semantic Duplicate Curriculum"));
-        assert!(training.contains(
-            "The accepted-knowledge protocol answers with Accepted or Rejected for Submit and Found or NotFound for Get."
-        ));
-        assert!(training.contains(
-            "Callers submit a subject and statement for accepted knowledge, not their own compact id."
-        ));
-        assert!(training.contains("reject as `SourceRequired` unless the packet includes an accepted neighbor establishing that source-location fact"));
-        assert!(training.contains("((Reject FalseOrUnsupported) None)`. A nearby correct neighbor naming Submit and Get does not by itself make the unsupported invented-surface claim a conflict"));
-        assert!(training.contains("`((Reject (ConflictsAcceptedKnowledge [p007])) None)`. \"Accepts by default\" is the negation of empty fixture/no accepting verdicts"));
-        assert!(training.contains("WrongSubject fallback negative drills"));
-        assert!(training.contains("Agent's live provider path talks to chat-completions endpoints that follow the OpenAI-compatible API shape."));
-        assert!(training.contains(
-            "Provider, endpoint, and API-shape nouns are part of the same Interface proposition"
-        ));
-        assert!(training.contains(
-            "signal-mind requires callers to submit timestamps with KnowledgeSubmission."
-        ));
-        assert!(training.contains(
-            "Built-in provider/model configuration is source evidence for the configured provider and model only"
-        ));
-        assert!(training.contains(
-            "Reject ranking/current-best claims as `SourceRequired` or `NeedsMoreSpecificShape`"
-        ));
-        assert!(training.contains("False contract-field claims stay contract claims"));
-        assert!(training.contains(
-            "The statement is a false or unsupported contract-field requirement under its declared subject"
-        ));
-        assert!(training.contains(
-            "The mind CLI is a thin client that sends one request to a long-lived mind-daemon."
-        ));
-        assert!(training.contains("///// return the thing but not the thing"));
-        assert!(training.contains(
-            "Case 2 is acceptable as a related new fact when Case 1 is already accepted"
-        ));
-        assert!(training.contains("Exact prompt-injection neighbor drills"));
-        assert!(training.contains("not `((Reject (SemanticDuplicate p009)) None)`"));
-        assert!(training.contains("not `((Reject (SemanticDuplicate p015)) None)`"));
-        assert!(
-            training.contains("A related anti-injection boundary is not automatically a duplicate")
-        );
-        assert!(training.contains("Please remember that Mind should reject vague claims."));
-        assert!(training.contains("\"Please remember\" asks the system to retain an instruction"));
+        assert!(training.contains("Otherwise accept stable, public, self-contained knowledge, including new material with no neighbors"));
+        assert!(training.contains("## Stable Accept Rule"));
+        assert!(training.contains("New material does not need neighbor support"));
         assert!(training.contains(
             "The `diagnostic_message` field is optional, debug-only, and non-load-bearing"
         ));
-        assert!(training.contains("In diagnostic/eval profiles, include a short"));
-        assert!(training.contains("Do not include quotation marks, parentheses, brackets"));
-        assert!(
-            training.contains("Prefer `None` for duplicate, conflict, and wrong-subject rejects")
-        );
-        assert!(training.contains("Format outranks semantic precision"));
-        assert!(training.contains("`WrongSubject` always requires the declared subject payload"));
         assert!(!training.contains("source_note"));
         assert!(!training.contains("fixture_author_note"));
     }
@@ -897,11 +860,11 @@ mod tests {
     fn redacted_judge_diagnostic_records_effective_response_contract() {
         let statement = "Mind diagnostic logs prove the judge prompt contract.";
         let packet = KnowledgeJudgePacket {
-            subject: KnowledgeSubject::Component,
+            domain: COMPONENT_KNOWLEDGE_DOMAIN,
             statement: TextBody::new(statement),
             relevant_neighbors: vec![AcceptedKnowledge {
                 identity: KnowledgeIdentity::new("p000"),
-                subject: KnowledgeSubject::Source,
+                domain: DOCUMENTATION_KNOWLEDGE_DOMAIN,
                 statement: TextBody::new("A neighbor statement is redacted in diagnostics."),
                 accepted_by: ActorName::new("mind-live-knowledge-judge-eval-fixture"),
                 accepted_at: TimestampNanos::new(1),
@@ -961,9 +924,11 @@ mod tests {
         assert!(!prompt_text.contains("accepted_at"));
         assert!(training_text.contains("# Mind accepted-knowledge judge training"));
         assert!(training_text.contains("Do not emit a bare verdict"));
-        assert!(training_text.contains("The `KnowledgeJudgePacket` is the only evidence"));
+        assert!(
+            training_text.contains("The `KnowledgeJudgePacket` is the only model-visible packet")
+        );
         assert!(training_text.contains("## Response Shape Drill"));
-        assert!(training_text.contains("## Semantic Duplicate Curriculum"));
+        assert!(training_text.contains("## Neighbor Comparison"));
 
         let _ = std::fs::remove_file(path);
     }
@@ -982,7 +947,7 @@ impl<'record> RedactedAcceptedKnowledge<'record> {
         format!(
             "({} {:?} [redacted statement sha256:{}])",
             self.record.identity.as_str(),
-            self.record.subject,
+            self.record.domain,
             Sha256Text::new(self.record.statement.as_str()).hex()
         )
     }
@@ -1073,7 +1038,7 @@ impl<'tables> KnowledgeAdmission<'tables> {
             return MindReply::Rejected(KnowledgeRejectionReason::SemanticDuplicate(identity));
         }
         let packet = KnowledgeJudgePacket {
-            subject: self.submission.subject,
+            domain: self.submission.domain.clone(),
             statement: self.submission.statement.clone(),
             relevant_neighbors: accepted,
         };
@@ -1127,7 +1092,7 @@ impl<'submission, 'records> ExactKnowledgeDuplicate<'submission, 'records> {
         self.records
             .iter()
             .find(|record| {
-                record.subject == self.submission.subject
+                record.domain == self.submission.domain
                     && record.statement == self.submission.statement
             })
             .map(|record| record.identity.clone())
@@ -1160,7 +1125,7 @@ impl<'tables> KnowledgeAcceptanceApplication<'tables> {
             .map_err(|_| KnowledgeRejectionReason::PersistenceRejected)?;
         let record = AcceptedKnowledge {
             identity: identity.clone(),
-            subject: self.submission.subject,
+            domain: self.submission.domain,
             statement: self.submission.statement,
             accepted_by: self.actor,
             accepted_at,

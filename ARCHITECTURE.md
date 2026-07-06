@@ -291,14 +291,14 @@ Current implementation:
   only Persona-specific subscription filters through the storage-kernel handle
   exposed by `sema-engine`.
 - Accepted knowledge routes `Submit` and `Get` through the same actor/store
-  lane. Submitters provide only `KnowledgeSubject` plus statement text. The
-  store mints the short `KnowledgeIdentity` after the typed judge accepts,
-  persists the resulting `AcceptedKnowledge` record in the `accepted_knowledge`
-  family, and replies with `Accepted(identity)`. Default found replies project
-  the durable record to identity, subject, and statement only; actor and
-  timestamp metadata remain internal until a future named provenance surface
-  exposes them. Semantic rejections and accepted admission receipts are not
-  stored.
+  lane. Submitters provide only shared `signal_domain::Domain` plus statement
+  text. The store mints the short `KnowledgeIdentity` after the typed judge
+  accepts, persists the resulting `AcceptedKnowledge` record in the
+  `accepted_knowledge` family, and replies with `Accepted(identity)`. Default
+  found replies project the durable public record to identity, domain, and
+  statement only; actor and timestamp metadata remain internal until a future
+  named provenance surface exposes them. Semantic rejections and accepted
+  admission receipts are not stored.
 - `SubscriptionSupervisor` receives post-commit graph deltas from
   `sema-engine` subscription sinks and publishes typed
   `signal-mind::SubscriptionEvent` records for matching durable
@@ -685,10 +685,12 @@ This repo does not own:
   the log path equals `mind.sema`, and records only the client `MindRequest`
   that caused the judge call plus the raw completed judge/model response text.
 - `KnowledgeJudgeVerdict::Accept` is a decision over the submitted
-  subject/statement pair, not a payload containing replacement records or an
+  domain/statement pair, not a payload containing replacement records or an
   identity. Mind materializes and stores the submission under a generated
   identity on accept; old-style or malformed accepted-draft payloads reject and
-  store nothing.
+  store nothing. The current accepted-knowledge storage version invalidates the
+  pre-domain accepted-knowledge table rows rather than migrating them because
+  Mind was not production.
 - The current AI-backed accepted-knowledge demo/test model selection includes
   the existing DeepSeek Flash provider/model pair (`deepseek` /
   `deepseek-v4-flash`) and the local OpenAI-compatible alternative

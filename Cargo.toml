@@ -49,6 +49,7 @@ serde_json          = "1"
 sha2                = "0.10"
 sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
+signal-domain       = { git = "https://github.com/LiGoldragon/signal-domain.git", branch = "main", features = ["nota-text"] }
 signal-agent        = { git = "https://github.com/LiGoldragon/signal-agent.git", branch = "main" }
 signal-persona      = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
 signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
@@ -66,3 +67,6 @@ dead_code   = "warn"
 
 [patch.crates-io]
 kameo = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main" }
+
+[patch."https://github.com/LiGoldragon/nota-next.git"]
+nota = { git = "https://github.com/LiGoldragon/nota.git", branch = "main" }

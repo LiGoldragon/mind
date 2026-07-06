@@ -414,7 +414,8 @@ fn configuration_writer_composes_multiple_training_sources_into_archive() {
     assert!(text.contains("Use positional records."));
     assert!(text.contains("Debug-only Mind judge diagnostic prose escape hatch"));
     assert!(text.contains("Diagnostic/eval response path"));
-    assert!(text.contains("non-identity-bearing semantic tie-breaker"));
+    assert!(text.contains("semantic"));
+    assert!(text.contains("tie-breaker"));
     assert!(text.contains("without quotation marks"));
     assert!(text.contains("diagnostic_message"));
 }
@@ -434,7 +435,7 @@ fn configuration_writer_accepts_optional_diagnostic_training_source() {
     assert!(text.contains("Debug-only Mind judge diagnostic prose escape hatch"));
     assert!(text.contains("Normal response path"));
     assert!(text.contains("Diagnostic/eval response path"));
-    assert!(text.contains("source-required judgment"));
+    assert!(text.contains("wrong-domain rejects"));
     assert!(text.contains("most duplicate"));
     assert!(text.contains("without quotation marks"));
     assert!(text.contains("Do not write prose outside the KnowledgeJudgeResponse"));

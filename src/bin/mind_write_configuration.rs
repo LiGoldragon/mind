@@ -31,11 +31,11 @@ Use the full positional response wrapper, for example:
 ((Reject NeedsMoreSpecificShape) (Some [The statement lacks a stable referent.]))
 
 Diagnostic/eval response path: include a short diagnostic_message whenever the
-decision used a source-required judgment, a prompt-injection distinction, a
-quoted-instruction distinction, prompt wording that should be improved, or a
-non-identity-bearing semantic tie-breaker. Use None for obvious exact duplicates,
-obvious task/private rejects, straightforward accepts, and most duplicate,
-conflict, or wrong-subject rejects. Keep returning the best structured verdict
+decision used a prompt-injection distinction, a quoted-instruction distinction,
+prompt wording that should be improved, or a non-identity-bearing semantic
+tie-breaker. Use None for obvious exact duplicates, obvious task/private rejects,
+straightforward accepts, and most duplicate, conflict, or wrong-domain rejects.
+Keep returning the best structured verdict
 you can. Diagnostic messages must be short plain text without quotation marks,
 parentheses, brackets, colons, NOTA expressions, or multi-sentence reasoning.
 Use None if a diagnostic might make the NOTA malformed.
@@ -556,7 +556,7 @@ enum ConfigurationWriterError {
         source: std::io::Error,
     },
 
-    #[error("signal-encoded configuration writer input is unsupported: {}", path.display())]
+    #[error("signal-encoded configuration writer input is not supported: {}", path.display())]
     SignalInput { path: PathBuf },
 
     #[error("read judge training file {}: {source}", path.display())]

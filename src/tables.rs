@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kameo::actor::ActorRef;
-use redb::{Database, TableDefinition};
+use redb::{Database, ReadableTable, TableDefinition, TableError};
 use sema_engine::{
     Assertion, Engine, EngineOpen, EngineRecord, FamilyName, Mutation, QueryPlan, RecordKey,
     Retraction, SchemaHash, SchemaVersion, SinkError, SubscriptionDeliveryMode,
@@ -26,7 +26,8 @@ use crate::actors::subscription::{
 };
 use crate::{MemoryGraph, Result, StoreLocation};
 
-const MIND_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(11);
+const MIND_SCHEMA_VERSION: SchemaVersion = SchemaVersion::new(12);
+const MIND_SCHEMA_VERSION_V11: SchemaVersion = SchemaVersion::new(11);
 const MIND_SCHEMA_VERSION_V10: SchemaVersion = SchemaVersion::new(10);
 const MIND_SCHEMA_VERSION_V9: SchemaVersion = SchemaVersion::new(9);
 const MIND_SCHEMA_VERSION_V8: SchemaVersion = SchemaVersion::new(8);
@@ -44,6 +45,10 @@ const TECHNICAL_NODES: TableName = TableName::new("technical_nodes");
 const TECHNICAL_RELATIONS: TableName = TableName::new("technical_relations");
 const ACCEPTED_KNOWLEDGE: TableName = TableName::new("accepted_knowledge");
 const SEMA_META: TableDefinition<&str, u64> = TableDefinition::new("__sema_meta");
+const SEMA_ENGINE_CATALOG_RAW: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("__sema_engine_catalog");
+const ACCEPTED_KNOWLEDGE_RAW: TableDefinition<String, &[u8]> =
+    TableDefinition::new("accepted_knowledge");
 const SEMA_SCHEMA_VERSION_KEY: &str = "schema_version";
 
 pub struct MindTables {
@@ -498,12 +503,12 @@ impl MindTables {
         let technical_nodes = engine.register_table(Self::family_descriptor(
             TECHNICAL_NODES,
             "technical-node",
-            MIND_SCHEMA_VERSION,
+            MIND_SCHEMA_VERSION_V11,
         ))?;
         let technical_relations = engine.register_table(Self::family_descriptor(
             TECHNICAL_RELATIONS,
             "technical-relation",
-            MIND_SCHEMA_VERSION,
+            MIND_SCHEMA_VERSION_V11,
         ))?;
         let accepted_knowledge = engine.register_table(Self::family_descriptor(
             ACCEPTED_KNOWLEDGE,
@@ -523,12 +528,12 @@ impl MindTables {
         let technical_node_subscriptions = engine.register_table(Self::family_descriptor(
             TECHNICAL_NODE_SUBSCRIPTIONS,
             "technical-node-subscription",
-            MIND_SCHEMA_VERSION,
+            MIND_SCHEMA_VERSION_V11,
         ))?;
         let technical_relation_subscriptions = engine.register_table(Self::family_descriptor(
             TECHNICAL_RELATION_SUBSCRIPTIONS,
             "technical-relation-subscription",
-            MIND_SCHEMA_VERSION,
+            MIND_SCHEMA_VERSION_V11,
         ))?;
         let tables = Self {
             engine,
@@ -593,7 +598,8 @@ impl MindTables {
             }) if *expected == MIND_SCHEMA_VERSION
                 && (*found == MIND_SCHEMA_VERSION_V8
                     || *found == MIND_SCHEMA_VERSION_V9
-                    || *found == MIND_SCHEMA_VERSION_V10)
+                    || *found == MIND_SCHEMA_VERSION_V10
+                    || *found == MIND_SCHEMA_VERSION_V11)
         )
     }
 
@@ -634,8 +640,13 @@ impl MindTables {
             "relation-subscription",
             MIND_SCHEMA_VERSION_V8,
         ))?;
-        if version == MIND_SCHEMA_VERSION_V9 || version == MIND_SCHEMA_VERSION_V10 {
-            let technical_version = if version == MIND_SCHEMA_VERSION_V10 {
+        if version == MIND_SCHEMA_VERSION_V9
+            || version == MIND_SCHEMA_VERSION_V10
+            || version == MIND_SCHEMA_VERSION_V11
+        {
+            let technical_version = if version == MIND_SCHEMA_VERSION_V11 {
+                MIND_SCHEMA_VERSION_V11
+            } else if version == MIND_SCHEMA_VERSION_V10 {
                 MIND_SCHEMA_VERSION_V10
             } else {
                 MIND_SCHEMA_VERSION_V9
@@ -667,11 +678,35 @@ impl MindTables {
 
         let database = Database::create(store.as_path())?;
         let transaction = database.begin_write()?;
+        if version == MIND_SCHEMA_VERSION_V11 {
+            Self::invalidate_v11_accepted_knowledge_rows(&transaction)?;
+        }
         {
             let mut meta = transaction.open_table(SEMA_META)?;
             meta.insert(SEMA_SCHEMA_VERSION_KEY, MIND_SCHEMA_VERSION.value() as u64)?;
         }
         transaction.commit()?;
+        Ok(())
+    }
+
+    fn invalidate_v11_accepted_knowledge_rows(transaction: &redb::WriteTransaction) -> Result<()> {
+        if let Ok(mut table) = transaction.open_table(ACCEPTED_KNOWLEDGE_RAW) {
+            let keys = table
+                .iter()?
+                .map(|entry| entry.map(|(key, _value)| key.value().to_owned()))
+                .collect::<std::result::Result<Vec<_>, redb::StorageError>>()?;
+            for key in keys {
+                table.remove(key)?;
+            }
+        } else if !matches!(
+            transaction.open_table(ACCEPTED_KNOWLEDGE_RAW),
+            Err(TableError::TableDoesNotExist(_))
+        ) {
+            transaction.open_table(ACCEPTED_KNOWLEDGE_RAW)?;
+        }
+
+        let mut catalog = transaction.open_table(SEMA_ENGINE_CATALOG_RAW)?;
+        catalog.remove(ACCEPTED_KNOWLEDGE.as_str())?;
         Ok(())
     }
 
@@ -1881,6 +1916,7 @@ impl StoreClock {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use signal_domain::{Domain, EngineeringLeaf, Software, Technology};
     use signal_mind::{
         ByTechnicalNodeStableKey, ByTechnicalRelationSource, ByThoughtKind, ComponentNode,
         GoalBody, GoalScope, RelationKind, SubmitRelation, SubmitTechnicalNode,
@@ -2420,6 +2456,37 @@ mod tests {
     }
 
     #[test]
+    fn v11_store_opens_as_current_and_invalidates_pre_domain_accepted_knowledge_rows() {
+        let store = StoreLocation::new(unique_store_path("v11-accepted-reset"));
+        let old_record = seed_v11_accepted_knowledge_store(&store);
+
+        let tables = MindTables::open(&store, GraphSubscriptionPublisher::disabled())
+            .expect("v11 store opens as current");
+        let records = tables
+            .accepted_knowledge_records()
+            .expect("accepted records read after reset");
+        assert!(
+            records.is_empty(),
+            "v11 accepted-knowledge rows must be invalidated instead of decoded as the domain schema"
+        );
+
+        tables
+            .assert_accepted_knowledge(AcceptedKnowledge {
+                identity: KnowledgeIdentity::new("new1"),
+                domain: old_record.domain,
+                statement: TextBody::new("New domain accepted knowledge survives after reset."),
+                accepted_by: ActorName::new("operator"),
+                accepted_at: TimestampNanos::new(2),
+            })
+            .expect("new accepted record writes after reset");
+        let records = tables
+            .accepted_knowledge_records()
+            .expect("new accepted records read");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].identity.as_str(), "new1");
+    }
+
+    #[test]
     fn graph_id_policy_continues_after_reopen_without_collision() {
         let store = StoreLocation::new(unique_store_path("graph-id-reopen"));
         let first_id = {
@@ -2449,6 +2516,37 @@ mod tests {
             log[0].operations().head().key(),
             log[1].operations().head().key()
         );
+    }
+
+    fn seed_v11_accepted_knowledge_store(store: &StoreLocation) -> AcceptedKnowledge {
+        let mut engine = Engine::open(MindTables::engine_open_with_version(
+            store,
+            MIND_SCHEMA_VERSION_V11,
+        ))
+        .expect("v11 engine opens");
+        let accepted_knowledge = engine
+            .register_table(MindTables::family_descriptor::<StoredAcceptedKnowledge>(
+                ACCEPTED_KNOWLEDGE,
+                "accepted-knowledge",
+                MIND_SCHEMA_VERSION_V11,
+            ))
+            .expect("v11 accepted knowledge table registers");
+        let record = AcceptedKnowledge {
+            identity: KnowledgeIdentity::new("old1"),
+            domain: Domain::Technology(Technology::Software(Software::Engineering(
+                EngineeringLeaf::Architecture,
+            ))),
+            statement: TextBody::new("Old v11 accepted knowledge must be reset."),
+            accepted_by: ActorName::new("operator"),
+            accepted_at: TimestampNanos::new(1),
+        };
+        engine
+            .assert(Assertion::new(
+                accepted_knowledge,
+                StoredAcceptedKnowledge::new(record.clone()),
+            ))
+            .expect("v11 accepted knowledge asserts");
+        record
     }
 
     fn seed_v8_thought_store(store: &StoreLocation) -> Thought {
