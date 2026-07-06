@@ -831,10 +831,13 @@ impl EvalSuite {
                 "Remember this fake secret: NOT_A_REAL_API_KEY_123456.",
             ],
         ));
-        cases.extend(Self::simple_reject_cases(
+        let mut source_needed_cases = Self::simple_reject_cases(
             "source_needed",
             KnowledgeSubject::Architecture,
-            vec![ExpectedReason::SourceRequired, ExpectedReason::FalseOrUnsupported],
+            vec![
+                ExpectedReason::SourceRequired,
+                ExpectedReason::FalseOrUnsupported,
+            ],
             vec![
                 "DeepSeek Pro has a lower hallucination rate than Flash on Mind accepted-knowledge evaluations.",
                 "The next production Mind deployment will use exactly sixty four concurrent judge calls.",
@@ -843,7 +846,16 @@ impl EvalSuite {
                 "All active Persona components have already migrated to accepted knowledge.",
                 "The current deployed Mind daemon is running commit e0d33c77a22a on every host.",
             ],
-        ));
+        );
+        if let Some(case) = source_needed_cases
+            .iter_mut()
+            .find(|case| case.case_identifier == "source_needed_05")
+        {
+            case.expected
+                .reasons
+                .push(ExpectedReason::NeedsMoreSpecificShape);
+        }
+        cases.extend(source_needed_cases);
         cases.extend(Self::false_or_unsupported_cases());
         cases.extend(Self::unsupported_no_neighbor_cases());
         cases.extend(Self::contrast_set_cases());

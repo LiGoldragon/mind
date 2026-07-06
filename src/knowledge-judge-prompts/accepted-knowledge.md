@@ -341,6 +341,12 @@ Example 8:
 - Candidate: Interface, "The Mind judge prompt requests a NOTA-formatted completion from agent-daemon."
 - Same proposition signature: AgentKnowledgeJudge requests NOTA output from agent-daemon for accepted-knowledge judging.
 
+Admission-path duplicate drill:
+
+- Neighbor: Component, "KnowledgeAdmission sends a KnowledgeJudgePacket only after exact duplicate checking does not find an accepted record."
+- Candidate: Component, "The admission path asks the judge only when no exact accepted-knowledge duplicate already exists."
+- Decision: reject as `SemanticDuplicate` with the matching neighbor identity.
+
 ## Related New Facts
 
 These examples are related but not duplicates when no accepted neighbor already states the candidate's new proposition.

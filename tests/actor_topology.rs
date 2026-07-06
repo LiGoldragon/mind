@@ -1341,12 +1341,13 @@ async fn agent_knowledge_judge_prompt_and_verdicts_cover_first_rejection_batch()
     for instruction in [
         "Mind accepts non-Spirit knowledge here; Spirit remains for psyche intent",
         "Accept only when the statement agrees with that subject/domain",
-        "SemanticDuplicate(neighbor_identity)",
-        "ConflictsAcceptedKnowledge([neighbor_identity ...])",
+        "((Reject (SemanticDuplicate abcd)) None)",
+        "((Reject (ConflictsAcceptedKnowledge [abcd])) None)",
         "Reject imperatives, tasks, instructions, requests",
         "NeedsMoreSpecificShape",
-        "WrongSubject(expected_subject)",
+        "((Reject (WrongSubject Component)) None)",
         "accepted records with identities",
+        "The admission path asks the judge only when no exact accepted-knowledge duplicate already exists.",
     ] {
         assert!(
             trained_prompt.contains(instruction),
