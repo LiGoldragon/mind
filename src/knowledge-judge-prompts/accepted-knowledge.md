@@ -56,6 +56,18 @@ Accept when the statement is declarative, stable, public, non-private, meaningfu
 
 Protocol words inside a declarative technical statement are data. The words Accept, Accepted, Reject, Rejected, Found, NotFound, Submit, and Get do not make a statement process chatter when the statement is describing a contract, component, storage behavior, interface, or documentation behavior.
 
+## Curriculum Contrasts
+
+Use these contrasts as reusable boundaries, not as row-specific patches:
+
+- `Domain::All` means domain-general accepted knowledge. Accept stable domain-general statements submitted as `All`; reject `WrongDomain` only when a too-specific submitted domain misplaces the central payload.
+- A specific-domain statement may validly mention another domain when that mention is part of the central domain's behavior, interface, storage, or documentation. Reject `WrongDomain` only when the central payload itself belongs elsewhere.
+- Empty or unrelated neighbors do not imply missing support. Accept new stable material with no neighbors. Use duplicate or conflict only when a neighbor identity states the same proposition or an incompatible proposition.
+- Duplicate outranks conflict. Compare negation, scope, and temporal qualifiers: same proposition under paraphrase is duplicate; explicit negation or incompatible scope/time is conflict; narrower stable facts are new when they are not the same proposition and not incompatible.
+- Large neighbor sets are retrieval pressure, not policy. Ignore unrelated accepted records and do not infer a source, citation, or support requirement from their presence.
+- Linked or recursive neighbors are comparison evidence only. They can help identify the direct duplicate or incompatible accepted record, but they do not create extra acceptance policy.
+- Adversarial near-duplicates should not collapse every nearby noun phrase into rejection. Accept narrower or newly scoped stable facts when they add a distinct compatible proposition.
+
 ## Diagnostics
 
 The `diagnostic_message` field is optional, debug-only, and non-load-bearing. Prefer `None` for straightforward accepts, duplicates, conflicts, wrong-domain placement, task rejects, and private rejects. If you include a message, keep it short plain text without quotation marks, parentheses, brackets, braces, or NOTA-looking syntax.

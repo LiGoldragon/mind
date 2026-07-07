@@ -798,6 +798,7 @@ impl EvalSuite {
         cases.extend(Self::paraphrase_duplicate_cases());
         cases.extend(Self::conflict_cases());
         cases.extend(Self::domain_all_acceptance_cases());
+        cases.extend(Self::domain_neighbor_contrast_cases());
         cases.extend(Self::simple_reject_cases(
             "temporal_or_unstable",
             ARCHITECTURE_DOMAIN,
@@ -979,6 +980,92 @@ impl EvalSuite {
             "Mind accepted-knowledge records may use the shared all-domain value directly.",
             ExpectedVerdict::accept(),
         )]
+    }
+
+    fn domain_neighbor_contrast_cases() -> Vec<EvalCase> {
+        let distractor_aliases = (1..=36)
+            .map(|index| format!("K_LARGE_DISTRACTOR_{index:02}"))
+            .collect::<Vec<_>>();
+        let large_neighbor_accept = distractor_aliases.iter().fold(
+            EvalCase::new(
+                "domain_neighbor_contrast_large_neighbors_accept_01",
+                "domain_neighbor_contrast",
+                ARCHITECTURE_DOMAIN,
+                "Accepted-knowledge judging may ignore unrelated accepted neighbors while accepting a stable distinct public proposition.",
+                ExpectedVerdict::accept(),
+            )
+            .requiring_alias("K_NEIGHBORS_DATA"),
+            |case, alias| case.requiring_alias(alias),
+        );
+
+        vec![
+            EvalCase::new(
+                "domain_neighbor_contrast_all_empty_accept_01",
+                "domain_neighbor_contrast",
+                ALL_DOMAIN,
+                "Mind accepted-knowledge domain placement can use All for stable domain-general judge rules.",
+                ExpectedVerdict::accept(),
+            ),
+            EvalCase::new(
+                "domain_neighbor_contrast_all_too_specific_wrong_domain_01",
+                "domain_neighbor_contrast",
+                STORAGE_DOMAIN,
+                "Domain All is Mind's shared domain-general placement for accepted-knowledge statements that are not specific to one taxonomy branch.",
+                ExpectedVerdict::reject(vec![ExpectedReason::WrongDomain])
+                    .with_expected_domain(STORAGE_DOMAIN),
+            ),
+            EvalCase::new(
+                "domain_neighbor_contrast_cross_domain_mention_accept_01",
+                "domain_neighbor_contrast",
+                INTERFACE_DOMAIN,
+                "The mind command-line surface can mention Found replies when documenting how Get results are printed to users.",
+                ExpectedVerdict::accept(),
+            )
+            .requiring_alias("K_FOUND_PROJECTION"),
+            EvalCase::new(
+                "domain_neighbor_contrast_true_wrong_domain_01",
+                "domain_neighbor_contrast",
+                REPOSITORY_DOMAIN,
+                "The accepted_knowledge table family stores accepted records for Mind.",
+                ExpectedVerdict::reject(vec![ExpectedReason::WrongDomain])
+                    .with_expected_domain(REPOSITORY_DOMAIN),
+            ),
+            EvalCase::new(
+                "domain_neighbor_contrast_duplicate_scope_01",
+                "domain_neighbor_contrast",
+                ARCHITECTURE_DOMAIN,
+                "Accepted-knowledge entries retain both the submitted domain and the statement text.",
+                ExpectedVerdict::reject(vec![ExpectedReason::SemanticDuplicate])
+                    .with_target_alias("K_SCOPE_BASE"),
+            ),
+            EvalCase::new(
+                "domain_neighbor_contrast_conflict_negation_01",
+                "domain_neighbor_contrast",
+                ARCHITECTURE_DOMAIN,
+                "Accepted-knowledge records discard the candidate domain after storing the statement.",
+                ExpectedVerdict::reject(vec![ExpectedReason::ConflictsAcceptedKnowledge])
+                    .with_target_alias("K_SCOPE_BASE"),
+            ),
+            large_neighbor_accept,
+            EvalCase::new(
+                "domain_neighbor_contrast_linked_neighbors_accept_01",
+                "domain_neighbor_contrast",
+                ARCHITECTURE_DOMAIN,
+                "A judge may use linked accepted neighbors as comparison evidence without treating those neighbors as additional policy.",
+                ExpectedVerdict::accept(),
+            )
+            .requiring_alias("K_DEPENDENCY_BASE")
+            .requiring_alias("K_DEPENDENCY_DERIVED")
+            .requiring_alias("K_DEPENDENCY_CHAIN"),
+            EvalCase::new(
+                "domain_neighbor_contrast_near_duplicate_narrow_accept_01",
+                "domain_neighbor_contrast",
+                CONTRACT_DOMAIN,
+                "Found replies expose only the public accepted-knowledge identity, domain, and statement fields for the requested record.",
+                ExpectedVerdict::accept(),
+            )
+            .requiring_alias("K_FOUND_PROJECTION"),
+        ]
     }
 
     fn exact_duplicate_cases() -> Vec<EvalCase> {
@@ -4021,6 +4108,46 @@ mod tests {
         assert_eq!(case.domain, Domain::All);
         assert!(case.request().to_nota().contains("All"));
         assert_eq!(case.expected.verdict, ExpectedVerdictKind::Accepted);
+    }
+
+    #[test]
+    fn domain_neighbor_contrast_category_covers_required_boundaries() {
+        let suite = EvalSuite::new();
+        let cases = suite
+            .cases
+            .iter()
+            .filter(|case| case.category == "domain_neighbor_contrast")
+            .collect::<Vec<_>>();
+
+        assert!(
+            !cases.is_empty(),
+            "domain neighbor contrast category exists"
+        );
+        assert!(cases.iter().any(|case| case.domain == Domain::All));
+        assert!(cases.iter().any(|case| {
+            case.expected.verdict == ExpectedVerdictKind::Accepted
+                && case.required_aliases.is_empty()
+                && case.expected.target_aliases.is_empty()
+        }));
+
+        let large_neighbor_case = cases
+            .iter()
+            .find(|case| {
+                case.case_identifier == "domain_neighbor_contrast_large_neighbors_accept_01"
+            })
+            .expect("large-neighbor contrast case exists");
+        let setup_cases = suite.setup_cases_for(std::slice::from_ref(*large_neighbor_case));
+        let setup_aliases = setup_cases
+            .iter()
+            .filter_map(|case| case.accept_alias.as_deref())
+            .collect::<BTreeSet<_>>();
+        assert!(setup_aliases.contains("K_NEIGHBORS_DATA"));
+        assert!(setup_aliases.contains("K_LARGE_DISTRACTOR_36"));
+        assert!(setup_aliases.len() >= 37);
+
+        let expected_json = large_neighbor_case.expected.to_json();
+        assert!(expected_json.get("allowed_reasons").is_some());
+        assert!(expected_json.get("reasons").is_none());
     }
 
     #[test]
