@@ -640,6 +640,44 @@ async fn accepted_knowledge_submit_mints_identity_and_get_finds_record() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn accepted_knowledge_domain_all_reaches_judge_and_round_trips_from_storage() {
+    let statement = "Mind accepts a shared all-domain accepted-knowledge submission.";
+    let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![response(accept()).to_nota()]);
+    let fixture = ActorFixture::with_knowledge_judge(Arc::new(fake_agent.knowledge_judge())).await;
+
+    let accepted = fixture
+        .submit(knowledge_submission(Domain::All, statement))
+        .await;
+    let identity = accepted_identity(&accepted);
+    let found = fixture.submit(knowledge_get(identity.clone())).await;
+    let record = found_record(&found);
+    assert_eq!(record.identity, identity);
+    assert_eq!(record.domain, Domain::All);
+    assert_eq!(record.statement.as_str(), statement);
+
+    let prompts = fake_agent.captured_prompts();
+    assert_eq!(
+        prompts.len(),
+        1,
+        "Domain::All submission must reach the judge"
+    );
+    let packet_text = prompts[0]
+        .split("KnowledgeJudgePacket under judgment:\n")
+        .nth(1)
+        .and_then(|text| text.split("\n\nReturn one KnowledgeJudgeResponse.").next())
+        .expect("judge prompt contains the model-visible packet");
+    assert!(packet_text.contains("All"));
+    assert!(packet_text.contains(statement));
+    assert!(
+        packet_text.contains("[]"),
+        "new Domain::All material keeps empty neighbors as ordinary packet data"
+    );
+
+    fixture.stop().await;
+    fake_agent.join();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exact_accepted_knowledge_duplicate_rejects_before_judge_and_stores_nothing_new() {
     let accepted_statement = "Mind exact duplicate submissions are deterministic mechanism.";
     let fake_agent = FakeKnowledgeAgent::spawn_texts(vec![

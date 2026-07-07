@@ -49,10 +49,10 @@ serde_json          = "1"
 sha2                = "0.10"
 sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
-signal-domain       = { git = "https://github.com/LiGoldragon/signal-domain.git", branch = "main", features = ["nota-text"] }
+signal-domain       = { git = "https://github.com/LiGoldragon/signal-domain.git", rev = "801e1c5bcc824c9760e246205826e3c8e962d005", features = ["nota-text"] }
 signal-agent        = { git = "https://github.com/LiGoldragon/signal-agent.git", branch = "main" }
-signal-persona      = { git = "https://github.com/LiGoldragon/signal-persona.git", branch = "main" }
-signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", branch = "main" }
+signal-persona      = { git = "https://github.com/LiGoldragon/signal-persona.git", rev = "e6fbc977cdf6a19b9ee31b41d235e1808091dc88" }
+signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", rev = "1378d5f3c317efc0c5dd4832a3346e96549cb1c7" }
 triad-runtime       = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
 thiserror           = "2"
 tokio               = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util"] }
@@ -70,3 +70,7 @@ kameo = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main" }
 
 [patch."https://github.com/LiGoldragon/nota-next.git"]
 nota = { git = "https://github.com/LiGoldragon/nota.git", branch = "main" }
+
+[patch."https://github.com/LiGoldragon/schema-next.git"]
+schema = { package = "schema", git = "https://github.com/LiGoldragon/schema.git", rev = "4a8aaf1de3aaf476577d5b4e93691ef47c135d1a" }
+schema-cc = { package = "schema-cc", git = "https://github.com/LiGoldragon/schema.git", rev = "4a8aaf1de3aaf476577d5b4e93691ef47c135d1a" }

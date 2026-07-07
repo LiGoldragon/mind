@@ -41,6 +41,7 @@ const STORAGE_DOMAIN: Domain =
 const DOCUMENTATION_DOMAIN: Domain = Domain::Technology(Technology::Software(
     Software::Engineering(EngineeringLeaf::Documentation),
 ));
+const ALL_DOMAIN: Domain = Domain::All;
 
 const DEFAULT_OUTPUT_ROOT: &str = "/home/li/primary/agent-outputs/MindLiveJudgeEval";
 const DEFAULT_AGENT_REPOSITORY: &str = "/git/github.com/LiGoldragon/agent";
@@ -796,6 +797,7 @@ impl EvalSuite {
         cases.extend(Self::exact_duplicate_cases());
         cases.extend(Self::paraphrase_duplicate_cases());
         cases.extend(Self::conflict_cases());
+        cases.extend(Self::domain_all_acceptance_cases());
         cases.extend(Self::simple_reject_cases(
             "temporal_or_unstable",
             ARCHITECTURE_DOMAIN,
@@ -967,6 +969,16 @@ impl EvalSuite {
             .setup()
         })
         .collect()
+    }
+
+    fn domain_all_acceptance_cases() -> Vec<EvalCase> {
+        vec![EvalCase::new(
+            "domain_all_acceptance_01",
+            "domain_all_acceptance",
+            ALL_DOMAIN,
+            "Mind accepted-knowledge records may use the shared all-domain value directly.",
+            ExpectedVerdict::accept(),
+        )]
     }
 
     fn exact_duplicate_cases() -> Vec<EvalCase> {
@@ -3994,6 +4006,21 @@ mod tests {
             json!(["MeaningUnclear", "NeedsMoreSpecificShape"]),
             "eval artifacts expose the canonical allowed_reasons key"
         );
+    }
+
+    #[test]
+    fn live_eval_suite_exercises_domain_all_acceptance() {
+        let suite = EvalSuite::new();
+        let case = suite
+            .cases
+            .iter()
+            .find(|case| case.case_identifier == "domain_all_acceptance_01")
+            .expect("Domain::All acceptance case exists");
+
+        assert_eq!(case.category, "domain_all_acceptance");
+        assert_eq!(case.domain, Domain::All);
+        assert!(case.request().to_nota().contains("All"));
+        assert_eq!(case.expected.verdict, ExpectedVerdictKind::Accepted);
     }
 
     #[test]
