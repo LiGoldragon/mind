@@ -1,8 +1,5 @@
 # Persona Mind — Agent Instructions
 
-Read `/home/li/primary/AGENTS.md` first, then `/home/li/primary/lore/AGENTS.md`.
-This repository follows the primary workspace orchestration protocol.
-
 ## Purpose
 
 `mind` is Persona's central state machine. It models memory/work
