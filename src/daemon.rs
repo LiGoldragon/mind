@@ -21,8 +21,8 @@ use triad_runtime::{AcceptedConnection, FrameError};
 
 use crate::schema::daemon::ComponentDaemon;
 use crate::{
-    ActorRef, AgentKnowledgeJudge, Error as MindError, FixtureKnowledgeJudge, KnowledgeJudgePort,
-    MetaMindFrameCodec, MindFrameCodec, MindKnowledgeJudgeConfiguration, MindRoot,
+    ActorRef, Error as MindError, FixtureKnowledgeJudge, KnowledgeJudgePort, MetaMindFrameCodec,
+    MindFrameCodec, MindJudgeSocketKnowledgeJudge, MindKnowledgeJudgeConfiguration, MindRoot,
     MindRootArguments, StoreLocation, SupervisionFrameCodec,
 };
 
@@ -152,8 +152,8 @@ impl ComponentDaemon for MindProcessDaemon {
             MindKnowledgeJudgeConfiguration::Fixture => {
                 std::sync::Arc::new(FixtureKnowledgeJudge::empty())
             }
-            MindKnowledgeJudgeConfiguration::Agent(configuration) => {
-                std::sync::Arc::new(AgentKnowledgeJudge::new(configuration.clone()))
+            MindKnowledgeJudgeConfiguration::MindJudge(configuration) => {
+                std::sync::Arc::new(MindJudgeSocketKnowledgeJudge::new(configuration.clone()))
             }
         };
         Ok(MindEngine::open_with_knowledge_judge(

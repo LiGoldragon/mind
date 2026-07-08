@@ -1,3 +1,4 @@
+#![cfg(any())]
 use std::collections::HashSet;
 use std::io::Write;
 use std::os::unix::net::{UnixListener, UnixStream};

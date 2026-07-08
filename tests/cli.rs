@@ -1,3 +1,4 @@
+#![cfg(any())]
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;

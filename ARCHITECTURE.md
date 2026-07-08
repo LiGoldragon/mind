@@ -663,27 +663,13 @@ This repo does not own:
   contradiction, truth, or source requirements through keyword or regex rules.
 - The default `KnowledgeJudge` is the empty fixture judge, so an unconfigured
   daemon rejects semantic accepted-knowledge submissions safely. A daemon
-  startup archive can explicitly select `AgentKnowledgeJudge`, which calls the
-  local `agent` daemon over `signal-agent::Input::Call` and parses one
-  `KnowledgeJudgeVerdict` from the completion.
-- `AgentKnowledgeJudge` training prose has a packaged default under
-  `src/knowledge-judge-prompts/accepted-knowledge.md`, compiled into the daemon
-  with `include_str!`. Prompt assembly still inserts the submitted
-  `KnowledgeJudgePacket` and renders exact verdict/reason examples from
-  `KnowledgeJudgeVerdict` and `KnowledgeRejectionReason` values so examples
-  cannot drift away from parseable output.
-- The startup configuration can explicitly override judge training by having
-  `mind-write-configuration` read a `(JudgeTrainingFile <path>)` and store the
-  file text in the binary daemon archive. Omitting the training source, or using
-  `(DefaultJudgeTraining)`, selects the compiled default. The daemon reads only
-  the binary archive at runtime; large prompt text is not passed through daemon
-  command-line arguments.
-- The startup configuration can explicitly enable a small judge
-  request/response JSONL log with
-  `(JudgeRequestResponseLog (JsonLines <absolute-log-path>))` as an
-  `AgentKnowledgeJudge` tail record. It is disabled by default, is rejected when
-  the log path equals `mind.sema`, and records only the client `MindRequest`
-  that caused the judge call plus the raw completed judge/model response text.
+  startup archive can explicitly select `MindJudge`, which connects to a
+  configured Unix socket and exchanges typed `signal-mind-judge` rkyv frames.
+- Mind daemon core does not render prompts, parse model text, call providers,
+  or read prompt training. `mind-judge` owns the text/model edge and
+  `mind-judge-config` owns prompt prose.
+- `mind-write-configuration` may parse NOTA as a bootstrap tool; the daemon
+  runtime reads only the binary archive and then speaks typed Signal frames.
 - `KnowledgeJudgeVerdict::Accept` is a decision over the submitted
   domain/statement pair, not a payload containing replacement records or an
   identity. Mind materializes and stores the submission under a generated
@@ -856,14 +842,14 @@ src/actors/subscription.rs post-commit graph subscription event actor
 src/actors/manifest.rs     actor topology manifest
 src/actors/trace.rs        actor trace witness types
 src/graph.rs               typed Thought/Relation ledger, filters, and subscription snapshots
-src/knowledge.rs           accepted-knowledge fixture/agent judge ports, prompt assembly, verdict parsing, admission, verdict application, and query projection
+src/knowledge.rs           accepted-knowledge fixture/socket judge ports, typed signal-mind-judge conversion, admission, verdict application, and query projection
 src/memory.rs              memory/work graph reducer
 src/tables.rs              mind-local Sema schema, `sema-engine` graph families, and work tables
 src/text.rs                NOTA work-graph projection for mind CLI
 src/transport.rs           `MindFrame` client + working-tier codec (`serve_request`) and in-process test daemon harness
 src/supervision.rs         engine-management (supervision) codec (`serve_connection`) + in-process supervision test harness
 src/daemon.rs              `ComponentDaemon` hooks: `MindEngine` wraps the `MindRoot` actor tree; component-decoded working + meta hooks
-src/configuration.rs       binary rkyv `MindDaemonConfiguration`, including fixture/agent knowledge-judge selection (single startup argument; daemons never parse NOTA)
+src/configuration.rs       binary rkyv `MindDaemonConfiguration`, including fixture/MindJudge socket knowledge-judge selection (single startup argument; daemons never parse NOTA)
 src/schema/daemon.rs       @generated daemon shell: argv -> binary config -> multi-listener accept/lifecycle/exit spine
 build.rs                   schema-rust generation driver (component-decoded `NexusDaemonShape` + meta tier)
 src/main.rs                `mind` CLI (client-only): one NOTA request -> daemon -> printed reply

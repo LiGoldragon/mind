@@ -13,9 +13,6 @@ use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use signal_mind::WirePath;
 use triad_runtime::{BindingSurface, RequestConcurrencyLimit, SocketMode};
 
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
-
 const OWNER_ONLY_SOCKET_MODE: u32 = 0o600;
 const MAXIMUM_CONCURRENT_REQUESTS: usize = 64;
 
@@ -37,11 +34,11 @@ impl MindDaemonConfiguration {
         }
     }
 
-    pub fn with_agent_knowledge_judge(
+    pub fn with_mind_judge(
         mut self,
-        knowledge_judge: MindKnowledgeJudgeAgentConfiguration,
+        knowledge_judge: MindKnowledgeJudgeSocketConfiguration,
     ) -> Self {
-        self.knowledge_judge = MindKnowledgeJudgeConfiguration::Agent(knowledge_judge);
+        self.knowledge_judge = MindKnowledgeJudgeConfiguration::MindJudge(knowledge_judge);
         self
     }
 
@@ -69,43 +66,7 @@ impl MindDaemonConfiguration {
     }
 
     pub fn validate(&self) -> Result<(), ConfigurationError> {
-        if let MindKnowledgeJudgeConfiguration::Agent(judge) = &self.knowledge_judge
-            && let MindJudgeRequestResponseLog::JsonLines(path) = &judge.request_response_log
-            && self.judge_request_response_log_conflicts_with_store(path)
-        {
-            return Err(ConfigurationError::JudgeRequestResponseLogPathIsStore {
-                path: path.as_str().to_owned(),
-            });
-        }
         Ok(())
-    }
-
-    fn judge_request_response_log_conflicts_with_store(&self, path: &WirePath) -> bool {
-        let store_path = Path::new(self.store_path.as_str());
-        let log_path = Path::new(path.as_str());
-        if store_path == log_path {
-            return true;
-        }
-        if log_path
-            .symlink_metadata()
-            .map(|metadata| metadata.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            return true;
-        }
-        #[cfg(unix)]
-        {
-            if let (Ok(store), Ok(log)) = (store_path.metadata(), log_path.metadata())
-                && store.dev() == log.dev()
-                && store.ino() == log.ino()
-            {
-                return true;
-            }
-        }
-        match (store_path.canonicalize(), log_path.canonicalize()) {
-            (Ok(store), Ok(log)) => store == log,
-            _ => false,
-        }
     }
 }
 
@@ -138,90 +99,23 @@ impl BindingSurface for MindDaemonConfiguration {
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum MindKnowledgeJudgeConfiguration {
     Fixture,
-    Agent(MindKnowledgeJudgeAgentConfiguration),
+    MindJudge(MindKnowledgeJudgeSocketConfiguration),
 }
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-pub struct MindKnowledgeJudgeAgentConfiguration {
-    pub agent_socket_path: WirePath,
-    pub provider_name: Option<String>,
-    pub model_name: Option<String>,
+pub struct MindKnowledgeJudgeSocketConfiguration {
+    pub socket_path: WirePath,
     pub timeout_milliseconds: u64,
-    pub maximum_output_tokens: Option<u64>,
-    pub training_source: MindKnowledgeJudgeTrainingSource,
-    pub request_response_log: MindJudgeRequestResponseLog,
 }
 
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-pub enum MindKnowledgeJudgeTrainingSource {
-    CompiledDefault,
-    OverrideText(String),
-}
-
-#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
-pub enum MindJudgeRequestResponseLog {
-    Disabled,
-    JsonLines(WirePath),
-}
-
-impl MindKnowledgeJudgeAgentConfiguration {
-    pub const DEEPSEEK_PROVIDER: &'static str = "deepseek";
-    pub const DEEPSEEK_FLASH_MODEL: &'static str = "deepseek-v4-flash";
-    pub const LOCAL_OPENAI_COMPATIBLE_PROVIDER: &'static str = "local-openai";
-    pub const LOCAL_OPENAI_COMPATIBLE_MODEL: &'static str = "gpt-5.4-mini";
-    pub const LOCAL_OPENAI_COMPATIBLE_ENDPOINT: &'static str = "http://127.0.0.1:18080/v1";
+impl MindKnowledgeJudgeSocketConfiguration {
     pub const DEFAULT_TIMEOUT_MILLISECONDS: u64 = 180_000;
-    pub const DEFAULT_MAXIMUM_OUTPUT_TOKENS: u64 = 2048;
 
-    pub fn new(
-        agent_socket_path: WirePath,
-        provider_name: Option<String>,
-        model_name: Option<String>,
-        timeout_milliseconds: u64,
-        maximum_output_tokens: Option<u64>,
-    ) -> Self {
+    pub fn new(socket_path: WirePath, timeout_milliseconds: u64) -> Self {
         Self {
-            agent_socket_path,
-            provider_name,
-            model_name,
+            socket_path,
             timeout_milliseconds,
-            maximum_output_tokens,
-            training_source: MindKnowledgeJudgeTrainingSource::CompiledDefault,
-            request_response_log: MindJudgeRequestResponseLog::Disabled,
         }
-    }
-
-    pub fn with_training_source(
-        mut self,
-        training_source: MindKnowledgeJudgeTrainingSource,
-    ) -> Self {
-        self.training_source = training_source;
-        self
-    }
-
-    pub fn with_request_response_log(mut self, log: MindJudgeRequestResponseLog) -> Self {
-        self.request_response_log = log;
-        self
-    }
-
-    pub fn deepseek_flash(agent_socket_path: WirePath) -> Self {
-        Self::new(
-            agent_socket_path,
-            Some(Self::DEEPSEEK_PROVIDER.to_owned()),
-            Some(Self::DEEPSEEK_FLASH_MODEL.to_owned()),
-            Self::DEFAULT_TIMEOUT_MILLISECONDS,
-            Some(Self::DEFAULT_MAXIMUM_OUTPUT_TOKENS),
-        )
-    }
-
-    pub fn local_openai_compatible(agent_socket_path: WirePath) -> Self {
-        Self::new(
-            agent_socket_path,
-            Some(Self::LOCAL_OPENAI_COMPATIBLE_PROVIDER.to_owned()),
-            Some(Self::LOCAL_OPENAI_COMPATIBLE_MODEL.to_owned()),
-            Self::DEFAULT_TIMEOUT_MILLISECONDS,
-            Some(Self::DEFAULT_MAXIMUM_OUTPUT_TOKENS),
-        )
     }
 }
 
@@ -235,7 +129,4 @@ pub enum ConfigurationError {
 
     #[error("daemon configuration rkyv decode failed")]
     ArchiveDecode,
-
-    #[error("judge request/response log path must differ from store path: {path}")]
-    JudgeRequestResponseLogPathIsStore { path: String },
 }

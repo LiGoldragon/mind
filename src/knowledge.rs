@@ -1,47 +1,24 @@
 use std::collections::{BTreeSet, VecDeque};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use nota::{NotaEncode, NotaSource};
-use serde_json::json;
-use sha2::{Digest, Sha256};
-use signal_agent::{
-    ChatMessage, ChatTranscript, CompletionText, Input as AgentInput, MaximumOutputTokens,
-    ModelName, Output as AgentOutput, OutputMode, Prompt, PromptOptions, ProviderName,
-    ReasoningEffort, SystemText, TemperatureMilli, ThinkingMode,
-};
-use signal_domain::{Domain, EngineeringLeaf, Software, Technology};
+use signal_frame::RequestPayload;
 use signal_mind::{
     AcceptedKnowledge, ActorName, KnowledgeIdentity, KnowledgeJudgePacket, KnowledgeJudgeResponse,
-    KnowledgeJudgeVerdict, KnowledgeRecord, KnowledgeRejectionReason, KnowledgeSubmission,
-    MindReply, MindRequest, TextBody,
+    KnowledgeJudgeVerdict, KnowledgeRejectionReason, KnowledgeSubmission, MindReply, MindRequest,
+    TextBody,
 };
-use triad_runtime::{FrameBody, LengthPrefixedCodec};
 
-use crate::{
-    MindEnvelope, MindJudgeRequestResponseLog, MindKnowledgeJudgeAgentConfiguration,
-    MindKnowledgeJudgeTrainingSource, MindTables, Result,
-};
+use crate::{MindEnvelope, MindKnowledgeJudgeSocketConfiguration, MindTables, Result};
 
 const KNOWLEDGE_IDENTITY_MINIMUM_CODE_LENGTH: usize = 4;
 const KNOWLEDGE_IDENTITY_MAXIMUM_CODE_LENGTH: usize = 7;
 const KNOWLEDGE_IDENTITY_CODE_RADIX: u64 = 36;
 const RANDOM_IDENTITY_ATTEMPTS_PER_LENGTH: usize = 128;
-const COMPONENT_KNOWLEDGE_DOMAIN: Domain = Domain::Technology(Technology::Software(
-    Software::Engineering(EngineeringLeaf::All),
-));
-#[cfg(test)]
-const DOCUMENTATION_KNOWLEDGE_DOMAIN: Domain = Domain::Technology(Technology::Software(
-    Software::Engineering(EngineeringLeaf::Documentation),
-));
-const ACCEPTED_KNOWLEDGE_JUDGE_TRAINING: &str =
-    include_str!("knowledge-judge-prompts/accepted-knowledge.md");
-const JUDGE_DIAGNOSTIC_PATH_ENVIRONMENT: &str = "MIND_JUDGE_DIAGNOSTIC_PATH";
-const JUDGE_DIAGNOSTIC_TEXT_ENVIRONMENT: &str = "MIND_JUDGE_DIAGNOSTIC_TEXT";
 
 pub trait KnowledgeJudge: Send + Sync {
     fn judge(&self, request: KnowledgeJudgeRequest) -> KnowledgeJudgeDecision;
@@ -53,20 +30,12 @@ pub type KnowledgeJudgePort = Arc<dyn KnowledgeJudge>;
 
 #[derive(Clone, Debug)]
 pub struct KnowledgeJudgeRequest {
-    client_request: MindRequest,
     packet: KnowledgeJudgePacket,
 }
 
 impl KnowledgeJudgeRequest {
-    fn new(client_request: MindRequest, packet: KnowledgeJudgePacket) -> Self {
-        Self {
-            client_request,
-            packet,
-        }
-    }
-
-    fn client_request(&self) -> &MindRequest {
-        &self.client_request
+    fn new(_client_request: MindRequest, packet: KnowledgeJudgePacket) -> Self {
+        Self { packet }
     }
 
     fn packet(&self) -> &KnowledgeJudgePacket {
@@ -101,60 +70,17 @@ impl KnowledgeJudgeDecision {
     fn verdict(&self) -> &KnowledgeJudgeVerdict {
         &self.verdict
     }
-
-    fn diagnostic_message(&self) -> Option<&TextBody> {
-        self.diagnostic_message.as_ref()
-    }
-
-    fn parse_status(&self) -> &KnowledgeJudgeParseStatus {
-        &self.parse_status
-    }
-
-    fn format_failure(error: String) -> Self {
-        Self {
-            verdict: KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::MeaningUnclear),
-            diagnostic_message: None,
-            parse_status: KnowledgeJudgeParseStatus::JudgeFormatFailure { error },
-        }
-    }
-
-    fn agent_unavailable(error: String) -> Self {
-        Self {
-            verdict: KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::MeaningUnclear),
-            diagnostic_message: None,
-            parse_status: KnowledgeJudgeParseStatus::AgentUnavailable { error },
-        }
-    }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum KnowledgeJudgeParseStatus {
     ParsedKnowledgeJudgeResponse,
-    JudgeFormatFailure { error: String },
-    AgentUnavailable { error: String },
+    MindJudgeRequestRejected { reason: String, message: String },
+    MindJudgeUnavailable { error: String },
 }
 
-impl KnowledgeJudgeParseStatus {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::ParsedKnowledgeJudgeResponse => "parsed_knowledge_judge_response",
-            Self::JudgeFormatFailure { .. } => "judge_format_failure",
-            Self::AgentUnavailable { .. } => "agent_unavailable",
-        }
-    }
-
-    fn parsed_completed_response(&self) -> bool {
-        matches!(self, Self::ParsedKnowledgeJudgeResponse)
-    }
-
-    fn error(&self) -> Option<&str> {
-        match self {
-            Self::ParsedKnowledgeJudgeResponse => None,
-            Self::JudgeFormatFailure { error } | Self::AgentUnavailable { error } => Some(error),
-        }
-    }
-}
-
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct KnowledgeJudgeAppliedDecision {
     client_request: MindRequest,
@@ -226,747 +152,459 @@ impl KnowledgeJudge for FixtureKnowledgeJudge {
 }
 
 #[derive(Clone, Debug)]
-pub struct AgentKnowledgeJudge {
-    configuration: AgentKnowledgeJudgeConfiguration,
+pub struct MindJudgeSocketKnowledgeJudge {
+    configuration: MindJudgeSocketKnowledgeJudgeConfiguration,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct AgentKnowledgeJudgeConfiguration {
+struct MindJudgeSocketKnowledgeJudgeConfiguration {
     socket_path: PathBuf,
-    provider_name: Option<String>,
-    model_name: Option<String>,
     timeout: Duration,
-    maximum_output_tokens: Option<u64>,
-    training_source: MindKnowledgeJudgeTrainingSource,
-    request_response_log: JudgeRequestResponseLog,
-}
-
-#[derive(Clone, Debug)]
-struct KnowledgeJudgePrompt<'packet> {
-    packet: &'packet KnowledgeJudgePacket,
-    provider_name: Option<&'packet str>,
-    model_name: Option<&'packet str>,
-    maximum_output_tokens: Option<u64>,
-    training_source: &'packet MindKnowledgeJudgeTrainingSource,
 }
 
 #[derive(Debug, thiserror::Error)]
-enum AgentKnowledgeJudgeError {
-    #[error("knowledge judge agent socket unavailable: {0}")]
+enum MindJudgeSocketKnowledgeJudgeError {
+    #[error("mind judge socket unavailable: {0}")]
     Socket(std::io::Error),
 
-    #[error("knowledge judge agent frame failed: {0}")]
+    #[error("mind judge frame failed: {0}")]
     Frame(String),
 
-    #[error("knowledge judge agent rejected the call: {0}")]
-    AgentRejected(String),
-
-    #[error("knowledge judge agent returned malformed verdict: {0}")]
-    Malformed(String),
+    #[error("mind judge returned unexpected frame: {0}")]
+    UnexpectedFrame(&'static str),
 }
 
-impl AgentKnowledgeJudge {
-    pub fn new(configuration: MindKnowledgeJudgeAgentConfiguration) -> Self {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MindJudgeSocketFrameCodec {
+    maximum_frame_bytes: usize,
+}
+
+impl MindJudgeSocketKnowledgeJudge {
+    pub fn new(configuration: MindKnowledgeJudgeSocketConfiguration) -> Self {
         Self {
-            configuration: AgentKnowledgeJudgeConfiguration::from_contract(configuration),
+            configuration: MindJudgeSocketKnowledgeJudgeConfiguration::from_contract(configuration),
         }
     }
 
-    fn call_agent(
+    fn call_mind_judge(
         &self,
-        prompt: Prompt,
-    ) -> std::result::Result<AgentOutput, AgentKnowledgeJudgeError> {
+        packet: signal_mind_judge::KnowledgeJudgePacket,
+    ) -> std::result::Result<signal_mind_judge::MindJudgeReply, MindJudgeSocketKnowledgeJudgeError>
+    {
         let mut stream = UnixStream::connect(self.configuration.socket_path())
-            .map_err(AgentKnowledgeJudgeError::Socket)?;
+            .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)?;
         stream
             .set_read_timeout(Some(self.configuration.timeout))
-            .map_err(AgentKnowledgeJudgeError::Socket)?;
+            .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)?;
         stream
             .set_write_timeout(Some(self.configuration.timeout))
-            .map_err(AgentKnowledgeJudgeError::Socket)?;
-        let input = AgentInput::call(prompt);
-        let codec = LengthPrefixedCodec::default();
-        codec
-            .write_body(
-                &mut stream,
-                &FrameBody::new(
-                    input
-                        .encode_signal_frame()
-                        .map_err(|error| AgentKnowledgeJudgeError::Frame(error.to_string()))?,
-                ),
-            )
-            .map_err(|error| AgentKnowledgeJudgeError::Frame(error.to_string()))?;
-        stream.flush().map_err(AgentKnowledgeJudgeError::Socket)?;
-        let reply = codec
-            .read_body(&mut stream)
-            .map_err(|error| AgentKnowledgeJudgeError::Frame(error.to_string()))?;
-        AgentOutput::decode_signal_frame(&reply.into_bytes())
-            .map(|(_route, output)| output)
-            .map_err(|error| AgentKnowledgeJudgeError::Frame(error.to_string()))
+            .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)?;
+        let codec = MindJudgeSocketFrameCodec::default();
+        codec.write_request(&mut stream, packet)?;
+        stream
+            .flush()
+            .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)?;
+        codec.read_reply(&mut stream)
     }
 
-    fn parse_decision(
-        &self,
-        completion: &CompletionText,
-    ) -> std::result::Result<KnowledgeJudgeDecision, AgentKnowledgeJudgeError> {
-        let source = NotaSource::new(completion.payload());
-        source
-            .parse::<KnowledgeJudgeResponse>()
-            .map(KnowledgeJudgeDecision::from_response)
-            .map_err(|response_error| {
-                AgentKnowledgeJudgeError::Malformed(format!(
-                    "KnowledgeJudgeResponse: {response_error}"
-                ))
-            })
-    }
-
-    fn unavailable_decision(error: AgentKnowledgeJudgeError) -> KnowledgeJudgeDecision {
-        match error {
-            AgentKnowledgeJudgeError::Malformed(message) => {
-                KnowledgeJudgeDecision::format_failure(message)
-            }
-            other => KnowledgeJudgeDecision::agent_unavailable(other.to_string()),
-        }
+    fn unavailable_decision(error: MindJudgeSocketKnowledgeJudgeError) -> KnowledgeJudgeDecision {
+        KnowledgeJudgeDecision::judge_unavailable(error.to_string())
     }
 }
 
-impl KnowledgeJudge for AgentKnowledgeJudge {
+impl KnowledgeJudge for MindJudgeSocketKnowledgeJudge {
     fn judge(&self, request: KnowledgeJudgeRequest) -> KnowledgeJudgeDecision {
-        let prompt = KnowledgeJudgePrompt::new(
-            request.packet(),
-            self.configuration.provider_name.as_deref(),
-            self.configuration.model_name.as_deref(),
-            self.configuration.maximum_output_tokens,
-            self.configuration.training_source(),
-        )
-        .into_agent_prompt();
-        JudgeDiagnostic::from_environment(
-            request.packet(),
-            &prompt,
-            self.configuration.training_source(),
-        )
-        .write();
-        let output = match self.call_agent(prompt) {
-            Ok(output) => output,
+        let packet = MindJudgeContractPacket::new(request.packet()).to_contract();
+        let reply = match self.call_mind_judge(packet) {
+            Ok(reply) => reply,
             Err(error) => return Self::unavailable_decision(error),
         };
-        let AgentOutput::Completed(completion) = output else {
-            self.configuration
-                .request_response_log
-                .write_agent_output(request.client_request(), &output);
-            return Self::unavailable_decision(AgentKnowledgeJudgeError::AgentRejected(format!(
-                "{output:?}"
-            )));
-        };
-        match self.parse_decision(&completion.completion_text) {
-            Ok(decision) => {
-                self.configuration.request_response_log.write_completed(
-                    request.client_request(),
-                    completion.completion_text.payload(),
-                    Some(&decision),
-                );
-                decision
-            }
-            Err(error) => {
-                let decision = Self::unavailable_decision(error);
-                self.configuration.request_response_log.write_completed(
-                    request.client_request(),
-                    completion.completion_text.payload(),
-                    Some(&decision),
-                );
-                decision
-            }
-        }
-    }
-
-    fn record_applied_decision(&self, decision: KnowledgeJudgeAppliedDecision) {
-        self.configuration
-            .request_response_log
-            .write_applied_decision(&decision);
+        KnowledgeJudgeDecision::from_mind_judge_reply(reply)
     }
 }
 
-impl AgentKnowledgeJudgeConfiguration {
-    fn from_contract(configuration: MindKnowledgeJudgeAgentConfiguration) -> Self {
+impl MindJudgeSocketKnowledgeJudgeConfiguration {
+    fn from_contract(configuration: MindKnowledgeJudgeSocketConfiguration) -> Self {
         Self {
-            socket_path: PathBuf::from(configuration.agent_socket_path.as_str()),
-            provider_name: configuration.provider_name,
-            model_name: configuration.model_name,
+            socket_path: PathBuf::from(configuration.socket_path.as_str()),
             timeout: Duration::from_millis(configuration.timeout_milliseconds),
-            maximum_output_tokens: configuration.maximum_output_tokens,
-            training_source: configuration.training_source,
-            request_response_log: JudgeRequestResponseLog::from_contract(
-                configuration.request_response_log,
-            ),
         }
     }
 
     fn socket_path(&self) -> &Path {
         &self.socket_path
     }
-
-    fn training_source(&self) -> &MindKnowledgeJudgeTrainingSource {
-        &self.training_source
-    }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct JudgeRequestResponseLog {
-    destination: JudgeRequestResponseLogDestination,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum JudgeRequestResponseLogDestination {
-    Disabled,
-    JsonLines(PathBuf),
-}
-
-impl JudgeRequestResponseLog {
-    fn from_contract(configuration: MindJudgeRequestResponseLog) -> Self {
-        match configuration {
-            MindJudgeRequestResponseLog::Disabled => Self {
-                destination: JudgeRequestResponseLogDestination::Disabled,
-            },
-            MindJudgeRequestResponseLog::JsonLines(path) => Self {
-                destination: JudgeRequestResponseLogDestination::JsonLines(PathBuf::from(
-                    path.as_str(),
-                )),
-            },
+impl Default for MindJudgeSocketFrameCodec {
+    fn default() -> Self {
+        Self {
+            maximum_frame_bytes: 1024 * 1024,
         }
     }
+}
 
-    fn write_completed(
+impl MindJudgeSocketFrameCodec {
+    fn synthetic_exchange(&self) -> signal_frame::ExchangeIdentifier {
+        let _maximum_frame_bytes = self.maximum_frame_bytes;
+        signal_frame::ExchangeIdentifier::new(
+            signal_frame::SessionEpoch::new(0),
+            signal_frame::ExchangeLane::Connector,
+            signal_frame::LaneSequence::first(),
+        )
+    }
+
+    fn write_request(
         &self,
-        client_request: &MindRequest,
-        raw_response: &str,
-        decision: Option<&KnowledgeJudgeDecision>,
-    ) {
-        let mut record = json!({
-            "kind": "completed_response",
-            "timestamp_unix_millis": JudgeRequestResponseLogClock::now_unix_millis(),
-            "request": client_request.to_nota(),
-            "raw_response": raw_response,
-        });
-        if let Some(decision) = decision {
-            record["judge_response_parse_status"] = json!(decision.parse_status().as_str());
-            record["parsed_completed_response"] =
-                json!(decision.parse_status().parsed_completed_response());
-            if let Some(error) = decision.parse_status().error() {
-                record["judge_response_parse_error"] = json!(error);
+        stream: &mut UnixStream,
+        packet: signal_mind_judge::KnowledgeJudgePacket,
+    ) -> std::result::Result<(), MindJudgeSocketKnowledgeJudgeError> {
+        let frame = signal_mind_judge::MindJudgeFrame::new(
+            signal_mind_judge::MindJudgeFrameBody::Request {
+                exchange: self.synthetic_exchange(),
+                request: signal_mind_judge::MindJudgeRequest::JudgeKnowledge(packet).into_request(),
+            },
+        );
+        let bytes = frame
+            .encode_length_prefixed()
+            .map_err(|error| MindJudgeSocketKnowledgeJudgeError::Frame(error.to_string()))?;
+        stream
+            .write_all(&bytes)
+            .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)
+    }
+
+    fn read_reply(
+        &self,
+        stream: &mut UnixStream,
+    ) -> std::result::Result<signal_mind_judge::MindJudgeReply, MindJudgeSocketKnowledgeJudgeError>
+    {
+        let mut length = [0_u8; 4];
+        stream
+            .read_exact(&mut length)
+            .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)?;
+        let length = u32::from_be_bytes(length) as usize;
+        if length > self.maximum_frame_bytes {
+            return Err(MindJudgeSocketKnowledgeJudgeError::Frame(format!(
+                "frame has {length} bytes, limit is {}",
+                self.maximum_frame_bytes
+            )));
+        }
+        let mut payload = vec![0_u8; length];
+        stream
+            .read_exact(&mut payload)
+            .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)?;
+        let mut frame_bytes = Vec::with_capacity(4 + payload.len());
+        frame_bytes.extend_from_slice(&(length as u32).to_be_bytes());
+        frame_bytes.extend_from_slice(&payload);
+        let frame = signal_mind_judge::MindJudgeFrame::decode_length_prefixed(&frame_bytes)
+            .map_err(|error| MindJudgeSocketKnowledgeJudgeError::Frame(error.to_string()))?;
+        match frame.into_body() {
+            signal_mind_judge::MindJudgeFrameBody::Reply { reply, .. } => match reply {
+                signal_frame::Reply::Accepted { per_operation, .. } => {
+                    match per_operation.into_head() {
+                        signal_frame::SubReply::Ok(reply) => Ok(reply),
+                        other => Err(MindJudgeSocketKnowledgeJudgeError::Frame(format!(
+                            "unexpected sub-reply: {other:?}"
+                        ))),
+                    }
+                }
+                signal_frame::Reply::Rejected { reason } => Err(
+                    MindJudgeSocketKnowledgeJudgeError::Frame(reason.to_string()),
+                ),
+            },
+            _ => Err(MindJudgeSocketKnowledgeJudgeError::UnexpectedFrame(
+                "expected mind judge reply",
+            )),
+        }
+    }
+}
+
+impl KnowledgeJudgeDecision {
+    fn from_mind_judge_reply(reply: signal_mind_judge::MindJudgeReply) -> Self {
+        match reply {
+            signal_mind_judge::MindJudgeReply::KnowledgeJudged(response) => {
+                Self::from_response(MindJudgeContractResponse::new(response).into_mind())
             }
-            record["parsed_verdict"] = json!(decision.verdict().to_nota());
-            record["diagnostic_message"] = json!(
-                decision
-                    .diagnostic_message()
-                    .map(|message| message.as_str())
-            );
-        }
-        self.write_record(record);
-    }
-
-    fn write_agent_output(&self, client_request: &MindRequest, output: &AgentOutput) {
-        self.write_record(json!({
-            "kind": "agent_output",
-            "timestamp_unix_millis": JudgeRequestResponseLogClock::now_unix_millis(),
-            "request": client_request.to_nota(),
-            "agent_output": format!("{output:?}"),
-        }));
-    }
-
-    fn write_applied_decision(&self, decision: &KnowledgeJudgeAppliedDecision) {
-        self.write_record(json!({
-            "kind": "applied_decision",
-            "timestamp_unix_millis": JudgeRequestResponseLogClock::now_unix_millis(),
-            "request": decision.client_request.to_nota(),
-            "parsed_verdict": decision.verdict.to_nota(),
-            "diagnostic_message": decision.diagnostic_message.as_ref().map(|message| message.as_str()),
-            "judge_response_parse_status": decision.parse_status.as_str(),
-            "parsed_completed_response": decision.parse_status.parsed_completed_response(),
-            "judge_response_parse_error": decision.parse_status.error(),
-            "reply": decision.reply.to_nota(),
-            "accepted_identity": match &decision.reply {
-                MindReply::Accepted(identity) => Some(identity.as_str()),
-                _ => None,
-            },
-        }));
-    }
-
-    fn write_record(&self, record: serde_json::Value) {
-        let JudgeRequestResponseLogDestination::JsonLines(path) = &self.destination else {
-            return;
-        };
-        let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        else {
-            return;
-        };
-        let _ = writeln!(file, "{record}");
-    }
-}
-
-struct JudgeRequestResponseLogClock;
-
-impl JudgeRequestResponseLogClock {
-    fn now_unix_millis() -> u128 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_millis())
-            .unwrap_or_default()
-    }
-}
-
-impl MindKnowledgeJudgeTrainingSource {
-    fn prompt_text(&self) -> &str {
-        match self {
-            Self::CompiledDefault => ACCEPTED_KNOWLEDGE_JUDGE_TRAINING,
-            Self::OverrideText(text) => text.as_str(),
+            signal_mind_judge::MindJudgeReply::RequestRejected(rejection) => {
+                Self::request_rejected(rejection)
+            }
         }
     }
-}
 
-impl<'packet> KnowledgeJudgePrompt<'packet> {
-    fn new(
-        packet: &'packet KnowledgeJudgePacket,
-        provider_name: Option<&'packet str>,
-        model_name: Option<&'packet str>,
-        maximum_output_tokens: Option<u64>,
-        training_source: &'packet MindKnowledgeJudgeTrainingSource,
-    ) -> Self {
+    fn request_rejected(rejection: signal_mind_judge::MindJudgeRequestRejection) -> Self {
         Self {
-            packet,
-            provider_name,
-            model_name,
-            maximum_output_tokens,
-            training_source,
+            verdict: KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::MeaningUnclear),
+            diagnostic_message: Some(TextBody::new(format!(
+                "mind judge request rejected: {:?}: {}",
+                rejection.reason,
+                rejection.message.as_str()
+            ))),
+            parse_status: KnowledgeJudgeParseStatus::MindJudgeRequestRejected {
+                reason: format!("{:?}", rejection.reason),
+                message: rejection.message.as_str().to_owned(),
+            },
         }
     }
 
-    fn into_agent_prompt(self) -> Prompt {
-        Prompt::new(
-            Some(SystemText::new(self.system_prompt())),
-            ChatTranscript::new(vec![ChatMessage::user(self.user_prompt())]),
-            self.prompt_options(),
-        )
-    }
-
-    fn system_prompt(&self) -> String {
-        format!(
-            "{training}\n\n\
-             Return exactly one KnowledgeJudgeResponse NOTA value and nothing else: no markdown, no \
-             prose around it, no JSON, no code fence. Its first field is the load-bearing \
-             KnowledgeJudgeVerdict. Its optional diagnostic_message field is debug-only and \
-             non-load-bearing. The encoded value is positional; do not prefix it with \
-             KnowledgeJudgeResponse. A valid accept response is shaped like {accept}. A valid reject \
-             response is shaped like {reject}. Duplicate, conflict, vague, and wrong-domain \
-             reject responses are shaped like {duplicate}, {conflict}, {vague}, and \
-             {wrong_domain}. Payload-bearing reject reasons must be one nested reason object \
-             inside Reject: the reason name and its payload stay inside the same inner \
-             parentheses. Never flatten a payload-bearing reason into separate siblings after \
-             Reject. Before sending, check the first field: WrongDomain starts \
-             ((Reject (WrongDomain (Technology (Software (Engineering All))))); SemanticDuplicate p001 starts \
-             ((Reject (SemanticDuplicate p001)); ConflictsAcceptedKnowledge p001 starts \
-             ((Reject (ConflictsAcceptedKnowledge [p001])). If you are not certain you can emit \
-             a valid nested payload shape, choose a no-payload rejection reason instead of \
-             malformed NOTA. WrongDomain always requires the submitted domain payload; if you cannot \
-             include it, choose a no-payload rejection reason instead of \
-             malformed NOTA. Never return (Verdict accepted); that is malformed output.",
-            training = self.training_source.prompt_text().trim(),
-            accept = Self::accept_example(),
-            reject = Self::reject_example(),
-            duplicate = Self::duplicate_example(),
-            conflict = Self::conflict_example(),
-            vague = Self::vague_example(),
-            wrong_domain = Self::wrong_domain_example(),
-        )
-    }
-
-    fn user_prompt(&self) -> String {
-        format!(
-            "KnowledgeJudgePacket under judgment:\n{}\n\n\
-             Return one KnowledgeJudgeResponse.",
-            ModelVisibleKnowledgeJudgePacket::from_packet(self.packet).to_nota(),
-        )
-    }
-
-    fn prompt_options(&self) -> PromptOptions {
-        let local_openai_compatible = self.provider_name
-            == Some(MindKnowledgeJudgeAgentConfiguration::LOCAL_OPENAI_COMPATIBLE_PROVIDER);
-        PromptOptions::new(
-            self.model_name
-                .map(|model| ModelName::new(model.to_owned())),
-            self.provider_name
-                .map(|provider| ProviderName::new(provider.to_owned())),
-            if local_openai_compatible {
-                None
-            } else {
-                Some(TemperatureMilli::new(0))
-            },
-            self.maximum_output_tokens.map(MaximumOutputTokens::new),
-            OutputMode::Nota,
-            if local_openai_compatible {
-                None
-            } else {
-                Some(ReasoningEffort::Low)
-            },
-            if local_openai_compatible {
-                None
-            } else {
-                Some(ThinkingMode::Disabled)
-            },
-        )
-    }
-
-    fn accept_example() -> String {
-        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Accept).to_nota()
-    }
-
-    fn reject_example() -> String {
-        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Reject(
-            KnowledgeRejectionReason::NotKnowledge,
-        ))
-        .to_nota()
-    }
-
-    fn duplicate_example() -> String {
-        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Reject(
-            KnowledgeRejectionReason::SemanticDuplicate(KnowledgeIdentity::new("abcd")),
-        ))
-        .to_nota()
-    }
-
-    fn conflict_example() -> String {
-        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Reject(
-            KnowledgeRejectionReason::ConflictsAcceptedKnowledge(vec![KnowledgeIdentity::new(
-                "abcd",
-            )]),
-        ))
-        .to_nota()
-    }
-
-    fn vague_example() -> String {
-        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Reject(
-            KnowledgeRejectionReason::NeedsMoreSpecificShape,
-        ))
-        .to_nota()
-    }
-
-    fn wrong_domain_example() -> String {
-        KnowledgeJudgeResponse::new(KnowledgeJudgeVerdict::Reject(
-            KnowledgeRejectionReason::WrongDomain(COMPONENT_KNOWLEDGE_DOMAIN),
-        ))
-        .to_nota()
-    }
-}
-
-struct JudgeDiagnostic<'packet> {
-    packet: &'packet KnowledgeJudgePacket,
-    prompt: &'packet Prompt,
-    training_source: &'packet MindKnowledgeJudgeTrainingSource,
-    path: Option<PathBuf>,
-    text_mode: JudgeDiagnosticTextMode,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum JudgeDiagnosticTextMode {
-    HashesOnly,
-    RedactedStructure,
-}
-
-impl<'packet> JudgeDiagnostic<'packet> {
-    fn from_environment(
-        packet: &'packet KnowledgeJudgePacket,
-        prompt: &'packet Prompt,
-        training_source: &'packet MindKnowledgeJudgeTrainingSource,
-    ) -> Self {
-        let path = std::env::var_os(JUDGE_DIAGNOSTIC_PATH_ENVIRONMENT).map(PathBuf::from);
-        let text_mode = JudgeDiagnosticTextMode::from_environment();
+    fn judge_unavailable(error: String) -> Self {
         Self {
-            packet,
-            prompt,
-            training_source,
-            path,
-            text_mode,
-        }
-    }
-
-    fn write(&self) {
-        let Some(path) = &self.path else {
-            return;
-        };
-        let mut record = json!({
-            "packet_sha256": Sha256Text::new(&self.packet.to_nota()).hex(),
-            "prompt_sha256": Sha256Text::new(&self.prompt_text()).hex(),
-            "training_sha256": Sha256Text::new(self.training_source.prompt_text()).hex(),
-            "diagnostic_text_mode": self.text_mode.as_str(),
-        });
-        if self.text_mode == JudgeDiagnosticTextMode::RedactedStructure {
-            record["packet_redacted_structure"] =
-                json!(RedactedKnowledgeJudgePacket::new(self.packet).to_text());
-            record["prompt_redacted_text"] = json!(self.redacted_prompt_text());
-            record["training_text"] = json!(self.training_source.prompt_text());
-        }
-        let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        else {
-            return;
-        };
-        let _ = writeln!(file, "{record}");
-    }
-
-    fn prompt_text(&self) -> String {
-        let system = self
-            .prompt
-            .system()
-            .map(|system| system.payload().as_str())
-            .unwrap_or("");
-        let transcript = self
-            .prompt
-            .chat_transcript()
-            .payload()
-            .iter()
-            .map(|message| message.text.payload().as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
-        format!("{system}\n{transcript}")
-    }
-
-    fn redacted_prompt_text(&self) -> String {
-        let system = self
-            .prompt
-            .system()
-            .map(|system| system.payload().as_str())
-            .unwrap_or("");
-        let packet = RedactedKnowledgeJudgePacket::new(self.packet).to_text();
-        format!(
-            "{system}\nKnowledgeJudgePacket under judgment:\n{packet}\n\nReturn one KnowledgeJudgeResponse."
-        )
-    }
-}
-
-impl JudgeDiagnosticTextMode {
-    fn from_environment() -> Self {
-        match std::env::var(JUDGE_DIAGNOSTIC_TEXT_ENVIRONMENT).as_deref() {
-            Ok("redacted") => Self::RedactedStructure,
-            _ => Self::HashesOnly,
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::HashesOnly => "hashes_only",
-            Self::RedactedStructure => "redacted_structure",
+            verdict: KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::MeaningUnclear),
+            diagnostic_message: Some(TextBody::new(format!("mind judge unavailable: {error}"))),
+            parse_status: KnowledgeJudgeParseStatus::MindJudgeUnavailable { error },
         }
     }
 }
 
-struct RedactedKnowledgeJudgePacket<'packet> {
+struct MindJudgeContractPacket<'packet> {
     packet: &'packet KnowledgeJudgePacket,
 }
 
-impl<'packet> RedactedKnowledgeJudgePacket<'packet> {
+impl<'packet> MindJudgeContractPacket<'packet> {
     fn new(packet: &'packet KnowledgeJudgePacket) -> Self {
         Self { packet }
     }
 
-    fn to_text(&self) -> String {
-        let neighbors = self
-            .packet
-            .relevant_neighbors
-            .iter()
-            .map(RedactedAcceptedKnowledge::new)
-            .map(|neighbor| neighbor.to_text())
-            .collect::<Vec<_>>()
-            .join(" ");
-        format!(
-            "({:?} [redacted statement sha256:{}] [{}])",
-            self.packet.domain,
-            Sha256Text::new(self.packet.statement.as_str()).hex(),
-            neighbors
-        )
+    fn to_contract(&self) -> signal_mind_judge::KnowledgeJudgePacket {
+        signal_mind_judge::KnowledgeJudgePacket {
+            domain: self.packet.domain.clone(),
+            statement: MindJudgeContractText::new(&self.packet.statement).to_contract(),
+            relevant_neighbors: self
+                .packet
+                .relevant_neighbors
+                .iter()
+                .map(|record| MindJudgeContractRecord::new(record).to_contract())
+                .collect(),
+        }
     }
 }
 
-#[derive(NotaEncode)]
-struct ModelVisibleKnowledgeJudgePacket {
-    domain: Domain,
-    statement: TextBody,
-    relevant_neighbors: Vec<KnowledgeRecord>,
+struct MindJudgeContractRecord<'record> {
+    record: &'record AcceptedKnowledge,
 }
 
-impl ModelVisibleKnowledgeJudgePacket {
-    fn from_packet(packet: &KnowledgeJudgePacket) -> Self {
-        Self {
-            domain: packet.domain.clone(),
-            statement: packet.statement.clone(),
-            relevant_neighbors: packet
-                .relevant_neighbors
-                .iter()
-                .map(AcceptedKnowledge::public_record)
-                .collect(),
+impl<'record> MindJudgeContractRecord<'record> {
+    fn new(record: &'record AcceptedKnowledge) -> Self {
+        Self { record }
+    }
+
+    fn to_contract(&self) -> signal_mind_judge::KnowledgeRecord {
+        signal_mind_judge::KnowledgeRecord {
+            identity: MindJudgeContractIdentity::new(&self.record.identity).to_contract(),
+            domain: self.record.domain.clone(),
+            statement: MindJudgeContractText::new(&self.record.statement).to_contract(),
+        }
+    }
+}
+
+struct MindJudgeContractText<'text> {
+    text: &'text TextBody,
+}
+
+impl<'text> MindJudgeContractText<'text> {
+    fn new(text: &'text TextBody) -> Self {
+        Self { text }
+    }
+
+    fn to_contract(&self) -> signal_mind_judge::TextBody {
+        signal_mind_judge::TextBody::new(self.text.as_str())
+            .expect("signal-mind text bodies are non-empty")
+    }
+}
+
+struct MindJudgeContractIdentity<'identity> {
+    identity: &'identity KnowledgeIdentity,
+}
+
+impl<'identity> MindJudgeContractIdentity<'identity> {
+    fn new(identity: &'identity KnowledgeIdentity) -> Self {
+        Self { identity }
+    }
+
+    fn to_contract(&self) -> signal_mind_judge::KnowledgeIdentity {
+        signal_mind_judge::KnowledgeIdentity::new(self.identity.as_str())
+            .expect("signal-mind knowledge identities are non-empty")
+    }
+}
+
+struct MindJudgeContractResponse {
+    response: signal_mind_judge::KnowledgeJudgeResponse,
+}
+
+impl MindJudgeContractResponse {
+    fn new(response: signal_mind_judge::KnowledgeJudgeResponse) -> Self {
+        Self { response }
+    }
+
+    fn into_mind(self) -> KnowledgeJudgeResponse {
+        KnowledgeJudgeResponse {
+            verdict: MindJudgeContractVerdict::new(self.response.verdict).into_mind(),
+            diagnostic_message: self
+                .response
+                .diagnostic_message
+                .map(|message| TextBody::new(message.as_str())),
+        }
+    }
+}
+
+struct MindJudgeContractVerdict {
+    verdict: signal_mind_judge::KnowledgeJudgeVerdict,
+}
+
+impl MindJudgeContractVerdict {
+    fn new(verdict: signal_mind_judge::KnowledgeJudgeVerdict) -> Self {
+        Self { verdict }
+    }
+
+    fn into_mind(self) -> KnowledgeJudgeVerdict {
+        match self.verdict {
+            signal_mind_judge::KnowledgeJudgeVerdict::Accept => KnowledgeJudgeVerdict::Accept,
+            signal_mind_judge::KnowledgeJudgeVerdict::Reject(reason) => {
+                KnowledgeJudgeVerdict::Reject(MindJudgeContractRejection::new(reason).into_mind())
+            }
+        }
+    }
+}
+
+struct MindJudgeContractRejection {
+    reason: signal_mind_judge::KnowledgeRejectionReason,
+}
+
+impl MindJudgeContractRejection {
+    fn new(reason: signal_mind_judge::KnowledgeRejectionReason) -> Self {
+        Self { reason }
+    }
+
+    fn into_mind(self) -> KnowledgeRejectionReason {
+        match self.reason {
+            signal_mind_judge::KnowledgeRejectionReason::NotKnowledge => {
+                KnowledgeRejectionReason::NotKnowledge
+            }
+            signal_mind_judge::KnowledgeRejectionReason::PrivateOrUnauthorized => {
+                KnowledgeRejectionReason::PrivateOrUnauthorized
+            }
+            signal_mind_judge::KnowledgeRejectionReason::MeaningUnclear => {
+                KnowledgeRejectionReason::MeaningUnclear
+            }
+            signal_mind_judge::KnowledgeRejectionReason::SemanticDuplicate(identity) => {
+                KnowledgeRejectionReason::SemanticDuplicate(KnowledgeIdentity::new(
+                    identity.as_str(),
+                ))
+            }
+            signal_mind_judge::KnowledgeRejectionReason::ConflictsAcceptedKnowledge(identities) => {
+                KnowledgeRejectionReason::ConflictsAcceptedKnowledge(
+                    identities
+                        .into_iter()
+                        .map(|identity| KnowledgeIdentity::new(identity.as_str()))
+                        .collect(),
+                )
+            }
+            signal_mind_judge::KnowledgeRejectionReason::WrongDomain(domain) => {
+                KnowledgeRejectionReason::WrongDomain(domain)
+            }
+            signal_mind_judge::KnowledgeRejectionReason::NeedsMoreSpecificShape => {
+                KnowledgeRejectionReason::NeedsMoreSpecificShape
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::net::UnixListener;
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use serde_json::Value;
-    use signal_mind::TimestampNanos;
+    use signal_domain::{Domain, EngineeringLeaf, Software, Technology};
+    use signal_frame::{NonEmpty, Reply, SubReply};
 
     use super::*;
 
     #[test]
-    fn accepted_knowledge_judge_training_contains_packet_only_curriculum() {
-        let training = ACCEPTED_KNOWLEDGE_JUDGE_TRAINING;
-
-        assert!(training.contains("The `KnowledgeJudgePacket` is the only model-visible packet"));
-        assert!(
-            training.contains(
-                "public accepted `relevant_neighbors` with identity, domain, and statement"
-            )
-        );
-        assert!(training.contains("Hidden provenance, author, timestamps"));
-        assert!(
-            training.contains(
-                "A new stable statement may be accepted when `relevant_neighbors` is empty"
-            )
-        );
-        assert!(training.contains("## Response Shape Drill"));
-        assert!(training.contains("((Reject (SemanticDuplicate abcd)) None)"));
-        assert!(training.contains("((Reject (ConflictsAcceptedKnowledge [abcd])) None)"));
-        assert!(training.contains(
-            "((Reject (WrongDomain (Technology (Software (Engineering Architecture))))) None)"
+    fn mind_judge_socket_judge_sends_typed_packet_fields() {
+        let socket_path = std::env::temp_dir().join(format!(
+            "mind-judge-socket-test-{}-{}.sock",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
         ));
-        assert!(training.contains("Never emit `((Reject WrongDomain) None)`"));
-        assert!(training.contains("`WrongDomain` always carries the submitted domain payload"));
-        assert!(training.contains("## Reason Precedence"));
-        assert!(training.contains("Duplicate outranks conflict"));
-        assert!(training.contains("Otherwise accept stable, public, self-contained knowledge, including new material with no neighbors"));
-        assert!(training.contains("## Stable Accept Rule"));
-        assert!(training.contains("New material does not need neighbor support"));
-        assert!(training.contains(
-            "The `diagnostic_message` field is optional, debug-only, and non-load-bearing"
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind fake mind judge");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept mind judge client");
+            let mut length = [0_u8; 4];
+            stream.read_exact(&mut length).expect("read frame length");
+            let length = u32::from_be_bytes(length) as usize;
+            let mut payload = vec![0_u8; length];
+            stream.read_exact(&mut payload).expect("read frame payload");
+            let mut frame_bytes = Vec::with_capacity(4 + payload.len());
+            frame_bytes.extend_from_slice(&(length as u32).to_be_bytes());
+            frame_bytes.extend_from_slice(&payload);
+            let frame = signal_mind_judge::MindJudgeFrame::decode_length_prefixed(&frame_bytes)
+                .expect("decode mind judge request");
+            let signal_mind_judge::MindJudgeFrameBody::Request { exchange, request } =
+                frame.into_body()
+            else {
+                panic!("expected request frame");
+            };
+            let signal_mind_judge::MindJudgeRequest::JudgeKnowledge(packet) =
+                request.payloads.into_head();
+            assert_eq!(packet.statement.as_str(), "Mind sends typed judge packets.");
+            assert_eq!(packet.relevant_neighbors.len(), 1);
+            assert_eq!(
+                packet.relevant_neighbors[0].statement.as_str(),
+                "Existing accepted neighbor."
+            );
+            let reply = signal_mind_judge::MindJudgeFrame::new(
+                signal_mind_judge::MindJudgeFrameBody::Reply {
+                    exchange,
+                    reply: Reply::committed(NonEmpty::single(SubReply::Ok(
+                        signal_mind_judge::MindJudgeReply::KnowledgeJudged(
+                            signal_mind_judge::KnowledgeJudgeResponse::new(
+                                signal_mind_judge::KnowledgeJudgeVerdict::Accept,
+                                None,
+                            ),
+                        ),
+                    ))),
+                },
+            );
+            stream
+                .write_all(&reply.encode_length_prefixed().expect("encode reply"))
+                .expect("write reply");
+        });
+        let judge = MindJudgeSocketKnowledgeJudge::new(MindKnowledgeJudgeSocketConfiguration::new(
+            signal_mind::WirePath::from_absolute_path(socket_path.to_string_lossy().into_owned())
+                .expect("socket path"),
+            5_000,
         ));
-        assert!(!training.contains("source_note"));
-        assert!(!training.contains("fixture_author_note"));
-    }
-
-    #[test]
-    fn redacted_judge_diagnostic_records_effective_response_contract() {
-        let statement = "Mind diagnostic logs prove the judge prompt contract.";
         let packet = KnowledgeJudgePacket {
-            domain: COMPONENT_KNOWLEDGE_DOMAIN,
-            statement: TextBody::new(statement),
+            domain: Domain::Technology(Technology::Software(Software::Engineering(
+                EngineeringLeaf::Architecture,
+            ))),
+            statement: TextBody::new("Mind sends typed judge packets."),
             relevant_neighbors: vec![AcceptedKnowledge {
-                identity: KnowledgeIdentity::new("p000"),
-                domain: DOCUMENTATION_KNOWLEDGE_DOMAIN,
-                statement: TextBody::new("A neighbor statement is redacted in diagnostics."),
-                accepted_by: ActorName::new("mind-live-knowledge-judge-eval-fixture"),
-                accepted_at: TimestampNanos::new(1),
+                identity: KnowledgeIdentity::new("abcd"),
+                domain: Domain::Technology(Technology::Software(Software::Engineering(
+                    EngineeringLeaf::Architecture,
+                ))),
+                statement: TextBody::new("Existing accepted neighbor."),
+                accepted_by: ActorName::new("tester"),
+                accepted_at: signal_mind::TimestampNanos::new(1),
             }],
         };
-        let training_source = MindKnowledgeJudgeTrainingSource::CompiledDefault;
-        let prompt = KnowledgeJudgePrompt::new(
-            &packet,
-            Some("local-openai"),
-            Some("gpt-5.5"),
-            Some(2048),
-            &training_source,
-        )
-        .into_agent_prompt();
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "mind-judge-diagnostic-{}-{stamp}.jsonl",
-            std::process::id()
+
+        let decision = judge.judge(KnowledgeJudgeRequest::new(
+            MindRequest::Submit(KnowledgeSubmission {
+                domain: packet.domain.clone(),
+                statement: packet.statement.clone(),
+            }),
+            packet,
         ));
 
-        JudgeDiagnostic {
-            packet: &packet,
-            prompt: &prompt,
-            training_source: &training_source,
-            path: Some(path.clone()),
-            text_mode: JudgeDiagnosticTextMode::RedactedStructure,
-        }
-        .write();
-
-        let text = std::fs::read_to_string(&path).expect("read diagnostic artifact");
-        let record: Value = serde_json::from_str(text.trim()).expect("diagnostic json");
-        let prompt_text = record["prompt_redacted_text"]
-            .as_str()
-            .expect("prompt text is recorded");
-        let training_text = record["training_text"]
-            .as_str()
-            .expect("training text is recorded");
-
-        assert!(prompt_text.contains("KnowledgeJudgeResponse"));
-        assert!(prompt_text.contains("diagnostic_message field is debug-only"));
-        assert!(prompt_text.contains("A valid accept response is shaped like (Accept None)"));
-        assert!(prompt_text.contains("Never return (Verdict accepted)"));
-        assert!(prompt_text.contains("KnowledgeJudgePacket under judgment:"));
-        assert!(prompt_text.contains("[redacted statement sha256:"));
-        assert!(prompt_text.contains("p000"));
-        assert!(
-            !prompt_text.contains(statement),
-            "redacted diagnostic prompt must not include the raw statement"
-        );
-        assert!(!prompt_text.contains("mind-live-knowledge-judge-eval-fixture"));
-        assert!(!prompt_text.contains("source_note"));
-        assert!(!prompt_text.contains("fixture_author_note"));
-        assert!(!prompt_text.contains("accepted_by"));
-        assert!(!prompt_text.contains("accepted_at"));
-        assert!(training_text.contains("# Mind accepted-knowledge judge training"));
-        assert!(training_text.contains("Do not emit a bare verdict"));
-        assert!(
-            training_text.contains("The `KnowledgeJudgePacket` is the only model-visible packet")
-        );
-        assert!(training_text.contains("## Response Shape Drill"));
-        assert!(training_text.contains("## Neighbor Comparison"));
-
-        let _ = std::fs::remove_file(path);
-    }
-}
-
-struct RedactedAcceptedKnowledge<'record> {
-    record: &'record AcceptedKnowledge,
-}
-
-impl<'record> RedactedAcceptedKnowledge<'record> {
-    fn new(record: &'record AcceptedKnowledge) -> Self {
-        Self { record }
-    }
-
-    fn to_text(&self) -> String {
-        format!(
-            "({} {:?} [redacted statement sha256:{}])",
-            self.record.identity.as_str(),
-            self.record.domain,
-            Sha256Text::new(self.record.statement.as_str()).hex()
-        )
-    }
-}
-
-struct Sha256Text<'text> {
-    text: &'text str,
-}
-
-impl<'text> Sha256Text<'text> {
-    fn new(text: &'text str) -> Self {
-        Self { text }
-    }
-
-    fn hex(&self) -> String {
-        Sha256::digest(self.text.as_bytes())
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect()
+        server.join().expect("fake mind judge server");
+        let _ = std::fs::remove_file(socket_path);
+        assert_eq!(decision.verdict(), &KnowledgeJudgeVerdict::Accept);
     }
 }
 

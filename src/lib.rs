@@ -56,17 +56,16 @@ pub use actors::root::{
 };
 pub use command::{MindCommand, MindCommandEnvironment};
 pub use configuration::{
-    ConfigurationError, MindDaemonConfiguration, MindJudgeRequestResponseLog,
-    MindKnowledgeJudgeAgentConfiguration, MindKnowledgeJudgeConfiguration,
-    MindKnowledgeJudgeTrainingSource,
+    ConfigurationError, MindDaemonConfiguration, MindKnowledgeJudgeConfiguration,
+    MindKnowledgeJudgeSocketConfiguration,
 };
 pub use daemon::{MindDaemonError, MindEngine, MindProcessDaemon};
 pub use envelope::MindEnvelope;
 pub use error::{Error, Result};
 pub use kameo::actor::ActorRef;
 pub use knowledge::{
-    AgentKnowledgeJudge, FixtureKnowledgeJudge, KnowledgeJudge, KnowledgeJudgePort,
-    KnowledgeJudgeRequest,
+    FixtureKnowledgeJudge, KnowledgeJudge, KnowledgeJudgePort, KnowledgeJudgeRequest,
+    MindJudgeSocketKnowledgeJudge,
 };
 pub(crate) use memory::MemoryGraph;
 pub use memory::{MemoryState, StoreLocation};

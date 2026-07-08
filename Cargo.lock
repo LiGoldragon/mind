@@ -428,10 +428,10 @@ dependencies = [
  "sema-engine",
  "serde_json",
  "sha2",
- "signal-agent",
  "signal-domain",
  "signal-frame",
  "signal-mind",
+ "signal-mind-judge",
  "signal-persona",
  "thiserror",
  "tokio",
@@ -875,18 +875,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
-name = "signal-agent"
-version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-agent.git?branch=main#525c0ac7abe673d9b93888340a4486112aea8195"
-dependencies = [
- "nota",
- "rkyv",
- "schema-rust 0.5.3",
- "signal-frame",
- "thiserror",
-]
-
-[[package]]
 name = "signal-criome"
 version = "0.8.0"
 source = "git+https://github.com/LiGoldragon/signal-criome.git?branch=main#061b95a1fb5c0880fbd36881aaa7cb66c0ca5bed"
@@ -943,6 +931,17 @@ dependencies = [
  "signal-domain",
  "signal-frame",
  "signal-persona",
+ "thiserror",
+]
+
+[[package]]
+name = "signal-mind-judge"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-mind-judge.git?rev=9f9ae47e96454677c6158c3a227b0c9493b29d51#9f9ae47e96454677c6158c3a227b0c9493b29d51"
+dependencies = [
+ "rkyv",
+ "signal-domain",
+ "signal-frame",
  "thiserror",
 ]
 
