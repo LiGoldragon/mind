@@ -168,7 +168,7 @@ impl MindKnowledgeJudgeAgentConfiguration {
     pub const DEEPSEEK_PROVIDER: &'static str = "deepseek";
     pub const DEEPSEEK_FLASH_MODEL: &'static str = "deepseek-v4-flash";
     pub const LOCAL_OPENAI_COMPATIBLE_PROVIDER: &'static str = "local-openai";
-    pub const LOCAL_OPENAI_COMPATIBLE_MODEL: &'static str = "gpt-5.5";
+    pub const LOCAL_OPENAI_COMPATIBLE_MODEL: &'static str = "gpt-5.4-mini";
     pub const LOCAL_OPENAI_COMPATIBLE_ENDPOINT: &'static str = "http://127.0.0.1:18080/v1";
     pub const DEFAULT_TIMEOUT_MILLISECONDS: u64 = 180_000;
     pub const DEFAULT_MAXIMUM_OUTPUT_TOKENS: u64 = 2048;
