@@ -109,7 +109,7 @@ pub struct MindKnowledgeJudgeSocketConfiguration {
 }
 
 impl MindKnowledgeJudgeSocketConfiguration {
-    pub const DEFAULT_TIMEOUT_MILLISECONDS: u64 = 180_000;
+    pub const DEFAULT_TIMEOUT_MILLISECONDS: u64 = 5_000;
 
     pub fn new(socket_path: WirePath, timeout_milliseconds: u64) -> Self {
         Self {

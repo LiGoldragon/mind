@@ -11,7 +11,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::{
-    Error, MindEnvelope, MindRoot, MindRootArguments, Result, StoreLocation, SubmitEnvelope,
+    Error, FixtureKnowledgeJudge, KnowledgeJudgePort, MindEnvelope, MindRoot, MindRootArguments,
+    Result, StoreLocation, SubmitEnvelope,
     frame_bytes::LengthPrefixedFrameBytes,
     supervision::{SupervisionHandle, SupervisionListener, SupervisionProfile},
 };
@@ -213,6 +214,7 @@ pub struct MindDaemon {
     store: StoreLocation,
     socket_mode: Option<MindSocketMode>,
     supervision: Option<SupervisionListener>,
+    knowledge_judge: KnowledgeJudgePort,
     codec: MindFrameCodec,
 }
 
@@ -223,6 +225,7 @@ impl MindDaemon {
             store,
             socket_mode: MindSocketMode::from_environment(),
             supervision: SupervisionListener::from_environment(SupervisionProfile::mind()),
+            knowledge_judge: std::sync::Arc::new(FixtureKnowledgeJudge::empty()),
             codec: MindFrameCodec::default(),
         }
     }
@@ -237,9 +240,17 @@ impl MindDaemon {
         self
     }
 
+    pub fn with_knowledge_judge(mut self, knowledge_judge: KnowledgeJudgePort) -> Self {
+        self.knowledge_judge = knowledge_judge;
+        self
+    }
+
     pub async fn bind(self) -> Result<BoundMindDaemon> {
         let listener = self.endpoint.bind_listener(self.socket_mode)?;
-        let root = MindRoot::start(MindRootArguments::new(self.store)).await?;
+        let root = MindRoot::start(
+            MindRootArguments::new(self.store).with_knowledge_judge(self.knowledge_judge),
+        )
+        .await?;
         let supervision = match self.supervision {
             Some(listener) => Some(listener.spawn(root.clone())?),
             None => None,

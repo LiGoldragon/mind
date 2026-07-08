@@ -333,9 +333,9 @@ impl KnowledgeJudgeDecision {
 
     fn request_rejected(rejection: signal_mind_judge::MindJudgeRequestRejection) -> Self {
         Self {
-            verdict: KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::MeaningUnclear),
+            verdict: KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::PersistenceRejected),
             diagnostic_message: Some(TextBody::new(format!(
-                "mind judge request rejected: {:?}: {}",
+                "mind judge operational rejection: {:?}: {}",
                 rejection.reason,
                 rejection.message.as_str()
             ))),
@@ -348,7 +348,7 @@ impl KnowledgeJudgeDecision {
 
     fn judge_unavailable(error: String) -> Self {
         Self {
-            verdict: KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::MeaningUnclear),
+            verdict: KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::PersistenceRejected),
             diagnostic_message: Some(TextBody::new(format!("mind judge unavailable: {error}"))),
             parse_status: KnowledgeJudgeParseStatus::MindJudgeUnavailable { error },
         }
