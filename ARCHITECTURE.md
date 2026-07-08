@@ -694,7 +694,7 @@ This repo does not own:
 - The current AI-backed accepted-knowledge demo/test model selection includes
   the existing DeepSeek Flash provider/model pair (`deepseek` /
   `deepseek-v4-flash`) and the local OpenAI-compatible alternative
-  (`local-openai` / `gpt-5.5`) served at `http://127.0.0.1:18080/v1`. Mind does
+  (`local-openai` / `gpt-5.4-mini`) served at `http://127.0.0.1:18080/v1`. The same endpoint also advertises `gpt-5.5`, so callers can still opt into it explicitly. Mind does
   not call either provider directly; the `agent` daemon owns provider endpoint
   and secret-source resolution. The local server uses `NoSecret` unless it is
   started with its optional local bearer gate.
