@@ -937,7 +937,7 @@ dependencies = [
 [[package]]
 name = "signal-mind-judge"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-mind-judge.git?rev=9f9ae47e96454677c6158c3a227b0c9493b29d51#9f9ae47e96454677c6158c3a227b0c9493b29d51"
+source = "git+https://github.com/LiGoldragon/signal-mind-judge.git?rev=608e3995713f#608e3995713f77a963abb575161f4c9d3e157319"
 dependencies = [
  "rkyv",
  "signal-domain",

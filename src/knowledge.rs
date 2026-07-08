@@ -1,12 +1,11 @@
 use std::collections::{BTreeSet, VecDeque};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use signal_frame::RequestPayload;
 use signal_mind::{
     AcceptedKnowledge, ActorName, KnowledgeIdentity, KnowledgeJudgePacket, KnowledgeJudgeResponse,
     KnowledgeJudgeVerdict, KnowledgeRejectionReason, KnowledgeSubmission, MindReply, MindRequest,
@@ -169,14 +168,6 @@ enum MindJudgeSocketKnowledgeJudgeError {
 
     #[error("mind judge frame failed: {0}")]
     Frame(String),
-
-    #[error("mind judge returned unexpected frame: {0}")]
-    UnexpectedFrame(&'static str),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct MindJudgeSocketFrameCodec {
-    maximum_frame_bytes: usize,
 }
 
 impl MindJudgeSocketKnowledgeJudge {
@@ -199,12 +190,19 @@ impl MindJudgeSocketKnowledgeJudge {
         stream
             .set_write_timeout(Some(self.configuration.timeout))
             .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)?;
-        let codec = MindJudgeSocketFrameCodec::default();
-        codec.write_request(&mut stream, packet)?;
+        let codec = signal_mind_judge::MindJudgeFrameCodec::default();
+        codec
+            .write_request(
+                &mut stream,
+                signal_mind_judge::MindJudgeRequest::JudgeKnowledge(packet),
+            )
+            .map_err(|error| MindJudgeSocketKnowledgeJudgeError::Frame(error.to_string()))?;
         stream
             .flush()
             .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)?;
-        codec.read_reply(&mut stream)
+        codec
+            .read_reply(&mut stream)
+            .map_err(|error| MindJudgeSocketKnowledgeJudgeError::Frame(error.to_string()))
     }
 
     fn unavailable_decision(error: MindJudgeSocketKnowledgeJudgeError) -> KnowledgeJudgeDecision {
@@ -233,89 +231,6 @@ impl MindJudgeSocketKnowledgeJudgeConfiguration {
 
     fn socket_path(&self) -> &Path {
         &self.socket_path
-    }
-}
-
-impl Default for MindJudgeSocketFrameCodec {
-    fn default() -> Self {
-        Self {
-            maximum_frame_bytes: 1024 * 1024,
-        }
-    }
-}
-
-impl MindJudgeSocketFrameCodec {
-    fn synthetic_exchange(&self) -> signal_frame::ExchangeIdentifier {
-        let _maximum_frame_bytes = self.maximum_frame_bytes;
-        signal_frame::ExchangeIdentifier::new(
-            signal_frame::SessionEpoch::new(0),
-            signal_frame::ExchangeLane::Connector,
-            signal_frame::LaneSequence::first(),
-        )
-    }
-
-    fn write_request(
-        &self,
-        stream: &mut UnixStream,
-        packet: signal_mind_judge::KnowledgeJudgePacket,
-    ) -> std::result::Result<(), MindJudgeSocketKnowledgeJudgeError> {
-        let frame = signal_mind_judge::MindJudgeFrame::new(
-            signal_mind_judge::MindJudgeFrameBody::Request {
-                exchange: self.synthetic_exchange(),
-                request: signal_mind_judge::MindJudgeRequest::JudgeKnowledge(packet).into_request(),
-            },
-        );
-        let bytes = frame
-            .encode_length_prefixed()
-            .map_err(|error| MindJudgeSocketKnowledgeJudgeError::Frame(error.to_string()))?;
-        stream
-            .write_all(&bytes)
-            .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)
-    }
-
-    fn read_reply(
-        &self,
-        stream: &mut UnixStream,
-    ) -> std::result::Result<signal_mind_judge::MindJudgeReply, MindJudgeSocketKnowledgeJudgeError>
-    {
-        let mut length = [0_u8; 4];
-        stream
-            .read_exact(&mut length)
-            .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)?;
-        let length = u32::from_be_bytes(length) as usize;
-        if length > self.maximum_frame_bytes {
-            return Err(MindJudgeSocketKnowledgeJudgeError::Frame(format!(
-                "frame has {length} bytes, limit is {}",
-                self.maximum_frame_bytes
-            )));
-        }
-        let mut payload = vec![0_u8; length];
-        stream
-            .read_exact(&mut payload)
-            .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)?;
-        let mut frame_bytes = Vec::with_capacity(4 + payload.len());
-        frame_bytes.extend_from_slice(&(length as u32).to_be_bytes());
-        frame_bytes.extend_from_slice(&payload);
-        let frame = signal_mind_judge::MindJudgeFrame::decode_length_prefixed(&frame_bytes)
-            .map_err(|error| MindJudgeSocketKnowledgeJudgeError::Frame(error.to_string()))?;
-        match frame.into_body() {
-            signal_mind_judge::MindJudgeFrameBody::Reply { reply, .. } => match reply {
-                signal_frame::Reply::Accepted { per_operation, .. } => {
-                    match per_operation.into_head() {
-                        signal_frame::SubReply::Ok(reply) => Ok(reply),
-                        other => Err(MindJudgeSocketKnowledgeJudgeError::Frame(format!(
-                            "unexpected sub-reply: {other:?}"
-                        ))),
-                    }
-                }
-                signal_frame::Reply::Rejected { reason } => Err(
-                    MindJudgeSocketKnowledgeJudgeError::Frame(reason.to_string()),
-                ),
-            },
-            _ => Err(MindJudgeSocketKnowledgeJudgeError::UnexpectedFrame(
-                "expected mind judge reply",
-            )),
-        }
     }
 }
 
@@ -515,7 +430,6 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use signal_domain::{Domain, EngineeringLeaf, Software, Technology};
-    use signal_frame::{NonEmpty, Reply, SubReply};
 
     use super::*;
 
@@ -533,44 +447,23 @@ mod tests {
         let listener = UnixListener::bind(&socket_path).expect("bind fake mind judge");
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept mind judge client");
-            let mut length = [0_u8; 4];
-            stream.read_exact(&mut length).expect("read frame length");
-            let length = u32::from_be_bytes(length) as usize;
-            let mut payload = vec![0_u8; length];
-            stream.read_exact(&mut payload).expect("read frame payload");
-            let mut frame_bytes = Vec::with_capacity(4 + payload.len());
-            frame_bytes.extend_from_slice(&(length as u32).to_be_bytes());
-            frame_bytes.extend_from_slice(&payload);
-            let frame = signal_mind_judge::MindJudgeFrame::decode_length_prefixed(&frame_bytes)
-                .expect("decode mind judge request");
-            let signal_mind_judge::MindJudgeFrameBody::Request { exchange, request } =
-                frame.into_body()
-            else {
-                panic!("expected request frame");
-            };
-            let signal_mind_judge::MindJudgeRequest::JudgeKnowledge(packet) =
-                request.payloads.into_head();
+            let codec = signal_mind_judge::MindJudgeFrameCodec::default();
+            let received = codec.read_request(&mut stream).expect("read judge request");
+            let signal_mind_judge::MindJudgeRequest::JudgeKnowledge(packet) = received.request();
             assert_eq!(packet.statement.as_str(), "Mind sends typed judge packets.");
             assert_eq!(packet.relevant_neighbors.len(), 1);
             assert_eq!(
                 packet.relevant_neighbors[0].statement.as_str(),
                 "Existing accepted neighbor."
             );
-            let reply = signal_mind_judge::MindJudgeFrame::new(
-                signal_mind_judge::MindJudgeFrameBody::Reply {
-                    exchange,
-                    reply: Reply::committed(NonEmpty::single(SubReply::Ok(
-                        signal_mind_judge::MindJudgeReply::KnowledgeJudged(
-                            signal_mind_judge::KnowledgeJudgeResponse::new(
-                                signal_mind_judge::KnowledgeJudgeVerdict::Accept,
-                                None,
-                            ),
-                        ),
-                    ))),
-                },
+            let reply = signal_mind_judge::MindJudgeReply::KnowledgeJudged(
+                signal_mind_judge::KnowledgeJudgeResponse::new(
+                    signal_mind_judge::KnowledgeJudgeVerdict::Accept,
+                    None,
+                ),
             );
-            stream
-                .write_all(&reply.encode_length_prefixed().expect("encode reply"))
+            codec
+                .write_reply(&mut stream, received.exchange(), reply)
                 .expect("write reply");
         });
         let judge = MindJudgeSocketKnowledgeJudge::new(MindKnowledgeJudgeSocketConfiguration::new(
