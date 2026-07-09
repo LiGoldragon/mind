@@ -33,16 +33,16 @@ pub struct KnowledgeJudgeRequest {
 }
 
 impl KnowledgeJudgeRequest {
-    fn new(_client_request: MindRequest, packet: KnowledgeJudgePacket) -> Self {
+    pub(crate) fn new(_client_request: MindRequest, packet: KnowledgeJudgePacket) -> Self {
         Self { packet }
     }
 
-    fn packet(&self) -> &KnowledgeJudgePacket {
+    pub(crate) fn packet(&self) -> &KnowledgeJudgePacket {
         &self.packet
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, kameo::Reply)]
 pub struct KnowledgeJudgeDecision {
     verdict: KnowledgeJudgeVerdict,
     diagnostic_message: Option<TextBody>,
@@ -50,7 +50,7 @@ pub struct KnowledgeJudgeDecision {
 }
 
 impl KnowledgeJudgeDecision {
-    fn new(verdict: KnowledgeJudgeVerdict) -> Self {
+    pub(crate) fn new(verdict: KnowledgeJudgeVerdict) -> Self {
         Self {
             verdict,
             diagnostic_message: None,
@@ -66,7 +66,7 @@ impl KnowledgeJudgeDecision {
         }
     }
 
-    fn verdict(&self) -> &KnowledgeJudgeVerdict {
+    pub(crate) fn verdict(&self) -> &KnowledgeJudgeVerdict {
         &self.verdict
     }
 }
@@ -90,7 +90,7 @@ pub struct KnowledgeJudgeAppliedDecision {
 }
 
 impl KnowledgeJudgeAppliedDecision {
-    fn new(
+    pub(crate) fn new(
         client_request: MindRequest,
         decision: KnowledgeJudgeDecision,
         reply: MindReply,
@@ -201,7 +201,7 @@ impl MindJudgeSocketKnowledgeJudge {
             .flush()
             .map_err(MindJudgeSocketKnowledgeJudgeError::Socket)?;
         codec
-            .read_reply(&mut stream)
+            .read_correlated_reply(&mut stream, codec.exchange())
             .map_err(|error| MindJudgeSocketKnowledgeJudgeError::Frame(error.to_string()))
     }
 
@@ -261,7 +261,7 @@ impl KnowledgeJudgeDecision {
         }
     }
 
-    fn judge_unavailable(error: String) -> Self {
+    pub(crate) fn judge_unavailable(error: String) -> Self {
         Self {
             verdict: KnowledgeJudgeVerdict::Reject(KnowledgeRejectionReason::PersistenceRejected),
             diagnostic_message: Some(TextBody::new(format!("mind judge unavailable: {error}"))),
@@ -501,26 +501,87 @@ mod tests {
     }
 }
 
+#[derive(Clone, Debug, kameo::Reply)]
+pub(crate) enum KnowledgeAdmissionPreparation {
+    Prepared(KnowledgePreparedAdmission),
+    Rejected(MindReply),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct KnowledgePreparedAdmission {
+    actor: ActorName,
+    submission: KnowledgeSubmission,
+    request: KnowledgeJudgeRequest,
+}
+
+impl KnowledgePreparedAdmission {
+    fn new(
+        actor: ActorName,
+        submission: KnowledgeSubmission,
+        request: KnowledgeJudgeRequest,
+    ) -> Self {
+        Self {
+            actor,
+            submission,
+            request,
+        }
+    }
+
+    pub(crate) fn actor(&self) -> &ActorName {
+        &self.actor
+    }
+
+    pub(crate) fn submission(&self) -> &KnowledgeSubmission {
+        &self.submission
+    }
+
+    pub(crate) fn request(&self) -> &KnowledgeJudgeRequest {
+        &self.request
+    }
+}
+
 pub(crate) struct AcceptedKnowledgeLedger<'tables> {
     tables: &'tables MindTables,
-    judge: KnowledgeJudgePort,
 }
 
 impl<'tables> AcceptedKnowledgeLedger<'tables> {
-    pub(crate) fn new(tables: &'tables MindTables, judge: KnowledgeJudgePort) -> Self {
-        Self { tables, judge }
+    pub(crate) fn new(tables: &'tables MindTables) -> Self {
+        Self { tables }
     }
 
-    pub(crate) fn submit(&self, envelope: MindEnvelope) -> Result<MindReply> {
+    pub(crate) fn prepare(&self, envelope: MindEnvelope) -> Result<KnowledgeAdmissionPreparation> {
         let actor = envelope.actor().clone();
         let MindEnvelope { request, .. } = envelope;
         match request {
             MindRequest::Submit(submission) => {
-                Ok(KnowledgeAdmission::new(self.tables, actor, submission)
-                    .reply_from_judge(self.judge.as_ref()))
+                Ok(
+                    KnowledgeAdmissionPreparationBuilder::new(self.tables, actor, submission)
+                        .prepare(),
+                )
             }
-            _ => Ok(Self::unimplemented()),
+            _ => Ok(KnowledgeAdmissionPreparation::Rejected(
+                Self::unimplemented(),
+            )),
         }
+    }
+
+    pub(crate) fn apply_acceptance(
+        &self,
+        actor: ActorName,
+        submission: KnowledgeSubmission,
+        decision: KnowledgeJudgeDecision,
+    ) -> Result<MindReply> {
+        let reply = match decision.verdict() {
+            KnowledgeJudgeVerdict::Accept => {
+                match KnowledgeAcceptanceApplication::new(self.tables, actor, submission).accepted()
+                {
+                    Ok(identity) => MindReply::Accepted(identity),
+                    Err(reason) => MindReply::Rejected(reason),
+                }
+            }
+            KnowledgeJudgeVerdict::Reject(reason) => MindReply::Rejected(reason.clone()),
+        };
+        Ok(reply)
     }
 
     pub(crate) fn query(&self, envelope: MindEnvelope) -> Result<MindReply> {
@@ -541,13 +602,13 @@ impl<'tables> AcceptedKnowledgeLedger<'tables> {
     }
 }
 
-struct KnowledgeAdmission<'tables> {
+struct KnowledgeAdmissionPreparationBuilder<'tables> {
     tables: &'tables MindTables,
     actor: ActorName,
     submission: KnowledgeSubmission,
 }
 
-impl<'tables> KnowledgeAdmission<'tables> {
+impl<'tables> KnowledgeAdmissionPreparationBuilder<'tables> {
     fn new(tables: &'tables MindTables, actor: ActorName, submission: KnowledgeSubmission) -> Self {
         Self {
             tables,
@@ -556,17 +617,21 @@ impl<'tables> KnowledgeAdmission<'tables> {
         }
     }
 
-    fn reply_from_judge(&self, judge: &dyn KnowledgeJudge) -> MindReply {
+    fn prepare(self) -> KnowledgeAdmissionPreparation {
         let accepted = match self.tables.accepted_knowledge_records() {
             Ok(records) => records,
             Err(_) => {
-                return MindReply::Rejected(KnowledgeRejectionReason::PersistenceRejected);
+                return KnowledgeAdmissionPreparation::Rejected(MindReply::Rejected(
+                    KnowledgeRejectionReason::PersistenceRejected,
+                ));
             }
         };
         if let Some(identity) =
             ExactKnowledgeDuplicate::new(&self.submission, &accepted).accepted_identity()
         {
-            return MindReply::Rejected(KnowledgeRejectionReason::SemanticDuplicate(identity));
+            return KnowledgeAdmissionPreparation::Rejected(MindReply::Rejected(
+                KnowledgeRejectionReason::SemanticDuplicate(identity),
+            ));
         }
         let packet = KnowledgeJudgePacket {
             domain: self.submission.domain.clone(),
@@ -576,30 +641,11 @@ impl<'tables> KnowledgeAdmission<'tables> {
 
         let request =
             KnowledgeJudgeRequest::new(MindRequest::Submit(self.submission.clone()), packet);
-        let decision = judge.judge(request);
-        let reply = match decision.verdict() {
-            KnowledgeJudgeVerdict::Accept => self.apply_acceptance(),
-            KnowledgeJudgeVerdict::Reject(reason) => MindReply::Rejected(reason.clone()),
-        };
-        judge.record_applied_decision(KnowledgeJudgeAppliedDecision::new(
-            MindRequest::Submit(self.submission.clone()),
-            decision,
-            reply.clone(),
-        ));
-        reply
-    }
-
-    fn apply_acceptance(&self) -> MindReply {
-        match KnowledgeAcceptanceApplication::new(
-            self.tables,
-            self.actor.clone(),
-            self.submission.clone(),
-        )
-        .accepted()
-        {
-            Ok(identity) => MindReply::Accepted(identity),
-            Err(reason) => MindReply::Rejected(reason),
-        }
+        KnowledgeAdmissionPreparation::Prepared(KnowledgePreparedAdmission::new(
+            self.actor,
+            self.submission,
+            request,
+        ))
     }
 }
 
@@ -650,6 +696,11 @@ impl<'tables> KnowledgeAcceptanceApplication<'tables> {
             .tables
             .accepted_knowledge_records()
             .map_err(|_| KnowledgeRejectionReason::PersistenceRejected)?;
+        if let Some(identity) =
+            ExactKnowledgeDuplicate::new(&self.submission, &existing).accepted_identity()
+        {
+            return Err(KnowledgeRejectionReason::SemanticDuplicate(identity));
+        }
         let identity = KnowledgeIdentityMint::from_records(&existing).next_identity()?;
         let accepted_at = crate::tables::StoreClock::system()
             .timestamp()

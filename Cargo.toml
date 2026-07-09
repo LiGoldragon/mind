@@ -56,7 +56,7 @@ sha2                = "0.10"
 sema-engine         = { git = "https://github.com/LiGoldragon/sema-engine.git", branch = "main" }
 signal-frame        = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
 signal-domain       = { git = "https://github.com/LiGoldragon/signal-domain.git", rev = "801e1c5bcc824c9760e246205826e3c8e962d005", features = ["nota-text"] }
-signal-mind-judge   = { git = "https://github.com/LiGoldragon/signal-mind-judge.git", rev = "608e3995713f" }
+signal-mind-judge   = { git = "https://github.com/LiGoldragon/signal-mind-judge.git", rev = "6664df5f586fd7eb837e1d6ca2e081f27062a6d6" }
 signal-persona      = { git = "https://github.com/LiGoldragon/signal-persona.git", rev = "e6fbc977cdf6a19b9ee31b41d235e1808091dc88" }
 signal-mind         = { git = "https://github.com/LiGoldragon/signal-mind.git", rev = "1378d5f3c317efc0c5dd4832a3346e96549cb1c7" }
 triad-runtime       = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }

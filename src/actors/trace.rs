@@ -38,6 +38,8 @@ impl TraceNode {
     pub const STORE_KERNEL: Self = Self::new("StoreKernel");
     pub const MEMORY_STORE: Self = Self::new("MemoryStore");
     pub const GRAPH_STORE: Self = Self::new("GraphStore");
+    pub const KNOWLEDGE_ADMISSION: Self = Self::new("KnowledgeAdmission");
+    pub const KNOWLEDGE_JUDGE_CALLER: Self = Self::new("KnowledgeJudgeCaller");
     pub const SEMA_WRITER: Self = Self::new("SemaWriter");
     pub const SEMA_READER: Self = Self::new("SemaReader");
     pub const ID_MINT: Self = Self::new("IdMint");

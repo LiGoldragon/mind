@@ -5,9 +5,11 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use mind::actors::{ActorManifest, ActorResidency, TraceNode};
 use mind::{
-    ActorRef, MindEnvelope, MindJudgeSocketKnowledgeJudge, MindKnowledgeJudgeSocketConfiguration,
-    MindRoot, MindRootArguments, MindRootReply, StoreLocation, SubmitEnvelope,
+    ActorRef, FixtureKnowledgeJudge, KnowledgeJudgePort, MindEnvelope,
+    MindJudgeSocketKnowledgeJudge, MindKnowledgeJudgeSocketConfiguration, MindRoot,
+    MindRootArguments, MindRootReply, StoreLocation, SubmitEnvelope,
 };
 use signal_domain::{Domain, EngineeringLeaf, Software, Technology};
 use signal_frame::{NonEmpty, Reply, SubReply};
@@ -33,16 +35,20 @@ struct FakeMindJudgeSocket {
 
 impl ActorFixture {
     async fn new(judge_socket: PathBuf) -> Self {
-        let store = temporary_path("mind-actor-topology", "sema");
         let judge = MindJudgeSocketKnowledgeJudge::new(MindKnowledgeJudgeSocketConfiguration::new(
             WirePath::from_absolute_path(judge_socket.to_string_lossy().into_owned())
                 .expect("judge socket path is absolute"),
             500,
         ));
+        Self::new_with_knowledge_judge(Arc::new(judge)).await
+    }
+
+    async fn new_with_knowledge_judge(judge: KnowledgeJudgePort) -> Self {
+        let store = temporary_path("mind-actor-topology", "sema");
         Self {
             root: MindRoot::start(
                 MindRootArguments::new(StoreLocation::new(store.to_string_lossy().to_string()))
-                    .with_knowledge_judge(Arc::new(judge)),
+                    .with_knowledge_judge(judge),
             )
             .await
             .expect("mind root starts"),
@@ -137,6 +143,10 @@ fn accepted_reply() -> signal_mind_judge::MindJudgeReply {
     )
 }
 
+fn knowledge_accept_verdict() -> signal_mind::KnowledgeJudgeVerdict {
+    signal_mind::KnowledgeJudgeVerdict::Accept
+}
+
 fn operational_rejection_reply() -> signal_mind_judge::MindJudgeReply {
     signal_mind_judge::MindJudgeReply::RequestRejected(
         signal_mind_judge::MindJudgeRequestRejection::new(
@@ -213,6 +223,78 @@ async fn mind_judge_operational_failure_is_not_meaning_unclear() {
     fixture.stop().await;
     let packets = fake_judge.join();
     assert_eq!(packets.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_identical_submissions_persist_only_one_record() {
+    let judge = Arc::new(FixtureKnowledgeJudge::new(vec![
+        knowledge_accept_verdict(),
+        knowledge_accept_verdict(),
+    ]));
+    let fixture = ActorFixture::new_with_knowledge_judge(judge.clone()).await;
+
+    let first = fixture.submit(submit(
+        "Concurrent duplicate knowledge is checked again when acceptance applies.",
+    ));
+    let second = fixture.submit(submit(
+        "Concurrent duplicate knowledge is checked again when acceptance applies.",
+    ));
+    let (first, second) = tokio::join!(first, second);
+    let replies = [
+        first.reply().expect("first reply exists").clone(),
+        second.reply().expect("second reply exists").clone(),
+    ];
+
+    let accepted = replies
+        .iter()
+        .filter(|reply| matches!(reply, MindReply::Accepted(_)))
+        .count();
+    let duplicates = replies
+        .iter()
+        .filter(|reply| {
+            matches!(
+                reply,
+                MindReply::Rejected(KnowledgeRejectionReason::SemanticDuplicate(_))
+            )
+        })
+        .count();
+    assert_eq!(
+        accepted, 1,
+        "only one identical accepted record may persist"
+    );
+    assert_eq!(duplicates, 1, "the duplicate is rejected");
+    assert!(
+        judge.calls() <= 2,
+        "judge calls stay bounded by submissions"
+    );
+
+    fixture.stop().await;
+}
+
+#[test]
+fn actor_manifest_includes_async_knowledge_admission_actors() {
+    let manifest = ActorManifest::mind_phase_one();
+
+    assert!(manifest.contains(TraceNode::KNOWLEDGE_ADMISSION));
+    assert!(manifest.contains(TraceNode::KNOWLEDGE_JUDGE_CALLER));
+    assert!(manifest.contains_edge(TraceNode::STORE_SUPERVISOR, TraceNode::KNOWLEDGE_ADMISSION));
+    assert!(manifest.contains_edge(
+        TraceNode::STORE_SUPERVISOR,
+        TraceNode::KNOWLEDGE_JUDGE_CALLER
+    ));
+    assert!(manifest.contains_edge(TraceNode::KNOWLEDGE_ADMISSION, TraceNode::STORE_KERNEL));
+    assert!(manifest.contains_edge(
+        TraceNode::KNOWLEDGE_ADMISSION,
+        TraceNode::KNOWLEDGE_JUDGE_CALLER
+    ));
+    assert!(manifest.actors().iter().any(|entry| {
+        entry.kind() == TraceNode::KNOWLEDGE_ADMISSION
+            && entry.residency() == ActorResidency::LongLived
+    }));
+    assert!(manifest.actors().iter().any(|entry| {
+        entry.kind() == TraceNode::KNOWLEDGE_JUDGE_CALLER
+            && entry.residency() == ActorResidency::LongLived
+    }));
 }
 
 #[test]

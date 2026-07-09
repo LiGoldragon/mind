@@ -1,25 +1,25 @@
 use kameo::actor::{Actor, ActorRef};
 use kameo::message::{Context, Message};
-use signal_mind::MindReply;
+use signal_mind::{ActorName, KnowledgeSubmission, MindReply};
 
 use crate::graph::MindGraphLedger;
-use crate::knowledge::AcceptedKnowledgeLedger;
+use crate::knowledge::{
+    AcceptedKnowledgeLedger, KnowledgeAdmissionPreparation, KnowledgeJudgeDecision,
+};
 use crate::tables::{GraphSubscriptionPublisher, RuntimeSubscriptionRegistration};
-use crate::{KnowledgeJudgePort, MemoryGraph, MindEnvelope, MindTables, StoreLocation};
+use crate::{MemoryGraph, MindEnvelope, MindTables, StoreLocation};
 
 use super::GraphRecords;
 use super::persistence::PersistenceRejection;
 
 pub(super) struct StoreKernel {
     tables: Option<MindTables>,
-    knowledge_judge: KnowledgeJudgePort,
 }
 
 #[derive(Clone)]
 pub(super) struct Arguments {
     pub(super) store: StoreLocation,
     pub(super) subscription: ActorRef<crate::actors::subscription::SubscriptionSupervisor>,
-    pub(super) knowledge_judge: KnowledgeJudgePort,
 }
 
 pub(super) struct CommitMemoryGraph {
@@ -44,8 +44,14 @@ pub(super) struct WriteTechnicalRelation {
     envelope: MindEnvelope,
 }
 
-pub(super) struct WriteKnowledge {
+pub(super) struct PrepareKnowledgeAdmission {
     envelope: MindEnvelope,
+}
+
+pub(super) struct ApplyKnowledgeAcceptance {
+    actor: ActorName,
+    submission: KnowledgeSubmission,
+    decision: KnowledgeJudgeDecision,
 }
 
 pub(super) struct ReadThoughts {
@@ -160,9 +166,23 @@ impl WriteTechnicalRelation {
     }
 }
 
-impl WriteKnowledge {
+impl PrepareKnowledgeAdmission {
     pub(super) fn new(envelope: MindEnvelope) -> Self {
         Self { envelope }
+    }
+}
+
+impl ApplyKnowledgeAcceptance {
+    pub(super) fn new(
+        actor: ActorName,
+        submission: KnowledgeSubmission,
+        decision: KnowledgeJudgeDecision,
+    ) -> Self {
+        Self {
+            actor,
+            submission,
+            decision,
+        }
     }
 }
 
@@ -233,7 +253,6 @@ impl StoreKernel {
                 &arguments.store,
                 GraphSubscriptionPublisher::actor(arguments.subscription),
             )?),
-            knowledge_judge: arguments.knowledge_judge,
         })
     }
 
@@ -300,11 +319,24 @@ impl StoreKernel {
         KernelReply::new(reply)
     }
 
-    fn write_knowledge(&self, envelope: MindEnvelope) -> KernelReply {
+    fn prepare_knowledge_admission(&self, envelope: MindEnvelope) -> KnowledgeAdmissionPreparation {
+        self.tables()
+            .and_then(|tables| AcceptedKnowledgeLedger::new(tables).prepare(envelope))
+            .unwrap_or_else(|error| {
+                KnowledgeAdmissionPreparation::Rejected(PersistenceRejection::reply(error))
+            })
+    }
+
+    fn apply_knowledge_acceptance(
+        &self,
+        actor: ActorName,
+        submission: KnowledgeSubmission,
+        decision: KnowledgeJudgeDecision,
+    ) -> KernelReply {
         let reply = self
             .tables()
             .and_then(|tables| {
-                AcceptedKnowledgeLedger::new(tables, self.knowledge_judge.clone()).submit(envelope)
+                AcceptedKnowledgeLedger::new(tables).apply_acceptance(actor, submission, decision)
             })
             .map(Some)
             .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
@@ -355,9 +387,7 @@ impl StoreKernel {
     fn read_knowledge(&self, envelope: MindEnvelope) -> KernelReply {
         let reply = self
             .tables()
-            .and_then(|tables| {
-                AcceptedKnowledgeLedger::new(tables, self.knowledge_judge.clone()).query(envelope)
-            })
+            .and_then(|tables| AcceptedKnowledgeLedger::new(tables).query(envelope))
             .map(Some)
             .unwrap_or_else(|error| Some(PersistenceRejection::reply(error)));
 
@@ -510,15 +540,27 @@ impl Message<WriteTechnicalRelation> for StoreKernel {
     }
 }
 
-impl Message<WriteKnowledge> for StoreKernel {
+impl Message<PrepareKnowledgeAdmission> for StoreKernel {
+    type Reply = KnowledgeAdmissionPreparation;
+
+    async fn handle(
+        &mut self,
+        message: PrepareKnowledgeAdmission,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.prepare_knowledge_admission(message.envelope)
+    }
+}
+
+impl Message<ApplyKnowledgeAcceptance> for StoreKernel {
     type Reply = KernelReply;
 
     async fn handle(
         &mut self,
-        message: WriteKnowledge,
+        message: ApplyKnowledgeAcceptance,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        self.write_knowledge(message.envelope)
+        self.apply_knowledge_acceptance(message.actor, message.submission, message.decision)
     }
 }
 
@@ -676,5 +718,84 @@ impl Message<ShutdownKernel> for StoreKernel {
     ) -> Self::Reply {
         self.shutdown();
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use signal_domain::{Domain, EngineeringLeaf, Software, Technology};
+    use signal_mind::{
+        ActorName, KnowledgeJudgeVerdict, KnowledgeSubmission, MindReply, MindRequest, TextBody,
+    };
+
+    use crate::knowledge::{
+        AcceptedKnowledgeLedger, KnowledgeAdmissionPreparation, KnowledgeJudgeDecision,
+    };
+    use crate::tables::GraphSubscriptionPublisher;
+    use crate::{MindEnvelope, MindTables, StoreLocation};
+
+    #[test]
+    fn apply_acceptance_rechecks_duplicate_after_two_prepared_acceptances() {
+        let store_path = std::env::temp_dir().join(format!(
+            "mind-knowledge-apply-race-{}-{}.sema",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let store = StoreLocation::new(store_path.to_string_lossy().to_string());
+        let tables = MindTables::open(&store, GraphSubscriptionPublisher::Disabled)
+            .expect("mind tables open");
+        let first_submission = KnowledgeSubmission {
+            domain: Domain::Technology(Technology::Software(Software::Engineering(
+                EngineeringLeaf::Architecture,
+            ))),
+            statement: TextBody::new("Concurrent prepared knowledge accepts once."),
+        };
+        let second_submission = first_submission.clone();
+        let first_preparation = AcceptedKnowledgeLedger::new(&tables)
+            .prepare(MindEnvelope::new(
+                ActorName::new("tester"),
+                MindRequest::Submit(first_submission),
+            ))
+            .expect("first prepare succeeds");
+        let second_preparation = AcceptedKnowledgeLedger::new(&tables)
+            .prepare(MindEnvelope::new(
+                ActorName::new("tester"),
+                MindRequest::Submit(second_submission),
+            ))
+            .expect("second prepare succeeds");
+        let KnowledgeAdmissionPreparation::Prepared(first) = first_preparation else {
+            panic!("first admission should be prepared")
+        };
+        let KnowledgeAdmissionPreparation::Prepared(second) = second_preparation else {
+            panic!("second admission should be prepared")
+        };
+
+        let first_reply = AcceptedKnowledgeLedger::new(&tables)
+            .apply_acceptance(
+                first.actor().clone(),
+                first.submission().clone(),
+                KnowledgeJudgeDecision::new(KnowledgeJudgeVerdict::Accept),
+            )
+            .expect("first apply succeeds");
+        let second_reply = AcceptedKnowledgeLedger::new(&tables)
+            .apply_acceptance(
+                second.actor().clone(),
+                second.submission().clone(),
+                KnowledgeJudgeDecision::new(KnowledgeJudgeVerdict::Accept),
+            )
+            .expect("second apply succeeds");
+
+        assert!(matches!(first_reply, MindReply::Accepted(_)));
+        assert!(matches!(
+            second_reply,
+            MindReply::Rejected(signal_mind::KnowledgeRejectionReason::SemanticDuplicate(_))
+        ));
+        let _ = std::fs::remove_file(&store_path);
+        let _ = std::fs::remove_dir_all(&store_path);
     }
 }

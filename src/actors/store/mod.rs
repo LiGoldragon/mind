@@ -1,5 +1,6 @@
 mod graph;
 mod kernel;
+mod knowledge;
 mod memory;
 mod persistence;
 mod write_trace;
@@ -15,6 +16,7 @@ use super::pipeline::PipelineReply;
 use super::trace::{ActorTrace, TraceAction, TraceNode};
 use graph::GraphStore;
 use kernel::{LoadMemoryGraph, ShutdownKernel, StoreKernel};
+use knowledge::{KnowledgeAdmission, KnowledgeJudgeCaller};
 use memory::MemoryStore;
 use persistence::PersistenceRejection;
 
@@ -29,6 +31,8 @@ pub(super) struct StoreSupervisor {
     kernel: ActorRef<StoreKernel>,
     memory: ActorRef<MemoryStore>,
     graph: ActorRef<GraphStore>,
+    knowledge_admission: ActorRef<KnowledgeAdmission>,
+    knowledge_judge_caller: ActorRef<KnowledgeJudgeCaller>,
 }
 
 pub struct ApplyMemory {
@@ -146,11 +150,15 @@ impl StoreSupervisor {
         kernel: ActorRef<StoreKernel>,
         memory: ActorRef<MemoryStore>,
         graph: ActorRef<GraphStore>,
+        knowledge_admission: ActorRef<KnowledgeAdmission>,
+        knowledge_judge_caller: ActorRef<KnowledgeJudgeCaller>,
     ) -> Self {
         Self {
             kernel,
             memory,
             graph,
+            knowledge_admission,
+            knowledge_judge_caller,
         }
     }
 
@@ -232,8 +240,8 @@ impl StoreSupervisor {
         mut trace: ActorTrace,
     ) -> crate::Result<PipelineReply> {
         trace.record(TraceNode::STORE_SUPERVISOR, TraceAction::MessageReceived);
-        self.graph
-            .ask(graph::SubmitKnowledge { envelope, trace })
+        self.knowledge_admission
+            .ask(knowledge::AdmitKnowledge { envelope, trace })
             .await
             .map_err(|error| crate::Error::ActorCall(error.to_string()))
     }
@@ -378,9 +386,11 @@ impl StoreSupervisor {
     }
 
     async fn stop_children(&mut self) {
-        let _ = self.kernel.ask(ShutdownKernel).await;
+        Self::request_stop_child(&self.knowledge_admission).await;
+        Self::request_stop_child(&self.knowledge_judge_caller).await;
         Self::request_stop_child(&self.memory).await;
         Self::request_stop_child(&self.graph).await;
+        let _ = self.kernel.ask(ShutdownKernel).await;
         Self::request_stop_child(&self.kernel).await;
     }
 }
@@ -401,7 +411,23 @@ impl Actor for StoreSupervisor {
             kernel::Arguments {
                 store: arguments.store.clone(),
                 subscription: arguments.subscription.clone(),
-                knowledge_judge: arguments.knowledge_judge.clone(),
+            },
+        )
+        .spawn()
+        .await;
+        let knowledge_judge_caller = KnowledgeJudgeCaller::supervise(
+            &actor_reference,
+            knowledge::CallerArguments {
+                judge: arguments.knowledge_judge.clone(),
+            },
+        )
+        .spawn()
+        .await;
+        let knowledge_admission = KnowledgeAdmission::supervise(
+            &actor_reference,
+            knowledge::AdmissionArguments {
+                kernel: kernel.clone(),
+                caller: knowledge_judge_caller.clone(),
             },
         )
         .spawn()
@@ -429,7 +455,13 @@ impl Actor for StoreSupervisor {
         .spawn()
         .await;
 
-        Ok(Self::new(kernel, memory, graph))
+        Ok(Self::new(
+            kernel,
+            memory,
+            graph,
+            knowledge_admission,
+            knowledge_judge_caller,
+        ))
     }
 
     async fn on_stop(
