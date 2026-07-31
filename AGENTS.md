@@ -17,3 +17,9 @@ Ordinary role claims, handoffs, and activity belong to `orchestrate`.
   Persona messages.
 - Durable mind state uses component-facing `.sema` files through
   `sema-engine` with rkyv-typed table values.
+
+## Protos estate status
+
+Stack: correct-new destination
+Status: active component, current checkout legacy-wired
+This checkout is not proof of correct-new adoption.
